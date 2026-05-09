@@ -45,14 +45,32 @@ class NaverCrawler(BaseCrawler):
         
         time.sleep(2)
         try:
-            # 탭 재연결 시도
             handles = self.driver.window_handles
             if handles: self.driver.switch_to.window(handles[-1])
-        except: pass
+        except Exception: pass
 
         print("✅ 확인되었습니다. 현재 로그인 상태를 쿠키로 저장합니다.")
         pickle.dump(self.driver.get_cookies(), open(NAVER_COOKIE_FILE, "wb"))
         return True
+
+    def login_with_cookies(self):
+        """워커 전용: 쿠키 파일로만 로그인. 수동 입력 없이 실패 시 False 반환."""
+        if not NAVER_COOKIE_FILE.exists():
+            return False
+        try:
+            self.driver.get("https://comic.naver.com/index")
+            time.sleep(1)
+            cookies = pickle.load(open(NAVER_COOKIE_FILE, "rb"))
+            for c in cookies:
+                if 'expiry' in c: del c['expiry']
+                c['domain'] = '.naver.com'
+                self.driver.add_cookie(c)
+            self.driver.get("https://comic.naver.com/index")
+            time.sleep(2)
+            return any(txt in self.driver.page_source for txt in ["관심웹툰", "MY", "로그아웃"])
+        except Exception as e:
+            print(f"⚠️ 워커 쿠키 로그인 실패: {e}")
+            return False
 
     # 무한 스크롤 로직
     def _scroll_down(self):
@@ -62,7 +80,7 @@ class NaverCrawler(BaseCrawler):
         print("📜 무한 스크롤 로딩 시작...")
         def count_items():
             try: return len(self.driver.find_elements(By.XPATH, item_xpath))
-            except: return 0
+            except Exception: return 0
 
         prev_count = count_items()
         stagnant = 0
@@ -137,7 +155,7 @@ class NaverCrawler(BaseCrawler):
 
             thumb = ""
             try: thumb = self.driver.find_element(By.CSS_SELECTOR, "meta[property='og:image']").get_attribute("content")
-            except: pass
+            except Exception: pass
 
             return {
                 "platform": "네이버 웹툰", 
@@ -152,5 +170,6 @@ class NaverCrawler(BaseCrawler):
                 "source_url": url
             }
         
-        except Exception:
+        except Exception as e:
+            self._log.warning("crawl_detail 실패 (%s): %s", url, e)
             return None

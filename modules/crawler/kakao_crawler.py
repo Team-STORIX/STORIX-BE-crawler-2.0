@@ -7,10 +7,44 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException
 
 from .base_crawler import BaseCrawler
+from config import KAKAO_COOKIE_FILE
 
 class KakaoCrawler(BaseCrawler):
-    
+
+    def _save_cookies(self):
+        try:
+            pickle.dump(self.driver.get_cookies(), open(KAKAO_COOKIE_FILE, "wb"))
+        except Exception as e:
+            print(f"⚠️ 카카오 쿠키 저장 실패: {e}")
+
+    def login_with_cookies(self):
+        """워커 전용: 쿠키 파일로만 로그인. 수동 입력 없이 실패 시 False 반환."""
+        if not KAKAO_COOKIE_FILE.exists():
+            return False
+        try:
+            self.driver.get("https://page.kakao.com")
+            time.sleep(2)
+            cookies = pickle.load(open(KAKAO_COOKIE_FILE, "rb"))
+            for c in cookies:
+                if 'expiry' in c: del c['expiry']
+                try: self.driver.add_cookie(c)
+                except Exception: pass
+            self.driver.get("https://page.kakao.com/main")
+            time.sleep(3)
+            return "accounts.kakao.com" not in self.driver.current_url
+        except Exception as e:
+            print(f"⚠️ 워커 카카오 쿠키 로그인 실패: {e}")
+            return False
+
     def login(self):
+        # 쿠키 파일이 있으면 자동 로그인 먼저 시도
+        if KAKAO_COOKIE_FILE.exists():
+            print("🍪 [카카오] 기존 쿠키 파일을 적용합니다.")
+            if self.login_with_cookies():
+                print("✅ [카카오] 쿠키 로그인 성공")
+                return True
+            print("⚠️ [카카오] 쿠키 로그인 실패. 수동 로그인으로 진행합니다.")
+
         self.driver.get("https://page.kakao.com")
         time.sleep(3)
 
@@ -21,13 +55,14 @@ class KakaoCrawler(BaseCrawler):
         print("3. 인증 후 '이용권 구매'나 이상한 페이지(ticket 등)에 멈춰 있어도 상관없습니다.")
         print("👉 모든 준비가 끝나면, 이 터미널에서 [Enter] 키를 누르세요.")
         print("="*60)
-        
-        input() 
+
+        input()
 
         print("🔄 메인 페이지로 이동하여 상태를 초기화합니다...")
         self.driver.get("https://page.kakao.com/main")
-        time.sleep(3) 
+        time.sleep(3)
 
+        self._save_cookies()
         return True
 
     # 무한 스크롤 (개수 기반 + Wiggle)
@@ -109,8 +144,8 @@ class KakaoCrawler(BaseCrawler):
             title_xpath = '//*[@id="__next"]/div/div[2]/div[1]/div/div[1]/div[1]/div/div[2]/a/div/span[1]'
             try:
                 wait.until(EC.presence_of_element_located((By.XPATH, title_xpath)))
-            except:
-                print(f"⚠️ [카카오] 페이지 로딩 시간 초과: {url}")
+            except Exception:
+                self._log.warning("페이지 로딩 시간 초과: %s", url)
                 return None
 
             # 하단 정보 로딩
@@ -124,12 +159,12 @@ class KakaoCrawler(BaseCrawler):
             try:
                 title = self.driver.find_element(By.XPATH, title_xpath).text.strip()
                 title = title.replace("휴재", "").replace("[독점]", "").strip()
-            except: title = ""
+            except Exception: title = ""
 
             # 설명
             try:
                 desc = self.driver.find_element(By.CSS_SELECTOR, "meta[property='og:description']").get_attribute("content")
-            except: desc = ""
+            except Exception: desc = ""
 
             # 상세 정보 리스트
             author, illustrator, original_author, age, genre, works_type = "", "", "", "", "", ""
@@ -161,8 +196,8 @@ class KakaoCrawler(BaseCrawler):
                             elif "웹툰" in value: works_type = "웹툰"
                             clean_genre = value.replace("웹소설", "").replace("소설", "").replace("웹툰", "").strip()
                             if clean_genre: genre = clean_genre
-                    except: continue
-            except: pass
+                    except Exception: continue
+            except Exception: pass
 
             if genre == "무협": genre = "무협/사극"
 
@@ -184,7 +219,7 @@ class KakaoCrawler(BaseCrawler):
             thumb = ""
             try:
                 thumb = self.driver.find_element(By.XPATH, "//img[@alt='썸네일']").get_attribute("src")
-            except: pass
+            except Exception: pass
 
             # 해시태그
             hashtags = []
@@ -195,7 +230,7 @@ class KakaoCrawler(BaseCrawler):
                     txt = tag.text.strip().replace("#", "")
                     if txt and txt not in hashtags:
                         hashtags.append(txt)
-            except: pass
+            except Exception: pass
 
             return {
                 "platform": "카카오페이지",
@@ -214,5 +249,5 @@ class KakaoCrawler(BaseCrawler):
             }
         
         except Exception as e:
-            print(f"⚠️ [카카오] 파싱 실패 ({url}): {e}")
+            self._log.error("crawl_detail 실패 (%s): %s", url, e)
             return None

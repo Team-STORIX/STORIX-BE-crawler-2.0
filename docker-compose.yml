@@ -1,0 +1,82 @@
+version: "3.9"
+
+services:
+  # ── 크롤러 (수동 실행) ──────────────────────────────────────
+  crawler:
+    build: .
+    image: storix-crawler:latest
+    container_name: storix_crawler
+    environment:
+      - MYSQL_DATABASE_HOST=db
+      - MYSQL_DATABASE_USER=${MYSQL_DATABASE_USER:-root}
+      - MYSQL_DATABASE_PASSWORD=${MYSQL_DATABASE_PASSWORD:-}
+      - MYSQL_DATABASE_NAME=${MYSQL_DATABASE_NAME:-storix}
+    volumes:
+      - ./output:/app/output
+      - ./sessions:/app/sessions
+    depends_on:
+      db:
+        condition: service_healthy
+    profiles:
+      - crawl
+    command: ["python", "cli.py", "crawl", "--platform", "all", "--mode", "initial"]
+
+  # ── 배치 적재기 (Phase C) ───────────────────────────────────
+  batch:
+    build: .
+    image: storix-crawler:latest
+    container_name: storix_batch
+    environment:
+      - MYSQL_DATABASE_HOST=db
+      - MYSQL_DATABASE_USER=${MYSQL_DATABASE_USER:-root}
+      - MYSQL_DATABASE_PASSWORD=${MYSQL_DATABASE_PASSWORD:-}
+      - MYSQL_DATABASE_NAME=${MYSQL_DATABASE_NAME:-storix}
+    volumes:
+      - ./output:/app/output
+    depends_on:
+      db:
+        condition: service_healthy
+    profiles:
+      - batch
+    command: ["python", "cli.py", "batch", "import", "--input", "/app/output"]
+
+  # ── 스케줄러 (Phase D) ──────────────────────────────────────
+  scheduler:
+    build: .
+    image: storix-crawler:latest
+    container_name: storix_scheduler
+    environment:
+      - MYSQL_DATABASE_HOST=db
+      - MYSQL_DATABASE_USER=${MYSQL_DATABASE_USER:-root}
+      - MYSQL_DATABASE_PASSWORD=${MYSQL_DATABASE_PASSWORD:-}
+      - MYSQL_DATABASE_NAME=${MYSQL_DATABASE_NAME:-storix}
+    volumes:
+      - ./output:/app/output
+      - ./sessions:/app/sessions
+    depends_on:
+      db:
+        condition: service_healthy
+    profiles:
+      - scheduler
+    command: ["python", "-m", "scheduler.runner"]
+
+  # ── MySQL DB ────────────────────────────────────────────────
+  db:
+    image: mysql:8.0
+    container_name: storix_db
+    restart: unless-stopped
+    environment:
+      - MYSQL_ROOT_PASSWORD=${MYSQL_DATABASE_PASSWORD:-storix}
+      - MYSQL_DATABASE=${MYSQL_DATABASE_NAME:-storix}
+    ports:
+      - "3306:3306"
+    volumes:
+      - db_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  db_data:

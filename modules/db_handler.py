@@ -113,42 +113,41 @@ def save_one_row(connection, cursor, raw_data):
     hashtag_list = raw_data.get('hashtags', [])
     data = normalize_data(raw_data)
     
-    works_sql = """
+    priority_case = """
+        CASE genre
+            WHEN '로판' THEN 5
+            WHEN '판타지' THEN 1
+            WHEN '무협/사극' THEN 1
+            WHEN '로맨스' THEN 1
+            WHEN '일상' THEN 1
+            WHEN '개그' THEN 1
+            WHEN '스릴러' THEN 1
+            ELSE 0
+        END
+    """
+    works_sql = f"""
     INSERT INTO works
-    (platform, works_name, artist_name, author, illustrator, original_author, 
+    (platform, works_name, artist_name, author, illustrator, original_author,
      age_classification, description, genre, thumbnail_url, works_type)
     VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
     ON DUPLICATE KEY UPDATE
-        artist_name = VALUES(artist_name),
-        author = VALUES(author),
-        illustrator = VALUES(illustrator),
-        original_author = VALUES(original_author), 
+        artist_name = CASE WHEN %s >= ({priority_case}) THEN VALUES(artist_name) ELSE artist_name END,
+        author      = CASE WHEN %s >= ({priority_case}) THEN VALUES(author)      ELSE author END,
+        illustrator = CASE WHEN %s >= ({priority_case}) THEN VALUES(illustrator) ELSE illustrator END,
+        original_author = CASE WHEN %s >= ({priority_case}) THEN VALUES(original_author) ELSE original_author END,
         age_classification = VALUES(age_classification),
-        description = VALUES(description),
-        thumbnail_url = VALUES(thumbnail_url),
-        works_type = VALUES(works_type), 
-        genre = CASE 
-            WHEN %s >= (
-                SELECT CASE genre
-                    WHEN '로판' THEN 5
-                    WHEN '판타지' THEN 1
-                    WHEN '무협/사극' THEN 1
-                    WHEN '로맨스' THEN 1
-                    WHEN '일상' THEN 1
-                    WHEN '개그' THEN 1
-                    WHEN '스릴러' THEN 1
-                    ELSE 0
-                END
-            ) THEN VALUES(genre)
-            ELSE genre
-        END
+        description    = VALUES(description),
+        thumbnail_url  = VALUES(thumbnail_url),
+        works_type     = VALUES(works_type),
+        genre = CASE WHEN %s >= ({priority_case}) THEN VALUES(genre) ELSE genre END
     """
+    p = data['priority']
     works_vals = (
         data['platform'], data['works_name'], data['artist_name'],
         data['author'], data['illustrator'], data['original_author'],
         data['age_classification'], data['description'], data['genre'],
         data['thumbnail_url'], data['works_type'],
-        data['priority']
+        p, p, p, p, p  # artist_name, author, illustrator, original_author, genre
     )
 
     try:

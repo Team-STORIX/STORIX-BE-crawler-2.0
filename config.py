@@ -6,8 +6,9 @@ load_dotenv()
 
 # 디렉토리 및 파일 경로
 BASE_DIR = pathlib.Path(__file__).parent
-NAVER_COOKIE_FILE = BASE_DIR / "naver_cookies.pkl"
-KAKAO_COOKIE_FILE = BASE_DIR / "kakao_cookies.pkl"
+SESSIONS_DIR = BASE_DIR / "sessions"
+NAVER_COOKIE_FILE = SESSIONS_DIR / "naver_cookies.pkl"
+KAKAO_COOKIE_FILE = SESSIONS_DIR / "kakao_cookies.pkl"
 FAILED_CSV = BASE_DIR / "failed_rows.csv"
 OUTPUT_DIR = BASE_DIR / "output"
 

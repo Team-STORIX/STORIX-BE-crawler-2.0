@@ -7,29 +7,29 @@ Selenium 병렬 워커 → JSONL 산출물 → DB 배치 적재 파이프라인�
 
 ## 완료된 작업
 
-### Phase A — 2.0 파이프라인 기반
+### 2.0 파이프라인 기반
 - CLI 진입점 (`cli.py`)
 - JSONL 산출물 작성기 (`crawler/output/jsonl_writer.py`)
 - initial 크롤링 모드 (`crawler/modes/initial.py`)
 - Docker 환경 (`Dockerfile`, `docker-compose.yml`)
 
-### Phase B — 추가 크롤링 모드
+### 추가 크롤링 모드
 - 신작 탭 크롤링 (`crawler/modes/new_works.py`)
 - 기존 JSONL 기반 필드 재크롤링 (`crawler/modes/update_fields.py`)
 
-### Phase C — 배치 적재
+### 배치 적재
 - 스키마 검증기 (`batch/validator.py`)
 - 폴백 처리기 (`batch/fallback.py`) — 누락 필드 복구, 수동 검수 큐 기록
 - JSONL → DB 임포터 (`batch/importer.py`) — `--watch` 감시 모드 포함
 
-### Phase D — 스케줄러
+### 스케줄러
 - APScheduler 기반 자동 실행 (`scheduler/runner.py`, `scheduler/jobs.py`)
 
-### Phase E — 모니터링
+### 모니터링
 - 세션 만료 감지 (`monitor/session_watcher.py`)
 - 플랫폼별 실행 이력 로깅 (`monitor/platform_status.py`)
 
-### 기존 코드 개선 (Phase 1–4)
+### 기존 코드 개선
 - `WebtoonCrawler` import 오류 수정 (`modules/crawler/__init__.py`)
 - 네이버/카카오 쿠키 자동 로그인 (`login_with_cookies()`)
 - 병렬 워커 풀 (`ThreadPoolExecutor` + `queue.Queue`)
@@ -43,16 +43,29 @@ Selenium 병렬 워커 → JSONL 산출물 → DB 배치 적재 파이프라인�
 
 ### 로컬 (Python 직접)
 
+**가상환경 생성 및 의존성 설치**
 ```bash
+python3 -m venv venv
+source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-**.env 설정**
+> PyCharm 사용 시: Settings → Python Interpreter → Add Interpreter → Virtualenv → 프로젝트 루트 선택
+> 이후 PyCharm 터미널을 열면 자동으로 `(venv)` 활성화됩니다.
+
+**.env 설정** (`.env.example` 복사 후 수정)
+```bash
+cp .env.example .env
 ```
-MYSQL_DATABASE_HOST=localhost
-MYSQL_DATABASE_USER=root
-MYSQL_DATABASE_PASSWORD=비밀번호
-MYSQL_DATABASE_NAME=storix
+
+RDS는 SSM 포트포워딩으로 접근합니다. 크롤러 실행 전 터널을 먼저 열어두세요.
+```bash
+# 터미널 1: SSM 터널 (유지)
+./storix-db-tunnel.sh
+
+# 터미널 2: 크롤러 실행
+source venv/bin/activate
+python3 cli.py crawl --platform naver_webtoon --mode initial
 ```
 
 **크롤링**

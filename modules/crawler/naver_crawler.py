@@ -34,12 +34,19 @@ class NaverCrawler(BaseCrawler):
             except Exception as e:
                 print(f"⚠️ 쿠키 적용 실패: {e}")
 
+        import os
+        if os.environ.get("DOCKER_ENV") == "true":
+            raise RuntimeError(
+                "Docker 환경에서는 수동 로그인 불가.\n"
+                "로컬에서 먼저 로그인 후 sessions/naver_cookies.pkl을 생성하세요."
+            )
+
         print("\n" + "="*40)
         print("🚨 [중요] 브라우저에서 수동 로그인을 진행해주세요!")
         print("1. 네이버 로그인 & 성인 인증까지 완료하세요.")
         print("2. 웹툰이 정상적으로 보이는 상태에서 아래 엔터를 누르세요.")
         print("="*40)
-        
+
         self.driver.get("https://nid.naver.com/nidlogin.login")
         input("👉 준비가 다 되면 여기를 클릭하고 [Enter] 키를 누르세요...")
         

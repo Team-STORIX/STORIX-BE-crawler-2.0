@@ -5,3 +5,5 @@
 */csv
 */__pycache__/
 *.sh
+output/
+venv/

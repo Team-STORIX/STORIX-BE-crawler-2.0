@@ -1,13 +1,14 @@
-FROM python:3.11-slim
+FROM --platform=linux/amd64 python:3.11-slim
 
 RUN apt-get update && apt-get install -y \
     wget \
-    gnupg2 \
     curl \
     unzip \
+    gnupg2 \
     fonts-nanum \
-    && wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | apt-key add - \
-    && echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" \
+    && curl -fsSL https://dl.google.com/linux/linux_signing_key.pub \
+       | gpg --dearmor -o /usr/share/keyrings/google-chrome.gpg \
+    && echo "deb [arch=amd64 signed-by=/usr/share/keyrings/google-chrome.gpg] http://dl.google.com/linux/chrome/deb/ stable main" \
        > /etc/apt/sources.list.d/google-chrome.list \
     && apt-get update \
     && apt-get install -y google-chrome-stable \

@@ -1,10 +1,9 @@
+import os
 import time
 import random
 
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.chrome.service import Service
-from webdriver_manager.chrome import ChromeDriverManager
 
 from modules.logger import get_logger
 
@@ -16,23 +15,28 @@ class BaseCrawler:
 
     def start_driver(self):
         if self.driver is not None: return
-        label = "(headless)" if self._headless else ""
+        in_docker = os.environ.get("DOCKER_ENV") == "true"
+        headless = self._headless or in_docker
+        label = "(headless)" if headless else ""
         print(f"🔧 브라우저를 시작합니다{label}...")
         options = Options()
         options.add_argument("--window-size=1600,900")
         options.add_argument("--lang=ko-KR")
+        options.add_argument("--no-sandbox")
+        options.add_argument("--disable-dev-shm-usage")
+        options.add_argument("--disable-gpu")
+        options.add_argument("--disable-extensions")
 
-        if self._headless:
+        if headless:
             options.add_argument("--headless=new")
-            options.add_argument("--no-sandbox")
-            options.add_argument("--disable-dev-shm-usage")
 
         options.add_experimental_option("excludeSwitches", ["enable-automation"])
         options.add_experimental_option('useAutomationExtension', False)
         options.add_argument('--disable-blink-features=AutomationControlled')
         options.add_argument('user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36')
 
-        self.driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
+        # Selenium 4.6+ 내장 드라이버 관리자 사용 (webdriver-manager 불필요)
+        self.driver = webdriver.Chrome(options=options)
         self.driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
             "source": """Object.defineProperty(navigator, 'webdriver', { get: () => undefined })"""
         })

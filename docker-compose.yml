@@ -1,12 +1,10 @@
-version: "3.9"
-
 services:
-  # ── 크롤러 (수동 실행) ──────────────────────────────────────
   crawler:
     build: .
     image: storix-crawler:latest
     container_name: storix_crawler
     environment:
+      - DOCKER_ENV=true
       - MYSQL_DATABASE_HOST=db
       - MYSQL_DATABASE_USER=${MYSQL_DATABASE_USER:-root}
       - MYSQL_DATABASE_PASSWORD=${MYSQL_DATABASE_PASSWORD:-}
@@ -14,6 +12,7 @@ services:
     volumes:
       - ./output:/app/output
       - ./sessions:/app/sessions
+    shm_size: '2gb'
     depends_on:
       db:
         condition: service_healthy
@@ -21,12 +20,12 @@ services:
       - crawl
     command: ["python", "cli.py", "crawl", "--platform", "all", "--mode", "initial"]
 
-  # ── 배치 적재기 (Phase C) ───────────────────────────────────
   batch:
     build: .
     image: storix-crawler:latest
     container_name: storix_batch
     environment:
+      - DOCKER_ENV=true
       - MYSQL_DATABASE_HOST=db
       - MYSQL_DATABASE_USER=${MYSQL_DATABASE_USER:-root}
       - MYSQL_DATABASE_PASSWORD=${MYSQL_DATABASE_PASSWORD:-}
@@ -40,12 +39,12 @@ services:
       - batch
     command: ["python", "cli.py", "batch", "import", "--input", "/app/output"]
 
-  # ── 스케줄러 (Phase D) ──────────────────────────────────────
   scheduler:
     build: .
     image: storix-crawler:latest
     container_name: storix_scheduler
     environment:
+      - DOCKER_ENV=true
       - MYSQL_DATABASE_HOST=db
       - MYSQL_DATABASE_USER=${MYSQL_DATABASE_USER:-root}
       - MYSQL_DATABASE_PASSWORD=${MYSQL_DATABASE_PASSWORD:-}
@@ -53,6 +52,7 @@ services:
     volumes:
       - ./output:/app/output
       - ./sessions:/app/sessions
+    shm_size: '2gb'
     depends_on:
       db:
         condition: service_healthy
@@ -60,7 +60,6 @@ services:
       - scheduler
     command: ["python", "-m", "scheduler.runner"]
 
-  # ── MySQL DB ────────────────────────────────────────────────
   db:
     image: mysql:8.0
     container_name: storix_db

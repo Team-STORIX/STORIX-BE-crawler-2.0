@@ -45,6 +45,13 @@ class KakaoCrawler(BaseCrawler):
                 return True
             print("⚠️ [카카오] 쿠키 로그인 실패. 수동 로그인으로 진행합니다.")
 
+        import os
+        if os.environ.get("DOCKER_ENV") == "true":
+            raise RuntimeError(
+                "Docker 환경에서는 수동 로그인 불가.\n"
+                "로컬에서 먼저 로그인 후 sessions/kakao_cookies.pkl을 생성하세요."
+            )
+
         self.driver.get("https://page.kakao.com")
         time.sleep(3)
 

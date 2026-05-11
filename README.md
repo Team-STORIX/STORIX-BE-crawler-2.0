@@ -1,41 +1,20 @@
 # STORIX-BE-Crawler 2.0
 
 네이버 웹툰 / 카카오페이지 크롤러
-Selenium 병렬 워커 → JSONL 산출물 → DB 배치 적재 파이프라인을 구축
+Selenium 병렬 워커 → JSONL 산출물 → DB 배치 적재 파이프라인
 
 ---
 
-## 완료된 작업
+## 주요 기능
 
-### 2.0 파이프라인 기반
-- CLI 진입점 (`cli.py`)
+- CLI 진입점 (`cli.py`) — `crawl` / `batch` 명령
 - JSONL 산출물 작성기 (`crawler/output/jsonl_writer.py`)
-- initial 크롤링 모드 (`crawler/modes/initial.py`)
-- Docker 환경 (`Dockerfile`, `docker-compose.yml`)
-
-### 추가 크롤링 모드
-- 신작 탭 크롤링 (`crawler/modes/new_works.py`)
-- 기존 JSONL 기반 필드 재크롤링 (`crawler/modes/update_fields.py`)
-
-### 배치 적재
-- 스키마 검증기 (`batch/validator.py`)
-- 폴백 처리기 (`batch/fallback.py`) — 누락 필드 복구, 수동 검수 큐 기록
-- JSONL → DB 임포터 (`batch/importer.py`) — `--watch` 감시 모드 포함
-
-### 스케줄러
-- APScheduler 기반 자동 실행 (`scheduler/runner.py`, `scheduler/jobs.py`)
-
-### 모니터링
-- 세션 만료 감지 (`monitor/session_watcher.py`)
-- 플랫폼별 실행 이력 로깅 (`monitor/platform_status.py`)
-
-### 기존 코드 개선
-- `WebtoonCrawler` import 오류 수정 (`modules/crawler/__init__.py`)
-- 네이버/카카오 쿠키 자동 로그인 (`login_with_cookies()`)
-- 병렬 워커 풀 (`ThreadPoolExecutor` + `queue.Queue`)
-- `crawl_detail_with_retry()` — 최대 3회 재시도
-- DB ON DUPLICATE KEY 장르/작가 우선순위 보호 (`modules/db_handler.py`)
-- 구조화 로깅 (`modules/logger.py`)
+- 크롤링 모드: initial (전체), new_works (신작), update_fields (필드 갱신)
+- 배치 적재: 스키마 검증 → 폴백 복구 → DB INSERT (`batch/`)
+- APScheduler 기반 자동 실행 (`scheduler/`)
+- 모니터링: 세션 만료 감지, 플랫폼별 실행 이력 (`monitor/`)
+- 병렬 워커 풀 (`ThreadPoolExecutor` + `queue.Queue`, 워커 2개)
+- 쿠키 자동 로그인 + 세션 만료 시 GUI 팝업 재로그인
 
 ---
 
@@ -58,15 +37,23 @@ pip install -r requirements.txt
 cp .env.example .env
 ```
 
-RDS는 SSM 포트포워딩으로 접근합니다. 크롤러 실행 전 터널을 먼저 열어두세요.
-```bash
-# 터미널 1: SSM 터널 (유지)
-./storix-db-tunnel.sh
+**DB 연결 옵션 (둘 중 하나 선택)**
 
-# 터미널 2: 크롤러 실행
-source venv/bin/activate
-python3 cli.py crawl --platform naver_webtoon --mode initial
+| 방법 | 설명 |
+|------|------|
+| SSM 터널 | RDS(프라이빗 서브넷) 접근. 터미널 1에서 터널 유지, 터미널 2에서 크롤러 실행 |
+| 로컬 MySQL | `docker compose up db -d` 로 로컬 MySQL 컨테이너 실행. `.env`의 PORT를 `3306`으로 변경 |
+
+```bash
+# SSM 터널 방식
+./storix-db-tunnel.sh          # 터미널 1: 유지
+
+# 로컬 MySQL 방식
+docker compose up db -d
+# .env: MYSQL_DATABASE_PORT=3306
 ```
+
+---
 
 **크롤링**
 ```bash
@@ -102,11 +89,29 @@ python -m scheduler.runner
 
 ---
 
+### 로그인 및 세션 관리
+
+최초 실행 시 브라우저가 열리며 수동 로그인이 필요합니다. 로그인 완료 후 팝업의 [확인]을 누르면 쿠키가 `sessions/` 폴더에 저장되고, 이후 실행부터는 자동 로그인됩니다.
+
+**카카오페이지 최초 로그인 시 주의사항**
+1. 브라우저에서 카카오 로그인을 완료하세요.
+2. 성인 웹툰을 하나 클릭해 '연령 확인'이 뜨면 인증을 완료하세요.
+3. 모든 준비가 끝나면 팝업의 [확인]을 누르세요.
+
+크롤링 중 세션이 만료되면 자동으로 드라이버를 재시작하고, 쿠키 로그인도 실패할 경우 팝업을 띄워 재로그인을 기다린 뒤 크롤링을 재개합니다.
+
+쿠키 파일(`sessions/*.pkl`)은 `.gitignore`에 등록되어 있어 커밋되지 않습니다.
+
+---
+
 ### Docker
+
+Docker는 서버 배포용입니다. 로컬 개발에는 Python 직접 실행을 권장합니다.
+크롤러를 Docker로 실행하려면 먼저 로컬에서 로그인해 `sessions/*.pkl`을 생성한 뒤, 해당 파일을 컨테이너에 마운트하세요.
 
 ```bash
 # DB만 실행 (로컬 개발용)
-docker compose up db
+docker compose up db -d
 
 # 크롤링 실행
 docker compose --profile crawl up
@@ -117,6 +122,9 @@ docker compose --profile batch up
 # 스케줄러 실행
 docker compose --profile scheduler up
 ```
+
+> Apple Silicon(M1/M2/M3) Mac에서는 Dockerfile에 `--platform=linux/amd64`가 설정되어 있습니다.
+> Chrome + MySQL을 동시에 실행하면 메모리 부족이 발생할 수 있으니, 로컬에서는 `docker compose up db`만 사용하고 크롤러는 Python으로 직접 실행하세요.
 
 ---
 
@@ -144,10 +152,15 @@ docker compose --profile scheduler up
 ├── requirements.txt
 ├── Dockerfile
 ├── docker-compose.yml
+├── .env.example                    # 환경변수 템플릿
+│
+├── sessions/                       # 쿠키 파일 저장소 (.gitignore 처리됨)
+│   ├── naver_cookies.pkl
+│   └── kakao_cookies.pkl
 │
 ├── crawler/
 │   ├── modes/
-│   │   ├── initial.py              # 전체 작품 크롤링 (장르 + 매일+ + 완결)
+│   │   ├── initial.py              # 전체 작품 크롤링 (장르 + 매일+ + 완결), 워커 2개
 │   │   ├── new_works.py            # 신작 탭 크롤링
 │   │   └── update_fields.py        # source_url 목록으로 필드 재크롤링
 │   └── output/
@@ -155,7 +168,7 @@ docker compose --profile scheduler up
 │
 ├── modules/
 │   ├── crawler/
-│   │   ├── base_crawler.py         # WebDriver 초기화, crawl_detail_with_retry()
+│   │   ├── base_crawler.py         # WebDriver 초기화, crawl_detail_with_retry(), 세션 복구
 │   │   ├── naver_crawler.py        # 네이버 웹툰 크롤러 (로그인, URL 수집, 상세 파싱)
 │   │   └── kakao_crawler.py        # 카카오페이지 크롤러
 │   ├── db_handler.py               # MySQL 연결, save_one_row(), parse_artists()
@@ -174,7 +187,7 @@ docker compose --profile scheduler up
 │   ├── session_watcher.py          # 로그인 리다이렉트 감지, 연속 None 경보
 │   └── platform_status.py         # 플랫폼별 실행 이력 기록 및 요약 출력
 │
-└── output/                         # 크롤링 산출물 (날짜별 JSONL)
+└── output/                         # 크롤링 산출물 (날짜별 JSONL, .gitignore 처리됨)
     └── YYYY-MM-DD/
         ├── naver_webtoon_initial_HHMMSS.jsonl
         ├── kakao_page_initial_HHMMSS.jsonl

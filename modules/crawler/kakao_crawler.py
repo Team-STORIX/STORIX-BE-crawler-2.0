@@ -4,7 +4,7 @@ import pickle
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import TimeoutException
+from selenium.common.exceptions import TimeoutException, InvalidSessionIdException
 
 from .base_crawler import BaseCrawler
 from config import KAKAO_COOKIE_FILE
@@ -55,15 +55,12 @@ class KakaoCrawler(BaseCrawler):
         self.driver.get("https://page.kakao.com")
         time.sleep(3)
 
-        print("\n" + "="*60)
-        print("🚨 [로그인 & 성인인증 확인]")
-        print("1. 브라우저에서 로그인이 안 되어 있다면 로그인을 완료하세요.")
-        print("2. **중요:** 성인 웹툰을 하나 클릭해서 '연령 확인'이 뜨는지 확인하고, 뜬다면 인증을 완료하세요.")
-        print("3. 인증 후 '이용권 구매'나 이상한 페이지(ticket 등)에 멈춰 있어도 상관없습니다.")
-        print("👉 모든 준비가 끝나면, 이 터미널에서 [Enter] 키를 누르세요.")
-        print("="*60)
-
-        input()
+        self.wait_for_login_gui(
+            "카카오페이지 로그인 & 성인 인증을 완료하세요.\n\n"
+            "1. 로그인이 안 되어 있다면 로그인을 완료하세요.\n"
+            "2. 성인 웹툰을 클릭해 '연령 확인'이 뜨면 인증을 완료하세요.\n"
+            "3. 모든 준비가 끝나면 [확인]을 누르세요."
+        )
 
         print("🔄 메인 페이지로 이동하여 상태를 초기화합니다...")
         self.driver.get("https://page.kakao.com/main")
@@ -255,6 +252,8 @@ class KakaoCrawler(BaseCrawler):
                 "source_url": url
             }
         
+        except InvalidSessionIdException:
+            raise
         except Exception as e:
             self._log.error("crawl_detail 실패 (%s): %s", url, e)
             return None

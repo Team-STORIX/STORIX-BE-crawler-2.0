@@ -11,7 +11,7 @@ from modules.crawler.naver_crawler import NaverCrawler
 from modules.crawler.kakao_crawler import KakaoCrawler
 from crawler.output.jsonl_writer import JSONLWriter
 
-WORKERS = 3
+WORKERS = 2
 TARGET_LIMIT = 1000
 
 

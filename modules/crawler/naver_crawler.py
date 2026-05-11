@@ -5,7 +5,7 @@ import pickle
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import NoSuchElementException
+from selenium.common.exceptions import NoSuchElementException, InvalidSessionIdException
 
 from .base_crawler import BaseCrawler
 
@@ -41,14 +41,11 @@ class NaverCrawler(BaseCrawler):
                 "로컬에서 먼저 로그인 후 sessions/naver_cookies.pkl을 생성하세요."
             )
 
-        print("\n" + "="*40)
-        print("🚨 [중요] 브라우저에서 수동 로그인을 진행해주세요!")
-        print("1. 네이버 로그인 & 성인 인증까지 완료하세요.")
-        print("2. 웹툰이 정상적으로 보이는 상태에서 아래 엔터를 누르세요.")
-        print("="*40)
-
         self.driver.get("https://nid.naver.com/nidlogin.login")
-        input("👉 준비가 다 되면 여기를 클릭하고 [Enter] 키를 누르세요...")
+        self.wait_for_login_gui(
+            "네이버 로그인 & 성인 인증을 완료하세요.\n\n"
+            "웹툰이 정상적으로 보이는 상태에서 [확인]을 누르세요."
+        )
         
         time.sleep(2)
         try:
@@ -177,6 +174,8 @@ class NaverCrawler(BaseCrawler):
                 "source_url": url
             }
         
+        except InvalidSessionIdException:
+            raise
         except Exception as e:
             self._log.warning("crawl_detail 실패 (%s): %s", url, e)
             return None

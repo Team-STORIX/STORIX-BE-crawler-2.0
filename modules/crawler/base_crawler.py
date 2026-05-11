@@ -4,6 +4,7 @@ import random
 
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
+from selenium.common.exceptions import InvalidSessionIdException
 
 from modules.logger import get_logger
 
@@ -49,10 +50,47 @@ class BaseCrawler:
     def human_pause(self, min_s=1.0, max_s=2.0):
         time.sleep(random.uniform(min_s, max_s))
     
+    def wait_for_login_gui(self, message: str):
+        in_docker = os.environ.get("DOCKER_ENV") == "true"
+        if in_docker:
+            return
+        try:
+            import tkinter as tk
+            from tkinter import messagebox
+            root = tk.Tk()
+            root.withdraw()
+            root.attributes('-topmost', True)
+            messagebox.showinfo("로그인 필요", message)
+            root.destroy()
+        except Exception:
+            input(f"\n{message}\n👉 완료 후 [Enter]를 누르세요...")
+
+    def _restart_driver(self):
+        in_docker = os.environ.get("DOCKER_ENV") == "true"
+        try:
+            self.close_driver()
+        except Exception:
+            pass
+        try:
+            self.start_driver()
+            if not self.login_with_cookies():
+                if in_docker:
+                    self._log.error("세션 만료. Docker 환경에서는 수동 재로그인 불가.")
+                    return
+                self._log.warning("쿠키 만료 감지. 수동 재로그인 대기 중...")
+                self.login()
+        except Exception as e:
+            self._log.error("드라이버 재시작 실패: %s", e)
+
     def crawl_detail_with_retry(self, url: str, max_attempts: int = 3):
-        """crawl_detail()을 최대 max_attempts회 재시도. None 반환 시 실패로 간주."""
         for attempt in range(1, max_attempts + 1):
-            result = self.crawl_detail(url)
+            try:
+                result = self.crawl_detail(url)
+            except InvalidSessionIdException as e:
+                self._log.error("세션 끊김, 드라이버 재시작 (%s): %s", url, e)
+                self._restart_driver()
+                result = None
+
             if result is not None:
                 return result
             if attempt < max_attempts:

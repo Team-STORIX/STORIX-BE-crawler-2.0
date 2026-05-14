@@ -6,9 +6,16 @@ services:
     environment:
       - DOCKER_ENV=true
       - MYSQL_DATABASE_HOST=db
+      - MYSQL_DATABASE_PORT=3306
       - MYSQL_DATABASE_USER=${MYSQL_DATABASE_USER:-root}
-      - MYSQL_DATABASE_PASSWORD=${MYSQL_DATABASE_PASSWORD:-}
+      - MYSQL_DATABASE_PASSWORD=${MYSQL_DATABASE_PASSWORD:-storix}
       - MYSQL_DATABASE_NAME=${MYSQL_DATABASE_NAME:-storix}
+      - NAVER_ID=${NAVER_ID:-}
+      - NAVER_PW=${NAVER_PW:-}
+      - KAKAO_ID=${KAKAO_ID:-}
+      - KAKAO_PW=${KAKAO_PW:-}
+      - RIDIBOOKS_ID=${RIDIBOOKS_ID:-}
+      - RIDIBOOKS_PW=${RIDIBOOKS_PW:-}
     volumes:
       - ./output:/app/output
       - ./sessions:/app/sessions
@@ -24,20 +31,19 @@ services:
     build: .
     image: storix-crawler:latest
     container_name: storix_batch
+    network_mode: host
     environment:
       - DOCKER_ENV=true
-      - MYSQL_DATABASE_HOST=db
+      - MYSQL_DATABASE_HOST=127.0.0.1
+      - MYSQL_DATABASE_PORT=13306
       - MYSQL_DATABASE_USER=${MYSQL_DATABASE_USER:-root}
-      - MYSQL_DATABASE_PASSWORD=${MYSQL_DATABASE_PASSWORD:-}
+      - MYSQL_DATABASE_PASSWORD=${MYSQL_DATABASE_PASSWORD:-storix}
       - MYSQL_DATABASE_NAME=${MYSQL_DATABASE_NAME:-storix}
     volumes:
       - ./output:/app/output
-    depends_on:
-      db:
-        condition: service_healthy
     profiles:
       - batch
-    command: ["python", "cli.py", "batch", "import", "--input", "/app/output"]
+    command: ["python", "cli.py", "batch", "import"]
 
   scheduler:
     build: .
@@ -46,9 +52,16 @@ services:
     environment:
       - DOCKER_ENV=true
       - MYSQL_DATABASE_HOST=db
+      - MYSQL_DATABASE_PORT=3306
       - MYSQL_DATABASE_USER=${MYSQL_DATABASE_USER:-root}
-      - MYSQL_DATABASE_PASSWORD=${MYSQL_DATABASE_PASSWORD:-}
+      - MYSQL_DATABASE_PASSWORD=${MYSQL_DATABASE_PASSWORD:-storix}
       - MYSQL_DATABASE_NAME=${MYSQL_DATABASE_NAME:-storix}
+      - NAVER_ID=${NAVER_ID:-}
+      - NAVER_PW=${NAVER_PW:-}
+      - KAKAO_ID=${KAKAO_ID:-}
+      - KAKAO_PW=${KAKAO_PW:-}
+      - RIDIBOOKS_ID=${RIDIBOOKS_ID:-}
+      - RIDIBOOKS_PW=${RIDIBOOKS_PW:-}
     volumes:
       - ./output:/app/output
       - ./sessions:/app/sessions

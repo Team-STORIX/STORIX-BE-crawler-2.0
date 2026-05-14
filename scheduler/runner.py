@@ -9,6 +9,7 @@ from apscheduler.triggers.cron import CronTrigger
 from scheduler.jobs import (
     job_initial_naver,
     job_initial_kakao,
+    job_initial_ridibooks,
     job_new_works_naver,
     job_new_works_kakao,
     job_update_fields_naver,
@@ -35,6 +36,11 @@ SCHEDULE = [
         'id': 'initial_kakao',
         'func': job_initial_kakao,
         'trigger': CronTrigger(day=1, hour=int(os.getenv('SCHED_INITIAL_KAKAO_HOUR', '6')), minute=0, timezone=TZ),
+    },
+    {
+        'id': 'initial_ridibooks',
+        'func': job_initial_ridibooks,
+        'trigger': CronTrigger(day=1, hour=int(os.getenv('SCHED_INITIAL_RIDIBOOKS_HOUR', '9')), minute=0, timezone=TZ),
     },
     {
         'id': 'new_works_naver',
@@ -93,7 +99,7 @@ def main():
 
     log.info('스케줄러 시작 (타임존: %s)', TZ)
     for job in scheduler.get_jobs():
-        log.info('  %-30s 다음 실행: %s', job.id, job.next_run_time)
+        log.info('  %-30s 트리거: %s', job.id, job.trigger)
 
     scheduler.start()
 

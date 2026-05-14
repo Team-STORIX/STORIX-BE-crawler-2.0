@@ -8,6 +8,7 @@ log = logging.getLogger(__name__)
 _LOGIN_SIGNATURES: dict[str, list[str]] = {
     'naver_webtoon': ['nid.naver.com', 'naver.com/nidlogin'],
     'kakao_page': ['accounts.kakao.com', 'kauth.kakao.com'],
+    'ridibooks': ['ridibooks.com/account/login'],
 }
 
 _NULL_STREAK_THRESHOLD = 5

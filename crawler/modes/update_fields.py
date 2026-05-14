@@ -5,6 +5,7 @@ from pathlib import Path
 
 from modules.crawler.naver_crawler import NaverCrawler
 from modules.crawler.kakao_crawler import KakaoCrawler
+from modules.crawler.ridibooks_crawler import RidibooksCrawler
 from crawler.output.jsonl_writer import JSONLWriter
 from crawler.modes.initial import (
     _build_naver_workers,
@@ -18,13 +19,19 @@ WORKERS = 3
 PLATFORM_URL_PATTERNS = {
     'naver_webtoon': 'comic.naver.com',
     'kakao_page': 'page.kakao.com',
+    'ridibooks': 'ridibooks.com',
 }
+
+SUPPORTED_PLATFORMS = list(PLATFORM_URL_PATTERNS.keys())
 
 
 def _load_source_urls(input_path: Path) -> dict[str, list[str]]:
     files = []
     if input_path.is_dir():
-        files = list(input_path.glob('*.jsonl'))
+        files = [
+            f for f in input_path.rglob('*.jsonl')
+            if f.name not in {'manual_review_queue.jsonl', 'platform_status.jsonl'}
+        ]
     elif input_path.is_file():
         files = [input_path]
 
@@ -139,15 +146,35 @@ def _recrawl_kakao(urls: list[str], writer: JSONLWriter):
         _close_all(lead, workers)
 
 
+def _recrawl_ridibooks(urls: list[str], writer: JSONLWriter):
+    crawler = RidibooksCrawler()
+    try:
+        crawler.start_driver()
+        if not crawler.login():
+            raise RuntimeError('리디북스 로그인 실패')
+
+        total = len(urls)
+        for i, url in enumerate(urls, 1):
+            print(f'[리디북스 {i}/{total}]', end='\r')
+            data = crawler.crawl_detail_with_retry(url)
+            if data:
+                writer.write(data)
+            crawler.human_pause(1.0, 2.5)
+    finally:
+        crawler.close_driver()
+
+
 _RECRAWL_MAP = {
     'naver_webtoon': _recrawl_naver,
     'kakao_page': _recrawl_kakao,
+    'ridibooks': _recrawl_ridibooks,
 }
 
 
-def run_update_fields(platform: str, input_path: str):
+def run_update_fields(platform: str, input_path: str, platform_filenames: bool = False) -> list[Path]:
     path = Path(input_path)
     grouped = _load_source_urls(path)
+    written_paths: list[Path] = []
 
     targets = list(PLATFORM_URL_PATTERNS.keys()) if platform == 'all' else [platform]
 
@@ -163,6 +190,10 @@ def run_update_fields(platform: str, input_path: str):
         print(f'\n{"="*60}')
         print(f'🔄 [{p}] update_fields 시작 — {len(urls)}개 URL')
         print(f'{"="*60}')
-        with JSONLWriter(platform=p, mode='update_fields') as writer:
+        filename = f'{p}_update_fields.jsonl' if platform_filenames else None
+        with JSONLWriter(platform=p, mode='update_fields', filename=filename) as writer:
             _RECRAWL_MAP[p](urls, writer)
+        written_paths.append(writer.path)
         print(f'\n✅ [{p}] 완료. {writer.count}건 저장됨.')
+
+    return written_paths

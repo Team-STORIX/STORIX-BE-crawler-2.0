@@ -6,9 +6,10 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 import time
 
-from config import GENRES, BASE_URL, GENRE_MAP, DAILY_PLUS_URL, COMPLETED_URL, TOP_300_URL
+from config import GENRES, BASE_URL, GENRE_MAP, DAILY_PLUS_URL, COMPLETED_URL, KAKAO_INITIAL_SECTIONS, RIDIBOOKS_INITIAL_TARGETS
 from modules.crawler.naver_crawler import NaverCrawler
 from modules.crawler.kakao_crawler import KakaoCrawler
+from modules.crawler.ridibooks_crawler import RidibooksCrawler
 from crawler.output.jsonl_writer import JSONLWriter
 
 WORKERS = 2
@@ -225,9 +226,6 @@ def run_kakao_page(writer: JSONLWriter):
         if not lead.login():
             raise RuntimeError('카카오 로그인 실패')
 
-        urls = lead.get_list_urls(TOP_300_URL)
-        print(f'📊 [카카오페이지] {len(urls)}개')
-
         workers = _build_kakao_workers()
         if not workers:
             raise RuntimeError('사용 가능한 카카오 워커가 없습니다')
@@ -244,20 +242,53 @@ def run_kakao_page(writer: JSONLWriter):
                 w.human_pause(1.0, 2.5)
                 worker_q.put(w)
 
-        total = len(urls)
-        with ThreadPoolExecutor(max_workers=n) as executor:
-            for i, data in enumerate(executor.map(crawl_one, urls), 1):
-                print(f'[{i}/{total}]', end='\r')
-                if data:
-                    writer.write(data)
+        for section_url, section_label in KAKAO_INITIAL_SECTIONS:
+            print(f'\n=== [카카오페이지: {section_label}] ===')
+            urls = lead.get_list_urls(section_url)
+            print(f'📊 {len(urls)}개')
+            total = len(urls)
+            with ThreadPoolExecutor(max_workers=n) as executor:
+                for i, data in enumerate(executor.map(crawl_one, urls), 1):
+                    print(f'[{section_label} {i}/{total}]', end='\r')
+                    if data:
+                        writer.write(data)
 
     finally:
         _close_all(lead, workers)
 
 
+def run_ridibooks(writer: JSONLWriter):
+    crawler = RidibooksCrawler()
+    try:
+        crawler.start_driver()
+        if not crawler.login():
+            raise RuntimeError('리디북스 로그인 실패')
+
+        for base_url, extra_params, label, max_count, genre_hint, works_type in RIDIBOOKS_INITIAL_TARGETS:
+            print(f'\n=== [리디북스: {label}] ===')
+            urls = crawler.get_category_urls(base_url, extra_params, max_count)
+            print(f'📊 {len(urls)}개')
+
+            for i, url in enumerate(urls, 1):
+                print(f'[{label} {i}/{len(urls)}]', end='\r')
+                data = crawler.crawl_detail_with_retry(url)
+                if data:
+                    data['genre'] = genre_hint
+                    data['works_type'] = works_type
+                    writer.write(data)
+                crawler.human_pause(1.0, 2.5)
+
+    finally:
+        try:
+            crawler.close_driver()
+        except Exception:
+            pass
+
+
 _PLATFORM_MAP = {
     'naver_webtoon': run_naver_webtoon,
     'kakao_page': run_kakao_page,
+    'ridibooks': run_ridibooks,
 }
 
 SUPPORTED_PLATFORMS = list(_PLATFORM_MAP.keys())

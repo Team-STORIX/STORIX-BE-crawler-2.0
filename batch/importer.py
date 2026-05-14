@@ -1,6 +1,7 @@
 import json
 import time
 from pathlib import Path
+from datetime import date
 
 from modules.db_handler import connect_database, save_one_row
 from config import MYSQL_CONFIG, OUTPUT_DIR
@@ -55,15 +56,13 @@ class BatchImporter:
         return stats
 
     def _process_record(self, record: dict, stats: ImportStats, review_path: Path) -> None:
-        record, resolvable = fallback.try_resolve(record)
+        record, _ = fallback.try_resolve(record)
         is_valid, errors = validate(record)
 
         if not is_valid:
-            if not resolvable:
-                fallback.queue_for_review(record, errors, review_path)
-                stats.reviewed += 1
-                return
-            print(f'  ⚠️  검증 경고 ({record.get("works_name")}): {errors}')
+            fallback.queue_for_review(record, errors, review_path)
+            stats.reviewed += 1
+            return
 
         ok = save_one_row(self._conn, self._cursor, record)
         if ok:
@@ -77,8 +76,11 @@ class BatchImporter:
         if path.is_file():
             files = [path]
         elif path.is_dir():
-            files = sorted(path.glob('*.jsonl'))
-            files = [f for f in files if f.name != 'manual_review_queue.jsonl']
+            files = sorted(path.rglob('*.jsonl'))
+            files = [
+                f for f in files
+                if f.name not in {'manual_review_queue.jsonl', 'platform_status.jsonl'}
+            ]
         else:
             raise FileNotFoundError(f'경로를 찾을 수 없습니다: {path}')
 
@@ -130,7 +132,17 @@ def run_import(input_path: str, watch: bool = False) -> None:
             watch_dir = Path(input_path) if input_path else OUTPUT_DIR
             importer.watch(watch_dir)
         else:
-            path = Path(input_path)
+            # input_path가 없으면 당일 폴더만 자동 감지
+            if input_path:
+                path = Path(input_path)
+            else:
+                today_folder = OUTPUT_DIR / date.today().strftime('%Y-%m-%d')
+                if not today_folder.exists():
+                    print(f'⚠️  당일 폴더가 없습니다: {today_folder}')
+                    return
+                path = today_folder
+                print(f'📂 당일 폴더 자동 감지: {path}')
+
             stats = importer.import_path(path)
             print(f'\n✅ 적재 완료 → {stats}')
     finally:

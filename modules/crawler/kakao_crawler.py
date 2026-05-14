@@ -6,10 +6,11 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, InvalidSessionIdException
 
-from .base_crawler import BaseCrawler
-from config import KAKAO_COOKIE_FILE
+from .base_crawler import BaseCrawler, SessionExpiredError
+from config import KAKAO_COOKIE_FILE, KAKAO_LOGIN_URL, KAKAO_ID, KAKAO_PW
 
 class KakaoCrawler(BaseCrawler):
+    _platform = 'kakao_page'
 
     def _save_cookies(self):
         try:
@@ -31,9 +32,90 @@ class KakaoCrawler(BaseCrawler):
                 except Exception: pass
             self.driver.get("https://page.kakao.com/main")
             time.sleep(3)
-            return "accounts.kakao.com" not in self.driver.current_url
+            if "accounts.kakao.com" in self.driver.current_url or "kauth.kakao.com" in self.driver.current_url:
+                return False
+            return any(txt in self.driver.page_source for txt in ["로그아웃", "마이페이지", "내 서재"])
         except Exception as e:
             print(f"⚠️ 워커 카카오 쿠키 로그인 실패: {e}")
+            return False
+
+    def _wait_for_manual_login(self, timeout_sec: int = 180) -> bool:
+        """2단계 폴링: 1) kakao auth 이탈 감지 → 2) page.kakao.com에서 로그인 확인."""
+        print("\n" + "=" * 60)
+        print("🔐 브라우저 창에서 직접 카카오 로그인 & 성인 인증을 완료하세요.")
+        print(f"   로그인 완료 시 자동으로 감지됩니다 (최대 {timeout_sec // 60}분).")
+        print("=" * 60 + "\n")
+        deadline = time.time() + timeout_sec
+
+        # 1단계: kakao auth 이탈 대기
+        while time.time() < deadline:
+            time.sleep(3)
+            try:
+                cur = self.driver.current_url
+                if "accounts.kakao.com" not in cur and "kauth.kakao.com" not in cur:
+                    break
+            except Exception:
+                continue
+        else:
+            print("⏰ 로그인 대기 시간 초과.")
+            return False
+
+        # 2단계: 현재 페이지(page.kakao.com)에서 내비게이션 없이 반복 확인
+        inner_deadline = time.time() + min(120, max(0, deadline - time.time()))
+        while time.time() < inner_deadline:
+            time.sleep(4)
+            try:
+                cur = self.driver.current_url
+                if "accounts.kakao.com" in cur or "kauth.kakao.com" in cur:
+                    continue  # 성인 인증 중
+                if any(txt in self.driver.page_source for txt in ["로그아웃", "마이페이지", "내 서재"]):
+                    return True
+            except Exception:
+                pass
+
+        print("⏰ 성인 인증 대기 시간 초과.")
+        return False
+
+    def _login_with_credentials(self) -> bool:
+        """KAKAO_ID / KAKAO_PW 환경변수로 자동 로그인을 시도한다."""
+        if not KAKAO_ID or not KAKAO_PW:
+            return False
+        print("🔑 환경변수 자격증명으로 카카오 로그인을 시도합니다.")
+        try:
+            self.driver.get(KAKAO_LOGIN_URL)
+            time.sleep(3)
+
+            wait = WebDriverWait(self.driver, 10)
+            id_field = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "input[name='loginKey']")))
+            id_field.click()
+            id_field.send_keys(KAKAO_ID)
+            time.sleep(random.uniform(0.3, 0.7))
+
+            pw_field = self.driver.find_element(By.CSS_SELECTOR, "input[name='password']")
+            pw_field.click()
+            pw_field.send_keys(KAKAO_PW)
+            time.sleep(random.uniform(0.3, 0.7))
+
+            submit_btn = self.driver.find_element(By.CSS_SELECTOR, "button[type='submit']")
+            submit_btn.click()
+            time.sleep(4)
+
+            self.driver.get("https://page.kakao.com/main")
+            time.sleep(3)
+
+            if "accounts.kakao.com" in self.driver.current_url or "kauth.kakao.com" in self.driver.current_url:
+                print("⚠️ [카카오] 자격증명 로그인 실패 (CAPTCHA 또는 추가 인증 필요).")
+                return False
+
+            if any(txt in self.driver.page_source for txt in ["로그아웃", "마이페이지", "내 서재"]):
+                print("✅ [카카오] 자격증명 로그인 성공. 쿠키를 저장합니다.")
+                self._save_cookies()
+                return True
+
+            print("⚠️ [카카오] 로그인 상태 확인 실패.")
+            return False
+        except Exception as e:
+            print(f"⚠️ [카카오] 자격증명 로그인 중 오류: {e}")
             return False
 
     def login(self):
@@ -43,31 +125,74 @@ class KakaoCrawler(BaseCrawler):
             if self.login_with_cookies():
                 print("✅ [카카오] 쿠키 로그인 성공")
                 return True
-            print("⚠️ [카카오] 쿠키 로그인 실패. 수동 로그인으로 진행합니다.")
+            print("⚠️ [카카오] 쿠키 로그인 실패. 다음 수단을 시도합니다.")
+
+        if self._login_with_credentials():
+            return True
 
         import os
         if os.environ.get("DOCKER_ENV") == "true":
             raise RuntimeError(
                 "Docker 환경에서는 수동 로그인 불가.\n"
-                "로컬에서 먼저 로그인 후 sessions/kakao_cookies.pkl을 생성하세요."
+                "KAKAO_ID/KAKAO_PW 환경변수를 설정하거나 sessions/kakao_cookies.pkl을 생성하세요."
             )
 
-        self.driver.get("https://page.kakao.com")
+        self.driver.get(KAKAO_LOGIN_URL)
         time.sleep(3)
+        if self._wait_for_manual_login():
+            print("✅ [카카오] 로그인 확인됨. 쿠키를 저장합니다.")
+            self._save_cookies()
+            return True
 
-        self.wait_for_login_gui(
-            "카카오페이지 로그인 & 성인 인증을 완료하세요.\n\n"
-            "1. 로그인이 안 되어 있다면 로그인을 완료하세요.\n"
-            "2. 성인 웹툰을 클릭해 '연령 확인'이 뜨면 인증을 완료하세요.\n"
-            "3. 모든 준비가 끝나면 [확인]을 누르세요."
+        print("❌ [카카오] 로그인 실패. 쿠키를 저장하지 않습니다.")
+        return False
+
+    def search_url_by_title(self, title: str) -> str | None:
+        """제목으로 카카오페이지 작품 URL 검색. 정확 매칭 또는 부분 매칭만 반환 (불일치 시 None)."""
+        import urllib.parse
+        import re
+
+        self.driver.get(
+            f"https://page.kakao.com/search/result?keyword={urllib.parse.quote(title)}&tab=content"
         )
-
-        print("🔄 메인 페이지로 이동하여 상태를 초기화합니다...")
-        self.driver.get("https://page.kakao.com/main")
         time.sleep(3)
 
-        self._save_cookies()
-        return True
+        def normalize(s: str) -> str:
+            return re.sub(r'[\s\[\]()·∙#]', '', s).lower()
+
+        norm_title = normalize(title)
+
+        candidates = self.driver.find_elements(By.XPATH, "//a[contains(@href,'/content/')]")
+
+        exact = None
+        partial = None
+
+        for el in candidates:
+            href = el.get_attribute('href') or ''
+            if '/content/' not in href:
+                continue
+            text = (el.get_attribute('title') or el.text or '').strip()
+            if not text:
+                continue
+            norm_text = normalize(text)
+
+            if norm_text == norm_title:
+                exact = (href, text)
+                break
+
+            if partial is None and (norm_title in norm_text or norm_text in norm_title):
+                partial = (href, text)
+
+        if exact:
+            print(f"   ↳ 검색 결과 (정확): {exact[0]} [{exact[1]}]")
+            return exact[0]
+
+        if partial:
+            print(f"   ↳ 검색 결과 (부분): {partial[0]} [{partial[1]}]")
+            return partial[0]
+
+        print(f"   ⚠️  '{title}'과 일치하는 검색 결과 없음 — 스킵")
+        return None
 
     # 무한 스크롤 (개수 기반 + Wiggle)
     def load_all_items(self, item_xpath):
@@ -139,7 +264,11 @@ class KakaoCrawler(BaseCrawler):
             
             self.driver.get(target_url)
             wait = WebDriverWait(self.driver, 15)
-            
+
+            current = self.driver.current_url
+            if "accounts.kakao.com" in current or "kauth.kakao.com" in current:
+                raise SessionExpiredError(f"카카오 로그인 리다이렉트 감지: {url}")
+
             if "history/ticket" in self.driver.current_url:
                 print(f"⚠️ [복구] 티켓 페이지로 잘못 진입함. 다시 이동: {target_url}")
                 self.driver.get(target_url)

@@ -13,11 +13,24 @@ def _extract_work_id(source_url: str) -> str:
         return source_url.split('titleId=')[-1].split('&')[0]
     if '/content/' in source_url:
         return source_url.rstrip('/').split('/')[-1].split('?')[0]
+    if '/books/' in source_url:
+        return source_url.rstrip('/').split('/books/')[-1].split('?')[0]
     return ''
 
 
 def try_resolve(record: dict) -> tuple[dict, bool]:
     record = dict(record)
+
+    if not (record.get('artist_name') or '').strip():
+        names = []
+        seen = set()
+        for field in ('original_author', 'author', 'illustrator'):
+            name = (record.get(field) or '').strip()
+            if name and name not in seen:
+                names.append(name)
+                seen.add(name)
+        if names:
+            record['artist_name'] = ', '.join(names)
 
     if not record.get('platform_work_id'):
         source = record.get('source_url', '')

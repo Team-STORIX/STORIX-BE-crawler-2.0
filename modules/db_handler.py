@@ -2,7 +2,7 @@ import mysql.connector
 from mysql.connector import Error as MySQLError
 import csv
 import os
-from config import FAILED_CSV
+from config import FAILED_CSV, OUTPUT_CSV
 
 # 장르 우선순위
 GENRE_PRIORITY = {
@@ -17,19 +17,66 @@ GENRE_PRIORITY = {
     '스릴러': 1,
 }
 
+PRIORITY_CASE_SQL = """
+    CASE genre
+        WHEN '로판' THEN 5
+        WHEN '무협/사극' THEN 1
+        WHEN '판타지' THEN 1
+        WHEN '액션' THEN 1
+        WHEN '드라마' THEN 1
+        WHEN '로맨스' THEN 1
+        WHEN '일상' THEN 1
+        WHEN '개그' THEN 1
+        WHEN '스릴러' THEN 1
+        ELSE 0
+    END
+"""
+
+
+def _clean_text(value, default=""):
+    if value is None:
+        return default
+    return str(value).strip()
+
+
+def _optional_text(value):
+    text = _clean_text(value)
+    return text or None
+
+
+def _clean_hashtags(values):
+    if isinstance(values, str):
+        values = [values]
+
+    cleaned = []
+    for value in values or []:
+        tag = _clean_text(value).lstrip("#")
+        if tag and tag not in cleaned:
+            cleaned.append(tag)
+    return cleaned
+
+
+def _canonical_artist_name(raw_artist_name, author, illustrator, original_author):
+    names = []
+    seen = set()
+    for value in (original_author, author, illustrator):
+        name = _clean_text(value)
+        if name and name not in seen:
+            names.append(name)
+            seen.add(name)
+    return ", ".join(names) if names else _clean_text(raw_artist_name)
+
+
 def connect_database(config):
-    
     try:
         conn = mysql.connector.connect(**config)
         if conn.is_connected():
             print("✅ 데이터베이스 연결 성공")
-
             return conn
-        
     except MySQLError as e:
         print(f"❌ 데이터베이스 연결 실패: {e}")
-
     return None
+
 
 def parse_artists(artist_name_raw):
 
@@ -75,13 +122,12 @@ def parse_artists(artist_name_raw):
 
 
 def normalize_data(data):
-
-    # 장르 
-    genre = data.get('genre', '').strip().lstrip('#')
+    # 장르
+    genre = _clean_text(data.get('genre')).lstrip('#')
     genre = genre.replace('무협 / 사극', '무협/사극')
     
     # 연령
-    age_raw = data.get('age_classification', '').replace(' ', '')
+    age_raw = _clean_text(data.get('age_classification')).replace(' ', '')
     if not age_raw: 
         age = ""  
     elif any(x in age_raw for x in ['18', '19', '청불']): 
@@ -96,120 +142,190 @@ def normalize_data(data):
         age = ""
 
     # 작가
-    author, illustrator, original_author = parse_artists(data.get('artist_name', ''))
+    parsed_author, parsed_illustrator, parsed_original_author = parse_artists(
+        _clean_text(data.get('artist_name'))
+    )
+    author = _optional_text(data.get('author')) or parsed_author
+    illustrator = _optional_text(data.get('illustrator')) or parsed_illustrator
+    original_author = _optional_text(data.get('original_author')) or parsed_original_author
+    artist_name = _canonical_artist_name(
+        data.get('artist_name'),
+        author,
+        illustrator,
+        original_author,
+    )
 
     return {
         **data,
+        'platform': _clean_text(data.get('platform')),
+        'works_name': _clean_text(data.get('works_name')),
+        'artist_name': artist_name,
         'genre': genre,
         'age_classification': age,
+        'description': _clean_text(data.get('description')),
+        'thumbnail_url': _clean_text(data.get('thumbnail_url')),
+        'works_type': _clean_text(data.get('works_type')),
         'author': author,
         'illustrator': illustrator,
         'original_author': original_author,
+        'hashtags': _clean_hashtags(data.get('hashtags')),
+        'source_url': _clean_text(data.get('source_url')),
         'priority': GENRE_PRIORITY.get(genre, 0)
     }
 
 
 def save_one_row(connection, cursor, raw_data):
-    hashtag_list = raw_data.get('hashtags', [])
     data = normalize_data(raw_data)
-    
-    priority_case = """
-        CASE genre
-            WHEN '로판' THEN 5
-            WHEN '판타지' THEN 1
-            WHEN '무협/사극' THEN 1
-            WHEN '로맨스' THEN 1
-            WHEN '일상' THEN 1
-            WHEN '개그' THEN 1
-            WHEN '스릴러' THEN 1
-            ELSE 0
-        END
-    """
-    works_sql = f"""
-    INSERT INTO works
-    (platform, works_name, artist_name, author, illustrator, original_author,
-     age_classification, description, genre, thumbnail_url, works_type)
-    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-    ON DUPLICATE KEY UPDATE
-        artist_name = CASE WHEN %s >= ({priority_case}) THEN VALUES(artist_name) ELSE artist_name END,
-        author      = CASE WHEN %s >= ({priority_case}) THEN VALUES(author)      ELSE author END,
-        illustrator = CASE WHEN %s >= ({priority_case}) THEN VALUES(illustrator) ELSE illustrator END,
-        original_author = CASE WHEN %s >= ({priority_case}) THEN VALUES(original_author) ELSE original_author END,
-        age_classification = VALUES(age_classification),
-        description    = VALUES(description),
-        thumbnail_url  = VALUES(thumbnail_url),
-        works_type     = VALUES(works_type),
-        genre = CASE WHEN %s >= ({priority_case}) THEN VALUES(genre) ELSE genre END
-    """
+    hashtag_list = data.get('hashtags', [])
     p = data['priority']
-    works_vals = (
-        data['platform'], data['works_name'], data['artist_name'],
-        data['author'], data['illustrator'], data['original_author'],
-        data['age_classification'], data['description'], data['genre'],
-        data['thumbnail_url'], data['works_type'],
-        p, p, p, p, p  # artist_name, author, illustrator, original_author, genre
-    )
+    lock_acquired = False
 
     try:
-        # works 테이블 저장 
-        cursor.execute(works_sql, works_vals)
-        affected_rows = cursor.rowcount
+        cursor.execute(
+            "SELECT GET_LOCK(SHA2(CONCAT('works:', %s, '|', %s), 256), 10)",
+            (data['works_name'], data['artist_name']),
+        )
+        lock_result = cursor.fetchone()
+        if not lock_result or lock_result[0] != 1:
+            raise TimeoutError(f"작품 저장 락 획득 실패: {data['works_name']}")
+        lock_acquired = True
 
-        while cursor.nextset(): pass
+        # 기존 작품 조회 (works_name + artist_name 기준)
+        cursor.execute(
+            """
+            SELECT works_id
+            FROM works
+            WHERE works_name = %s AND artist_name = %s
+            ORDER BY works_id
+            LIMIT 1
+            """,
+            (data['works_name'], data['artist_name'])
+        )
+        existing = cursor.fetchone()
+        changed = False
+        status = "신규"
 
+        if existing:
+            works_id = existing[0]
+            cursor.execute(f"""
+                UPDATE works SET
+                    age_classification = COALESCE(NULLIF(%s, ''), age_classification),
+                    description        = COALESCE(NULLIF(%s, ''), description),
+                    thumbnail_url      = COALESCE(NULLIF(%s, ''), thumbnail_url),
+                    works_type         = COALESCE(NULLIF(%s, ''), works_type),
+                    author             = CASE WHEN %s IS NOT NULL AND %s >= ({PRIORITY_CASE_SQL}) THEN %s ELSE author END,
+                    illustrator        = CASE WHEN %s IS NOT NULL AND %s >= ({PRIORITY_CASE_SQL}) THEN %s ELSE illustrator END,
+                    original_author    = CASE WHEN %s IS NOT NULL AND %s >= ({PRIORITY_CASE_SQL}) THEN %s ELSE original_author END,
+                    genre              = CASE WHEN %s <> '' AND %s >= ({PRIORITY_CASE_SQL}) THEN %s ELSE genre END
+                WHERE works_id = %s
+            """, (
+                data['age_classification'], data['description'],
+                data['thumbnail_url'], data['works_type'],
+                data['author'], p, data['author'],
+                data['illustrator'], p, data['illustrator'],
+                data['original_author'], p, data['original_author'],
+                data['genre'], p, data['genre'],
+                works_id,
+            ))
+            changed = cursor.rowcount > 0
+            status = "업데이트" if changed else "변경없음"
+        else:
+            cursor.execute("""
+                INSERT INTO works
+                (works_name, artist_name, author, illustrator, original_author,
+                 age_classification, description, genre, thumbnail_url, works_type)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """, (
+                data['works_name'], data['artist_name'],
+                data['author'], data['illustrator'], data['original_author'],
+                data['age_classification'], data['description'], data['genre'],
+                data['thumbnail_url'], data['works_type'],
+            ))
+            works_id = cursor.lastrowid
+            changed = True
 
-        # 방금 저장한 works의 works_id
-        cursor.execute("SELECT works_id FROM works WHERE works_name = %s", (data['works_name'],))
-        work_id_result = cursor.fetchone()
-        
-        if not work_id_result:
-            raise Exception(f"Failed to retrieve works_id for {data['works_name']}")
-        works_id = work_id_result[0]
+        # works_platform 연동
+        if data.get('platform'):
+            cursor.execute(
+                "INSERT IGNORE INTO works_platform (works_id, platform) VALUES (%s, %s)",
+                (works_id, data['platform'])
+            )
+            changed = changed or cursor.rowcount > 0
 
-        while cursor.nextset(): pass
-
-        # 해시태그 처리 
+        # 해시태그 처리
         if hashtag_list:
             cursor.execute("DELETE FROM works_hashtag WHERE works_id = %s", (works_id,))
             for tag_name in hashtag_list:
-                if not tag_name: continue
-                
-                cursor.execute("SELECT id FROM hashtag WHERE name = %s", (tag_name,))
-                hashtag_result = cursor.fetchone()
+                cursor.execute("""
+                    INSERT INTO hashtag (name)
+                    VALUES (%s)
+                    ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id)
+                """, (tag_name,))
+                hashtag_id = cursor.lastrowid
 
-                while cursor.nextset(): pass
-                
-                if hashtag_result:
-                    hashtag_id = hashtag_result[0]
-                else:
-                    cursor.execute("INSERT INTO hashtag (name) VALUES (%s)", (tag_name,))
-                    while cursor.nextset(): pass
-                    hashtag_id = cursor.lastrowid
-                
                 cursor.execute(
                     "INSERT IGNORE INTO works_hashtag (works_id, hashtag_id) VALUES (%s, %s)",
                     (works_id, hashtag_id)
                 )
-                while cursor.nextset(): pass
+            changed = True
+
+        if existing:
+            status = "업데이트" if changed else "변경없음"
+
+        log_prefix = {
+            "신규": "✨ [신규]",
+            "업데이트": "🔄 [업데이트]",
+            "변경없음": "➖ [변경없음]",
+        }[status]
 
         connection.commit()
-        
-        if affected_rows == 1:
-            log_prefix = "✨ [신규]"
-        elif affected_rows == 2:
-            log_prefix = "🔄 [업데이트]"
-        else:
-            log_prefix = "➖ [변경없음]"
-
         print(f"  {log_prefix} {data['works_name']}")
+        safe_save_to_csv(data, status=status)
         return True
-    
+
     except Exception as e:
         print(f"❌ [DB 에러] {data.get('works_name')} -> {e}")
         connection.rollback()
         backup_failed_row(data, str(e))
+        safe_save_to_csv(data, status="실패")
         return False
+    finally:
+        if lock_acquired:
+            try:
+                cursor.execute(
+                    "DO RELEASE_LOCK(SHA2(CONCAT('works:', %s, '|', %s), 256))",
+                    (data['works_name'], data['artist_name']),
+                )
+            except Exception:
+                pass
     
+
+CSV_COLUMNS = [
+    "status", "platform", "works_name", "artist_name", "author",
+    "illustrator", "original_author", "age_classification",
+    "genre", "works_type", "description", "hashtags", "thumbnail_url", "source_url",
+]
+
+def save_to_csv(data: dict, status: str = "") -> None:
+    """DB 적재 결과를 output_rows.csv 에 항상 기록."""
+    file_exists = OUTPUT_CSV.is_file()
+    with open(OUTPUT_CSV, "a", newline="", encoding="utf-8-sig") as f:
+        writer = csv.DictWriter(f, fieldnames=CSV_COLUMNS, extrasaction="ignore")
+        if not file_exists:
+            writer.writeheader()
+        writer.writerow({
+            **data,
+            "status": status,
+            "hashtags": ", ".join(data.get("hashtags") or []),
+        })
+
+
+def safe_save_to_csv(data: dict, status: str = "") -> None:
+    try:
+        save_to_csv(data, status=status)
+    except Exception as e:
+        print(f"⚠️ [CSV 기록 실패] {data.get('works_name')} -> {e}")
+
 
 def backup_failed_row(data, err_msg):
     file_exists = os.path.isfile(FAILED_CSV)

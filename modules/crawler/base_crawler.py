@@ -7,8 +7,16 @@ from selenium.webdriver.chrome.options import Options
 from selenium.common.exceptions import InvalidSessionIdException
 
 from modules.logger import get_logger
+from monitor.session_watcher import watcher
+
+
+class SessionExpiredError(Exception):
+    pass
+
 
 class BaseCrawler:
+    _platform: str = ''
+
     def __init__(self, headless: bool = False):
         self.driver = None
         self._headless = headless
@@ -86,17 +94,23 @@ class BaseCrawler:
         for attempt in range(1, max_attempts + 1):
             try:
                 result = self.crawl_detail(url)
-            except InvalidSessionIdException as e:
-                self._log.error("세션 끊김, 드라이버 재시작 (%s): %s", url, e)
+            except (InvalidSessionIdException, SessionExpiredError) as e:
+                self._log.error("세션 만료, 드라이버 재시작 (%s): %s", url, e)
                 self._restart_driver()
+                if self._platform:
+                    watcher.record_null(self._platform)
                 result = None
 
             if result is not None:
+                if self._platform:
+                    watcher.record_success(self._platform)
                 return result
             if attempt < max_attempts:
                 wait = 2.0 * attempt
                 self._log.warning("재시도 %d/%d (%s), %.0f초 대기", attempt, max_attempts - 1, url, wait)
                 time.sleep(wait)
+        if self._platform:
+            watcher.record_null(self._platform)
         self._log.error("최대 재시도 횟수 초과, 포기: %s", url)
         return None
 

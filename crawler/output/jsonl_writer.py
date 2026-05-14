@@ -32,6 +32,8 @@ def _normalize_record(data: dict, platform: str, mode: str) -> dict:
             data['platform_work_id'] = source.split('titleId=')[-1].split('&')[0]
         elif '/content/' in source:
             data['platform_work_id'] = source.rstrip('/').split('/')[-1].split('?')[0]
+        elif '/books/' in source:
+            data['platform_work_id'] = source.rstrip('/').split('/books/')[-1].split('?')[0]
 
     return {
         'schema_version': '2.0',
@@ -55,11 +57,10 @@ def _normalize_record(data: dict, platform: str, mode: str) -> dict:
 
 
 class JSONLWriter:
-    def __init__(self, platform: str, mode: str, output_dir: Path = None):
+    def __init__(self, platform: str, mode: str, output_dir: Path = None, filename: str = None):
         base = output_dir or OUTPUT_DIR
         date_str = datetime.now().strftime('%Y-%m-%d')
-        ts = datetime.now().strftime('%H%M%S')
-        self.path = Path(base) / date_str / f'{platform}_{mode}_{ts}.jsonl'
+        self.path = Path(base) / date_str / (filename or f'{mode}.jsonl')
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._platform = platform
         self._mode = mode

@@ -70,6 +70,11 @@ def cmd_crawl(args):
     mode = args.mode
     platform = args.platform
 
+    # custom_url 모드는 platform 불필요
+    if mode != 'custom_url' and not platform:
+        print('❌ custom_url 제외한 모드는 --platform이 필수입니다.')
+        sys.exit(1)
+
     if mode == 'initial':
         from crawler.modes.initial import run_initial, SUPPORTED_PLATFORMS
         if platform != 'all' and platform not in SUPPORTED_PLATFORMS:
@@ -110,6 +115,16 @@ def cmd_crawl(args):
             print('   --titles-file titles.txt  또는  --titles "작품A,작품B"')
             sys.exit(1)
         run_search_titles(platform, titles)
+
+    elif mode == 'custom_url':
+        from crawler.modes.custom_url import run_custom_url
+        url = getattr(args, 'url', None)
+        count = getattr(args, 'count', None)
+        if not url:
+            print('❌ custom_url 모드는 --url이 필수입니다.')
+            print('   예: python cli.py crawl --mode custom_url --url "https://comic.naver.com/webtoon?tab=dailyPlus" --count 213')
+            sys.exit(1)
+        run_custom_url(url, count)
 
     else:
         print(f'❌ 알 수 없는 모드: {mode}')
@@ -168,10 +183,10 @@ def main():
     subparsers = parser.add_subparsers(dest='command')
 
     crawl_p = subparsers.add_parser('crawl', help='플랫폼 크롤링 실행')
-    crawl_p.add_argument('--platform', required=True,
-                         help='naver_webtoon | kakao_page | ridibooks | all')
+    crawl_p.add_argument('--platform', required=False,
+                         help='naver_webtoon | kakao_page | ridibooks | all (custom_url 제외)')
     crawl_p.add_argument('--mode', required=True,
-                         choices=['initial', 'new_works', 'update_fields', 'search_titles'])
+                         choices=['initial', 'new_works', 'update_fields', 'search_titles', 'custom_url'])
     crawl_p.add_argument('--input',
                          help='[update_fields 전용] 기존 JSONL 파일 또는 디렉토리 경로')
     crawl_p.add_argument('--titles-file',
@@ -179,6 +194,11 @@ def main():
                          dest='titles_file')
     crawl_p.add_argument('--titles',
                          help='[search_titles 전용] 작품명 목록 (쉼표 구분, 예: "작품A,작품B")')
+    crawl_p.add_argument('--url',
+                         help='[custom_url 전용] 크롤링할 URL (예: https://comic.naver.com/webtoon?tab=dailyPlus)')
+    crawl_p.add_argument('--count',
+                         type=int,
+                         help='[custom_url 전용] 크롤링 개수 (기본값: 500개, 무한 스크롤 무시)')
 
     login_p = subparsers.add_parser('login', help='로그인 세션 저장 (Docker 실행 전 선행)')
     login_p.add_argument('--platform', required=True,

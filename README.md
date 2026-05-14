@@ -9,13 +9,14 @@ Selenium 병렬 워커 → JSONL 산출물 → DB 배치 적재 파이프라인
 
 - CLI 진입점 (`cli.py`) — `crawl` / `batch` 명령
 - JSONL 산출물 작성기 (`crawler/output/jsonl_writer.py`)
-- 크롤링 모드: initial (전체), new_works (신작), update_fields (필드 갱신), **search_titles (작품명 검색)**
+- 크롤링 모드: initial (전체), new_works (신작), update_fields (필드 갱신), search_titles (작품명 검색), **custom_url (URL 기반)**
 - 배치 적재: 스키마 검증 → 폴백 복구 → DB INSERT (`batch/`)
 - APScheduler 기반 자동 실행 (`scheduler/`)
 - 모니터링: 세션 만료 감지, 플랫폼별 실행 이력 (`monitor/`)
 - 병렬 워커 풀 (`ThreadPoolExecutor` + `queue.Queue`, 워커 2개)
 - 환경변수 자격증명 자동 로그인 → 쿠키 로그인 → 브라우저 수동 로그인 순으로 폴백
 - **works_platform 중간 테이블** — 동일 작품이 여러 플랫폼에 연재될 경우 플랫폼 목록 확장
+- **검수 큐 대화형 수정** — 검증 실패 레코드를 사용자가 직접 수정
 
 ---
 
@@ -76,6 +77,15 @@ python cli.py crawl --platform naver_webtoon --mode search_titles --titles-file 
 
 # 작품명 리스트로 검색 크롤링 (쉼표 구분 직접 입력)
 python cli.py crawl --platform all --mode search_titles --titles "나 혼자만 레벨업,재혼 황후"
+
+# 커스텀 URL 크롤링 (네이버 웹툰 - 일일 연재+ 인기순, 상위 213개)
+python cli.py crawl --mode custom_url --url "https://comic.naver.com/webtoon?tab=dailyPlus" --count 213
+
+# 커스텀 URL 크롤링 (네이버 웹툰 - 완결 인기순, 상위 500개)
+python cli.py crawl --mode custom_url --url "https://comic.naver.com/webtoon?tab=finish" --count 500
+
+# 커스텀 URL 크롤링 (카카오페이지, 상위 300개)
+python cli.py crawl --mode custom_url --url "https://www.kakaopage.com/content/..." --count 300
 ```
 
 **배치 적재**

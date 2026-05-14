@@ -1,6 +1,6 @@
 # STORIX-BE-Crawler 2.0
 
-네이버 웹툰 / 카카오페이지 크롤러
+네이버 웹툰 / 카카오페이지 / 리디북스 크롤러
 Selenium 병렬 워커 → JSONL 산출물 → DB 배치 적재 파이프라인
 
 ---
@@ -240,8 +240,6 @@ works:          { works_id: 1, works_name: "작품명", artist_name: "작가명"
 works_platform: { works_id: 1, platform: "네이버 웹툰" }
                 { works_id: 1, platform: "카카오페이지" }
 ```
-
-**주의**: `works`, `works_platform`, `works_hashtag`, `hashtag` 스키마를 먼저 DB에 반영한 뒤 배치 적재를 실행하세요.
 
 ---
 

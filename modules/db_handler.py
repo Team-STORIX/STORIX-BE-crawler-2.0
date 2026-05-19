@@ -233,8 +233,8 @@ def save_one_row(connection, cursor, raw_data):
             cursor.execute("""
                 INSERT INTO works
                 (works_name, artist_name, author, illustrator, original_author,
-                 age_classification, description, genre, thumbnail_url, works_type)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                 age_classification, description, genre, thumbnail_url, works_type, is_onboarding)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, FALSE)
             """, (
                 data['works_name'], data['artist_name'],
                 data['author'], data['illustrator'], data['original_author'],

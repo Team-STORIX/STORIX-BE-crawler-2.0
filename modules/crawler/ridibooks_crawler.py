@@ -322,6 +322,48 @@ class RidibooksCrawler(BaseCrawler):
                 else:
                     age = "전체연령가"
 
+            # works_type 감지: 카테고리/breadcrumb 링크 → og:section → fallback
+            works_type = ""
+            try:
+                for sel in [
+                    ".book_info_category a", ".category_tag a",
+                    ".book_metadata a", "a[href*='category']", "nav a",
+                ]:
+                    els = self.driver.find_elements(By.CSS_SELECTOR, sel)
+                    for el in els:
+                        t = el.text.strip()
+                        href = el.get_attribute("href") or ""
+                        if "소설" in t or "novel" in href.lower():
+                            works_type = "웹소설"
+                            break
+                        elif "만화" in t or "comic" in href.lower():
+                            works_type = "만화"
+                            break
+                        elif "웹툰" in t or "webtoon" in href.lower():
+                            works_type = "웹툰"
+                            break
+                    if works_type:
+                        break
+            except Exception:
+                pass
+
+            if not works_type:
+                try:
+                    section = self.driver.find_element(
+                        By.CSS_SELECTOR, "meta[property='og:section'], meta[name='section']"
+                    ).get_attribute("content") or ""
+                    if "소설" in section:
+                        works_type = "웹소설"
+                    elif "만화" in section:
+                        works_type = "만화"
+                    elif "웹툰" in section:
+                        works_type = "웹툰"
+                except Exception:
+                    pass
+
+            if not works_type:
+                works_type = "웹툰"
+
             return {
                 "platform": "리디북스",
                 "works_name": title,
@@ -334,7 +376,7 @@ class RidibooksCrawler(BaseCrawler):
                 "genre": "",
                 "hashtags": [],
                 "thumbnail_url": thumb,
-                "works_type": "웹툰",
+                "works_type": works_type,
                 "source_url": url,
             }
 

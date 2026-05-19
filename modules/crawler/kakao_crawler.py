@@ -325,9 +325,10 @@ class KakaoCrawler(BaseCrawler):
                             elif "전체" in value: age = "전체연령가"
                             else: age = ""
                         elif label == "분류":
-                            if "소설" in value: works_type = "소설"
+                            if "웹소설" in value or "소설" in value: works_type = "웹소설"
                             elif "웹툰" in value: works_type = "웹툰"
-                            clean_genre = value.replace("웹소설", "").replace("소설", "").replace("웹툰", "").strip()
+                            elif "만화" in value: works_type = "만화"
+                            clean_genre = value.replace("웹소설", "").replace("소설", "").replace("웹툰", "").replace("만화", "").strip()
                             if clean_genre: genre = clean_genre
                     except Exception: continue
             except Exception: pass

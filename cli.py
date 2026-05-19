@@ -35,6 +35,14 @@ def _load_titles(args) -> list[str]:
 
 
 def cmd_login(args):
+    from config import NAVER_COOKIE_FILE, KAKAO_COOKIE_FILE, RIDIBOOKS_COOKIE_FILE
+
+    cookie_files = {
+        'naver_webtoon': NAVER_COOKIE_FILE,
+        'kakao_page': KAKAO_COOKIE_FILE,
+        'ridibooks': RIDIBOOKS_COOKIE_FILE,
+    }
+
     platform = args.platform
     targets = ['naver_webtoon', 'kakao_page', 'ridibooks'] if platform == 'all' else [platform]
 
@@ -42,6 +50,12 @@ def cmd_login(args):
         print(f'\n{"="*60}')
         print(f'🔐 [{p}] 로그인 세션 저장')
         print(f'{"="*60}')
+
+        # 기존 세션 초기화
+        cookie_file = cookie_files.get(p)
+        if cookie_file and cookie_file.exists():
+            cookie_file.unlink()
+            print(f'🗑️  기존 세션 파일 삭제: {cookie_file.name}')
 
         if p == 'naver_webtoon':
             from modules.crawler.naver_crawler import NaverCrawler
@@ -136,7 +150,8 @@ def cmd_batch(args):
     if sub == 'import':
         from batch.importer import run_import
         watch = getattr(args, 'watch', False)
-        run_import(args.input, watch=watch)
+        verbose = getattr(args, 'verbose', False)
+        run_import(args.input, watch=watch, verbose=verbose)
     elif sub == 'review':
         _cmd_review(args.input)
     elif sub == 'fix':
@@ -210,6 +225,7 @@ def main():
     import_p = batch_sub.add_parser('import', help='JSONL 파일 DB 적재')
     import_p.add_argument('--input', required=False, help='적재할 디렉토리 또는 파일 경로 (생략 시 당일 폴더 자동 감지)')
     import_p.add_argument('--watch', action='store_true', help='output 폴더 감시 모드')
+    import_p.add_argument('--verbose', action='store_true', help='검수큐 행의 검증 오류를 실시간 출력')
 
     review_p = batch_sub.add_parser('review', help='수동 검수 큐 조회')
     review_p.add_argument('--input', required=True, help='manual_review_queue.jsonl 경로')

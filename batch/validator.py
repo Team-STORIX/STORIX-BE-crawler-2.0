@@ -2,7 +2,7 @@ REQUIRED_FIELDS = ['works_name', 'artist_name', 'platform', 'source_url']
 
 VALID_AGE = {'전체연령가', '12세 이용가', '15세 이용가', '18세 이용가', ''}
 
-VALID_WORKS_TYPE = {'웹툰', '소설', ''}
+VALID_WORKS_TYPE = {'웹툰', '웹소설', '만화', '소설', ''}
 
 VALID_PLATFORM = {'카카오페이지', '네이버 웹툰', '리디북스', '네이버 시리즈'}
 

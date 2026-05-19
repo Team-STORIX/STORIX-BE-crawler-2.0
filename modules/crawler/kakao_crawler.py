@@ -274,9 +274,9 @@ class KakaoCrawler(BaseCrawler):
                 self.driver.get(target_url)
                 time.sleep(2)
 
-            title_xpath = '//*[@id="__next"]/div/div[2]/div[1]/div/div[1]/div[1]/div/div[2]/a/div/span[1]'
+            # 페이지 로딩 대기: React 앱 루트만 확인
             try:
-                wait.until(EC.presence_of_element_located((By.XPATH, title_xpath)))
+                wait.until(EC.presence_of_element_located((By.ID, "__next")))
             except Exception:
                 self._log.warning("페이지 로딩 시간 초과: %s", url)
                 return None
@@ -287,12 +287,24 @@ class KakaoCrawler(BaseCrawler):
             self.driver.execute_script("window.scrollTo(0, 0);")
             time.sleep(0.5)
 
-
-            # 제목
-            try:
-                title = self.driver.find_element(By.XPATH, title_xpath).text.strip()
-                title = title.replace("휴재", "").replace("[독점]", "").strip()
-            except Exception: title = ""
+            # 제목 (여러 셀렉터 fallback)
+            title = ""
+            _title_candidates = [
+                (By.XPATH, '//*[@id="__next"]/div/div[2]/div[1]/div/div[1]/div[1]/div/div[2]/a/div/span[1]'),
+                (By.XPATH, '//h1'),
+                (By.XPATH, '//h2'),
+                (By.CSS_SELECTOR, "meta[property='og:title']"),
+            ]
+            for _by, _sel in _title_candidates:
+                try:
+                    el = self.driver.find_element(_by, _sel)
+                    t = el.get_attribute("content") if _by == By.CSS_SELECTOR else el.text
+                    t = (t or "").strip().replace("휴재", "").replace("[독점]", "").strip()
+                    if t:
+                        title = t
+                        break
+                except Exception:
+                    pass
 
             # 설명
             try:

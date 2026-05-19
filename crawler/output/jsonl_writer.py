@@ -38,7 +38,7 @@ def _normalize_record(data: dict, platform: str, mode: str) -> dict:
     return {
         'schema_version': '2.0',
         'crawled_at': datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
-        'platform': platform,
+        'platform': data.get('platform') or platform,
         'mode': mode,
         'works_name': data.get('works_name', ''),
         'platform_work_id': data.get('platform_work_id', ''),

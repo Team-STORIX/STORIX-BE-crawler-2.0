@@ -24,9 +24,11 @@ class ImportStats:
 
 
 class BatchImporter:
-    def __init__(self, conn, cursor):
+    def __init__(self, conn, cursor, verbose: bool = False):
         self._conn = conn
         self._cursor = cursor
+        self._verbose = verbose
+        self._error_sample: list[tuple[str, list[str]]] = []  # (works_name, errors)
 
     def _review_queue_path(self, base_dir: Path) -> Path:
         return base_dir / 'manual_review_queue.jsonl'
@@ -60,6 +62,11 @@ class BatchImporter:
         is_valid, errors = validate(record)
 
         if not is_valid:
+            if self._verbose or len(self._error_sample) < 5:
+                name = record.get('works_name', '(제목없음)')
+                self._error_sample.append((name, errors))
+                if self._verbose:
+                    print(f'    ⚠️  검수큐 [{name}]: {" | ".join(errors)}')
             fallback.queue_for_review(record, errors, review_path)
             stats.reviewed += 1
             return
@@ -92,6 +99,12 @@ class BatchImporter:
         for f in files:
             self.import_file(f, stats)
 
+        if self._error_sample and not self._verbose:
+            print(f'\n⚠️  검수큐 원인 샘플 (최대 5건):')
+            for name, errors in self._error_sample:
+                print(f'   [{name}] {" | ".join(errors)}')
+            print('   → 전체 확인: python cli.py batch import --input <경로> --verbose')
+
         return stats
 
     def watch(self, watch_dir: Path, interval: int = 30) -> None:
@@ -119,13 +132,13 @@ class BatchImporter:
             print('\n🛑 감시 모드 종료')
 
 
-def run_import(input_path: str, watch: bool = False) -> None:
+def run_import(input_path: str, watch: bool = False, verbose: bool = False) -> None:
     conn = connect_database(MYSQL_CONFIG)
     if not conn:
         raise RuntimeError('DB 연결 실패')
 
     cursor = conn.cursor()
-    importer = BatchImporter(conn, cursor)
+    importer = BatchImporter(conn, cursor, verbose=verbose)
 
     try:
         if watch:

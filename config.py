@@ -80,6 +80,15 @@ RIDIBOOKS_INITIAL_TARGETS = [
     ("https://ridibooks.com/category/bestsellers/4250", "adult_exclude=y&period=monthly", "웹툰 BL 월간 성인제외",      200, "BL",       "웹툰"),
 ]
 
+# ---- 리디북스 new_works 대상 ----
+# (base_url, 추가 파라미터, 레이블, 최대 수집 수, 장르 힌트, 작품 유형)
+RIDIBOOKS_NEW_TARGETS = [
+    ("https://ridibooks.com/category/bestsellers/1612", "adult_exclude=y&period=monthly", "웹툰 로판 월간 성인제외",    100, "로판",   "웹툰"),
+    ("https://ridibooks.com/category/bestsellers/1613", "adult_exclude=y&period=monthly", "웹툰 로맨스 월간 성인제외", 100, "로맨스", "웹툰"),
+    ("https://ridibooks.com/category/bestsellers/1606", "period=monthly",                  "웹툰 판타지 월간",          100, "판타지", "웹툰"),
+    ("https://ridibooks.com/category/bestsellers/4250", "adult_exclude=y&period=monthly", "웹툰 BL 월간 성인제외",     100, "BL",    "웹툰"),
+]
+
 # 로그인 자격증명
 NAVER_ID = os.getenv("NAVER_ID", "")
 NAVER_PW = os.getenv("NAVER_PW", "")

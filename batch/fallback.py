@@ -7,6 +7,13 @@ from pathlib import Path
 SIMILARITY_THRESHOLD = 0.85
 _review_lock = threading.Lock()
 
+_PLATFORM_KEY_MAP = {
+    'naver_webtoon': '네이버 웹툰',
+    'kakao_page': '카카오페이지',
+    'ridibooks': '리디북스',
+    'naver_series': '네이버 시리즈',
+}
+
 
 def _extract_work_id(source_url: str) -> str:
     if 'titleId=' in source_url:
@@ -20,6 +27,11 @@ def _extract_work_id(source_url: str) -> str:
 
 def try_resolve(record: dict) -> tuple[dict, bool]:
     record = dict(record)
+
+    # 내부 플랫폼 키 → 한국어명 정규화 (구버전 JSONL 호환)
+    platform = record.get('platform', '')
+    if platform in _PLATFORM_KEY_MAP:
+        record['platform'] = _PLATFORM_KEY_MAP[platform]
 
     if not (record.get('artist_name') or '').strip():
         names = []
@@ -37,6 +49,10 @@ def try_resolve(record: dict) -> tuple[dict, bool]:
         work_id = _extract_work_id(source)
         if work_id:
             record['platform_work_id'] = work_id
+
+    # '소설' → '웹소설' 정규화 (구버전 카카오 크롤러 데이터 호환)
+    if record.get('works_type') == '소설':
+        record['works_type'] = '웹소설'
 
     resolvable = bool((record.get('works_name') or '').strip())
     return record, resolvable

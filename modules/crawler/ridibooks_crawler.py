@@ -336,10 +336,7 @@ class RidibooksCrawler(BaseCrawler):
                         if "소설" in t or "novel" in href.lower():
                             works_type = "웹소설"
                             break
-                        elif "만화" in t or "comic" in href.lower():
-                            works_type = "만화"
-                            break
-                        elif "웹툰" in t or "webtoon" in href.lower():
+                        elif "웹툰" in t or "만화" in t or "webtoon" in href.lower() or "comic" in href.lower():
                             works_type = "웹툰"
                             break
                     if works_type:
@@ -354,9 +351,7 @@ class RidibooksCrawler(BaseCrawler):
                     ).get_attribute("content") or ""
                     if "소설" in section:
                         works_type = "웹소설"
-                    elif "만화" in section:
-                        works_type = "만화"
-                    elif "웹툰" in section:
+                    elif "웹툰" in section or "만화" in section:
                         works_type = "웹툰"
                 except Exception:
                     pass

@@ -6,10 +6,11 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 import time
 
-from config import GENRES, BASE_URL, GENRE_MAP, DAILY_PLUS_URL, COMPLETED_URL, KAKAO_INITIAL_SECTIONS, RIDIBOOKS_INITIAL_TARGETS
+from config import GENRES, BASE_URL, GENRE_MAP, DAILY_PLUS_URL, COMPLETED_URL, KAKAO_INITIAL_SECTIONS, RIDIBOOKS_INITIAL_TARGETS, NAVER_NOVEL_BASE_URL, NAVER_NOVEL_GENRES, NAVER_NOVEL_GENRE_MAP
 from modules.crawler.naver_crawler import NaverCrawler
 from modules.crawler.kakao_crawler import KakaoCrawler
 from modules.crawler.ridibooks_crawler import RidibooksCrawler
+from modules.crawler.naver_novel_crawler import NaverNovelCrawler
 from crawler.output.jsonl_writer import JSONLWriter
 
 WORKERS = 2
@@ -26,6 +27,20 @@ def _build_naver_workers() -> list:
             print(f'  ✅ 네이버 워커 {i+1}/{WORKERS} 준비')
         else:
             print(f'  ⚠️  네이버 워커 {i+1} 쿠키 로그인 실패')
+            w.close_driver()
+    return workers
+
+
+def _build_naver_novel_workers() -> list:
+    workers = []
+    for i in range(WORKERS):
+        w = NaverNovelCrawler(headless=True)
+        w.start_driver()
+        if w.login_with_cookies():
+            workers.append(w)
+            print(f'  ✅ 네이버 웹소설 워커 {i+1}/{WORKERS} 준비')
+        else:
+            print(f'  ⚠️  네이버 웹소설 워커 {i+1} 쿠키 로그인 실패')
             w.close_driver()
     return workers
 
@@ -285,8 +300,61 @@ def run_ridibooks(writer: JSONLWriter):
             pass
 
 
+def run_naver_novel(writer: JSONLWriter):
+    lead = NaverNovelCrawler()
+    workers = []
+    try:
+        lead.start_driver()
+        if not lead.login():
+            raise RuntimeError('네이버 웹소설 로그인 실패')
+
+        workers = _build_naver_novel_workers()
+        if not workers:
+            raise RuntimeError('사용 가능한 네이버 웹소설 워커가 없습니다')
+        worker_q = _make_worker_q(workers)
+        n = len(workers)
+
+        def crawl_url(args):
+            url, genre_code = args
+            w = worker_q.get()
+            try:
+                data = w.crawl_detail_with_retry(url)
+                if data and genre_code:
+                    data['genre'] = NAVER_NOVEL_GENRE_MAP.get(genre_code, genre_code)
+                w.human_pause(1.0, 2.5)
+                return data
+            except Exception as e:
+                w._log.warning('크롤링 실패 (%s): %s', url, e)
+                return None
+            finally:
+                worker_q.put(w)
+
+        with ThreadPoolExecutor(max_workers=n) as executor:
+            futures = {}
+            for genre_code in NAVER_NOVEL_GENRES:
+                ko = NAVER_NOVEL_GENRE_MAP.get(genre_code, genre_code)
+                print(f'\n=== [네이버 웹소설 URL 수집: {genre_code} ({ko})] ===')
+                urls = lead.get_genre_urls(NAVER_NOVEL_BASE_URL + genre_code)
+                print(f'📊 {len(urls)}개 URL 큐에 추가')
+                for url in urls:
+                    futures[executor.submit(crawl_url, (url, genre_code))] = url
+
+            total = len(futures)
+            done = 0
+            for future in as_completed(futures):
+                data = future.result()
+                done += 1
+                print(f'[{done}/{total}] 수집 중...', end='\r')
+                if data:
+                    writer.write(data)
+
+    finally:
+        _close_all(lead, workers)
+
+
 _PLATFORM_MAP = {
     'naver_webtoon': run_naver_webtoon,
+    'naver_novel': run_naver_novel,
     'kakao_page': run_kakao_page,
     'ridibooks': run_ridibooks,
 }

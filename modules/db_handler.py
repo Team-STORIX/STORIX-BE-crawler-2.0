@@ -7,7 +7,7 @@ from config import FAILED_CSV, OUTPUT_CSV
 # 장르 우선순위
 GENRE_PRIORITY = {
     '로판': 5,
-    '무협/사극': 1,
+    '무협': 1,
     '판타지': 1,
     '액션': 1,
     '드라마': 1,
@@ -20,7 +20,7 @@ GENRE_PRIORITY = {
 PRIORITY_CASE_SQL = """
     CASE genre
         WHEN '로판' THEN 5
-        WHEN '무협/사극' THEN 1
+        WHEN '무협' THEN 1
         WHEN '판타지' THEN 1
         WHEN '액션' THEN 1
         WHEN '드라마' THEN 1
@@ -124,7 +124,7 @@ def parse_artists(artist_name_raw):
 def normalize_data(data):
     # 장르
     genre = _clean_text(data.get('genre')).lstrip('#')
-    genre = genre.replace('무협 / 사극', '무협/사극')
+    genre = genre.replace('무협 / 사극', '무협').replace('무협/사극', '무협')
     
     # 연령
     age_raw = _clean_text(data.get('age_classification')).replace(' ', '')

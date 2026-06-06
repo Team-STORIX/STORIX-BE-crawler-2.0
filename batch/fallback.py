@@ -9,6 +9,7 @@ _review_lock = threading.Lock()
 
 _PLATFORM_KEY_MAP = {
     'naver_webtoon': '네이버 웹툰',
+    'naver_novel': '네이버 웹소설',
     'kakao_page': '카카오페이지',
     'ridibooks': '리디북스',
     'naver_series': '네이버 시리즈',
@@ -50,9 +51,11 @@ def try_resolve(record: dict) -> tuple[dict, bool]:
         if work_id:
             record['platform_work_id'] = work_id
 
-    # '소설' → '웹소설' 정규화 (구버전 카카오 크롤러 데이터 호환)
-    if record.get('works_type') == '소설':
-        record['works_type'] = '웹소설'
+    # works_type enum 정규화: 허용값은 '웹툰', '웹소설'만
+    _type_map = {'소설': '웹소설', '만화': '웹툰'}
+    wt = record.get('works_type', '')
+    if wt in _type_map:
+        record['works_type'] = _type_map[wt]
 
     resolvable = bool((record.get('works_name') or '').strip())
     return record, resolvable

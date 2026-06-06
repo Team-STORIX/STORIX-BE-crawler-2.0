@@ -39,6 +39,18 @@ NAVER_NEW_URL = 'https://comic.naver.com/webtoon?tab=new'
 
 # ----------------------
 
+# ---- 네이버 웹소설 설정 ----
+NAVER_NOVEL_BASE_URL = 'https://novel.naver.com/webnovel/genre?genre='
+NAVER_NOVEL_GENRES = ['로맨스', '판타지', '무협', '드라마', 'BL']
+NAVER_NOVEL_GENRE_MAP = {
+    '로맨스': '로맨스',
+    '판타지': '판타지',
+    '무협': '무협',
+    '드라마': '드라마',
+    'BL': 'BL',
+}
+NAVER_NOVEL_NEW_URL = 'https://novel.naver.com/webnovel/genre?genre=&type=new'
+
 # ---- 카카오 웹툰 설정 ----
 KAKAO_LOGIN_URL = "https://accounts.kakao.com/login/?continue=https%3A%2F%2Fkauth.kakao.com%2Foauth%2Fauthorize%3Fclient_id%3D49bbb48c5fdb0199e5da1b89de359484%26state%3Dhttps%25253A%25252F%25252Fpage.kakao.com%25252Fmenu%25252F10010%25252Fscreen%25252F93%26redirect_uri%3Dhttps%253A%252F%252Fpage.kakao.com%252Frelay%252Flogin%26response_type%3Dcode%26auth_tran_id%3DW3lvNUKSoQz6HLrxqft_Qn0McwWmXpOWQ7Zo.f_58sE5Hx7anOVDmu5vgoIS%26ka%3Dsdk%252F2.1.0%2520os%252Fjavascript%2520sdk_type%252Fjavascript%2520lang%252Fko-KR%2520device%252FMacIntel%2520origin%252Fhttps%25253A%25252F%25252Fpage.kakao.com%26is_popup%3Dfalse%26through_account%3Dtrue&talk_login=hidden#login"
 TOP_300_URL = "https://page.kakao.com/menu/10010/screen/93"
@@ -60,7 +72,7 @@ GENRE_MAP = {
     "FANTASY": "판타지",
     "DAILY": "일상",
     "로판": "로판",
-    "HISTORICAL": "무협/사극",
+    "HISTORICAL": "무협",
 }
 
 # ---- 리디북스 설정 ----

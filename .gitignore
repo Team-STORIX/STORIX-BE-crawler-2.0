@@ -2,7 +2,7 @@
 *.pyc
 *.pkl
 *.png
-*/csv
+*.csv
 */__pycache__/
 *.sh
 .idea/

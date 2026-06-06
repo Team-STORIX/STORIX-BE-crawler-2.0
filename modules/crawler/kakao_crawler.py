@@ -338,14 +338,13 @@ class KakaoCrawler(BaseCrawler):
                             else: age = ""
                         elif label == "분류":
                             if "웹소설" in value or "소설" in value: works_type = "웹소설"
-                            elif "웹툰" in value: works_type = "웹툰"
-                            elif "만화" in value: works_type = "만화"
+                            else: works_type = "웹툰"  # 웹툰, 만화 모두 웹툰으로 통일
                             clean_genre = value.replace("웹소설", "").replace("소설", "").replace("웹툰", "").replace("만화", "").strip()
                             if clean_genre: genre = clean_genre
                     except Exception: continue
             except Exception: pass
 
-            if genre == "무협": genre = "무협/사극"
+            if genre == "무협": genre = "무협"
 
             # artist_name 조합
             artist_map = {} 

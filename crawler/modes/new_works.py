@@ -1,14 +1,15 @@
-import queue
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from config import NAVER_NEW_URL, KAKAO_NEW_URL, RIDIBOOKS_NEW_TARGETS
+from config import NAVER_NEW_URL, KAKAO_NEW_URL, RIDIBOOKS_NEW_TARGETS, NAVER_NOVEL_NEW_URL
 from modules.crawler.naver_crawler import NaverCrawler
 from modules.crawler.kakao_crawler import KakaoCrawler
 from modules.crawler.ridibooks_crawler import RidibooksCrawler
+from modules.crawler.naver_novel_crawler import NaverNovelCrawler
 from crawler.output.jsonl_writer import JSONLWriter
 from crawler.modes.initial import (
     _build_naver_workers,
+    _build_naver_novel_workers,
     _build_kakao_workers,
     _make_worker_q,
     _close_all,
@@ -119,6 +120,50 @@ def run_kakao_page(writer: JSONLWriter):
         _close_all(lead, workers)
 
 
+def run_naver_novel(writer: JSONLWriter):
+    write_if_new = _make_dedup_writer(writer)
+    lead = NaverNovelCrawler()
+    workers = []
+    try:
+        lead.start_driver()
+        if not lead.login():
+            raise RuntimeError('네이버 웹소설 로그인 실패')
+
+        print(f'\n=== [네이버 웹소설 신작 URL 수집] ===')
+        urls = lead.get_genre_urls(NAVER_NOVEL_NEW_URL)
+        print(f'📊 {len(urls)}개 URL 수집')
+
+        workers = _build_naver_novel_workers()
+        if not workers:
+            raise RuntimeError('사용 가능한 네이버 웹소설 워커가 없습니다')
+        worker_q = _make_worker_q(workers)
+        n = len(workers)
+
+        def crawl_one(url):
+            w = worker_q.get()
+            try:
+                return w.crawl_detail_with_retry(url)
+            except Exception:
+                return None
+            finally:
+                w.human_pause(1.0, 2.5)
+                worker_q.put(w)
+
+        total = len(urls)
+        with ThreadPoolExecutor(max_workers=n) as executor:
+            futures = {executor.submit(crawl_one, url): url for url in urls}
+            done = 0
+            for future in as_completed(futures):
+                data = future.result()
+                done += 1
+                print(f'[{done}/{total}] 수집 중...', end='\r')
+                if data:
+                    write_if_new(data)
+
+    finally:
+        _close_all(lead, workers)
+
+
 def run_ridibooks(writer: JSONLWriter):
     write_if_new = _make_dedup_writer(writer)
     crawler = RidibooksCrawler()
@@ -150,6 +195,7 @@ def run_ridibooks(writer: JSONLWriter):
 
 _PLATFORM_MAP = {
     'naver_webtoon': run_naver_webtoon,
+    'naver_novel': run_naver_novel,
     'kakao_page': run_kakao_page,
     'ridibooks': run_ridibooks,
 }

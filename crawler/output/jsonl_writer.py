@@ -65,24 +65,42 @@ class JSONLWriter:
         self._platform = platform
         self._mode = mode
         self._lock = threading.Lock()
-        self._f = open(self.path, 'a', encoding='utf-8')
-        self._count = 0
-        print(f'📝 JSONL 출력: {self.path}')
+        # 기존 파일이 있으면 로드해서 이전 실행 데이터도 dedup 대상에 포함
+        self._records: dict[str, dict] = {}
+        if self.path.exists():
+            with open(self.path, encoding='utf-8') as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        r = json.loads(line)
+                        self._records[self._record_key(r)] = r
+                    except Exception:
+                        pass
+        print(f'📝 JSONL 출력: {self.path} (기존 {len(self._records)}건 로드)')
+
+    def _record_key(self, record: dict) -> str:
+        pid = record.get('platform_work_id', '')
+        if pid:
+            return f"{record.get('platform', '')}:{pid}"
+        return f"{record.get('platform', '')}:{record.get('works_name', '')}"
 
     def write(self, raw_data: dict) -> None:
         record = _normalize_record(raw_data, self._platform, self._mode)
+        key = self._record_key(record)
         with self._lock:
-            self._f.write(json.dumps(record, ensure_ascii=False) + '\n')
-            self._f.flush()
-            self._count += 1
+            self._records[key] = record  # 동일 작품이면 덮어씌움
 
     @property
     def count(self) -> int:
-        return self._count
+        return len(self._records)
 
     def close(self) -> None:
-        self._f.close()
-        print(f'✅ JSONL 완료: {self._count}건 → {self.path}')
+        with open(self.path, 'w', encoding='utf-8') as f:
+            for record in self._records.values():
+                f.write(json.dumps(record, ensure_ascii=False) + '\n')
+        print(f'✅ JSONL 완료: {len(self._records)}건 → {self.path}')
 
     def __enter__(self):
         return self

@@ -1,3 +1,4 @@
+import re
 import time
 import random
 import pickle
@@ -5,6 +6,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, InvalidSessionIdException
+from urllib3.exceptions import ReadTimeoutError as _DriverTimeoutError
 
 from .base_crawler import BaseCrawler, SessionExpiredError
 from config import KAKAO_COOKIE_FILE, KAKAO_LOGIN_URL, KAKAO_ID, KAKAO_PW
@@ -299,17 +301,42 @@ class KakaoCrawler(BaseCrawler):
                 try:
                     el = self.driver.find_element(_by, _sel)
                     t = el.get_attribute("content") if _by == By.CSS_SELECTOR else el.text
-                    t = (t or "").strip().replace("휴재", "").replace("[독점]", "").strip()
+                    t = (t or "").strip()
+                    t = re.sub(r'\s*\[(완결|독점|19세 완전판|휴재)\]', '', t).replace("휴재", "").strip()
                     if t:
                         title = t
                         break
                 except Exception:
                     pass
 
-            # 설명
+            # 설명 - DOM 직접 추출로 \n 보존 (og:description은 개행 제거됨)
+            desc = ""
             try:
-                desc = self.driver.find_element(By.CSS_SELECTOR, "meta[property='og:description']").get_attribute("content")
-            except Exception: desc = ""
+                desc = self.driver.execute_script("""
+                    const candidates = [
+                        document.querySelector('[class*="pre-line"]'),
+                        document.querySelector('[class*="preLine"]'),
+                        document.querySelector('[class*="pre_line"]'),
+                        document.querySelector('pre'),
+                    ];
+                    for (const el of candidates) {
+                        if (el && el.innerText && el.innerText.trim().length > 20) {
+                            return el.innerText.trim();
+                        }
+                    }
+                    return null;
+                """) or ""
+                desc = desc.strip()
+            except Exception:
+                desc = ""
+
+            if not desc:
+                try:
+                    desc = self.driver.find_element(
+                        By.CSS_SELECTOR, "meta[property='og:description']"
+                    ).get_attribute("content") or ""
+                except Exception:
+                    desc = ""
 
             # 상세 정보 리스트
             author, illustrator, original_author, age, genre, works_type = "", "", "", "", "", ""
@@ -393,7 +420,7 @@ class KakaoCrawler(BaseCrawler):
                 "source_url": url
             }
         
-        except InvalidSessionIdException:
+        except (InvalidSessionIdException, _DriverTimeoutError):
             raise
         except Exception as e:
             self._log.error("crawl_detail 실패 (%s): %s", url, e)

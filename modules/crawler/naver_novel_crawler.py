@@ -4,6 +4,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import InvalidSessionIdException
+from urllib3.exceptions import ReadTimeoutError as _DriverTimeoutError
 
 from .naver_crawler import NaverCrawler
 from .base_crawler import SessionExpiredError
@@ -107,9 +108,9 @@ class NaverNovelCrawler(NaverCrawler):
                 except Exception:
                     pass
 
-            # 설명
+            # 설명 - DOM 직접 추출로 \n 보존 (og:description은 개행 제거됨)
             desc = ""
-            for sel in [".synopsis", ".des", ".story", ".info_area p", ".synopsis_wrap"]:
+            for sel in [".synopsis", ".des", ".story", ".info_area p", ".synopsis_wrap", ".introduce", ".content"]:
                 try:
                     t = self.driver.find_element(By.CSS_SELECTOR, sel).text.strip()
                     if t:
@@ -174,7 +175,7 @@ class NaverNovelCrawler(NaverCrawler):
                 "source_url": url,
             }
 
-        except (InvalidSessionIdException, SessionExpiredError):
+        except (InvalidSessionIdException, SessionExpiredError, _DriverTimeoutError):
             raise
         except Exception as e:
             self._log.error("crawl_detail 실패 (%s): %s", url, e)

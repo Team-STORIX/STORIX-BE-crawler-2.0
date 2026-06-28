@@ -17,6 +17,8 @@ Selenium 병렬 워커 → JSONL 산출물 → DB 배치 적재 파이프라인
 - 환경변수 자격증명 자동 로그인 → 쿠키 로그인 → 브라우저 수동 로그인 순으로 폴백
 - **works_platform 중간 테이블** — 동일 작품이 여러 플랫폼에 연재될 경우 플랫폼 목록 확장
 - **검수 큐 대화형 수정** — 검증 실패 레코드를 사용자가 직접 수정
+- **JSONL 중복 제거** — `platform_work_id` 기준 in-memory dedup, 재실행 시 기존 파일 로드 후 덮어씌움
+- **DB priority 공존 로직** — 새 값·기존 값 모두 있을 때 장르 우선순위(`로판`=5 등)로 선택, 한쪽만 있으면 있는 쪽 채택
 
 ---
 
@@ -275,15 +277,16 @@ works_platform: { works_id: 1, platform: "네이버 웹툰" }
 │   │   ├── update_fields.py        # source_url 목록으로 필드 재크롤링
 │   │   └── search_titles.py        # 작품명 리스트 → 검색 → JSONL 저장
 │   └── output/
-│       └── jsonl_writer.py         # 크롤 결과를 JSONL 파일로 기록, artist_name 정규화
+│       └── jsonl_writer.py         # 크롤 결과를 JSONL로 기록, platform_work_id 기준 중복 제거, artist_name 정규화
 │
 ├── modules/
 │   ├── crawler/
 │   │   ├── base_crawler.py         # WebDriver 초기화, crawl_detail_with_retry(), 세션 복구
-│   │   ├── naver_crawler.py        # 네이버 웹툰 크롤러 (로그인, URL 수집, 상세 파싱, 제목 검색)
-│   │   ├── kakao_crawler.py        # 카카오페이지 크롤러 (동일)
-│   │   └── ridibooks_crawler.py    # 리디북스 크롤러 (로그인, 카테고리 URL 수집, 상세 파싱)
-│   ├── db_handler.py               # MySQL 연결, save_one_row(), works_platform 연동
+│   │   ├── naver_crawler.py        # 네이버 웹툰 크롤러 (genre # 제거, hashtags 빈 문자열 필터)
+│   │   ├── kakao_crawler.py        # 카카오페이지 크롤러 (작품명 UI 레이블 제거, description \n 보존)
+│   │   ├── naver_novel_crawler.py  # 네이버 웹소설 크롤러 (description DOM 직접 추출)
+│   │   └── ridibooks_crawler.py    # 리디북스 크롤러 (작가 추출 다중 셀렉터, 비정상 URL 필터)
+│   ├── db_handler.py               # MySQL 연결, save_one_row() (priority 공존 upsert), works_platform 연동
 │   └── logger.py                   # 구조화 로거 팩토리
 │
 ├── batch/
@@ -301,7 +304,7 @@ works_platform: { works_id: 1, platform: "네이버 웹툰" }
 │
 └── output/                         # 크롤링 산출물 (날짜별 JSONL, .gitignore 처리됨)
     └── YYYY-MM-DD/
-        ├── initial.jsonl           # 같은 날 모든 플랫폼 initial 결과가 이어쓰기
+        ├── initial.jsonl           # platform_work_id 기준 중복 제거, 재실행 시 덮어씌움
         ├── new_works.jsonl
         ├── search_titles.jsonl
         ├── update_fields.jsonl

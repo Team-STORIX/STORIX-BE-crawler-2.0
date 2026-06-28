@@ -5,6 +5,7 @@ import random
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.common.exceptions import InvalidSessionIdException
+from urllib3.exceptions import ReadTimeoutError as _DriverTimeoutError
 
 from modules.logger import get_logger
 from monitor.session_watcher import watcher
@@ -94,8 +95,8 @@ class BaseCrawler:
         for attempt in range(1, max_attempts + 1):
             try:
                 result = self.crawl_detail(url)
-            except (InvalidSessionIdException, SessionExpiredError) as e:
-                self._log.error("세션 만료, 드라이버 재시작 (%s): %s", url, e)
+            except (InvalidSessionIdException, SessionExpiredError, _DriverTimeoutError) as e:
+                self._log.error("드라이버 재시작 (%s): %s", url, e)
                 self._restart_driver()
                 if self._platform:
                     watcher.record_null(self._platform)

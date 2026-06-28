@@ -5,6 +5,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, InvalidSessionIdException
+from urllib3.exceptions import ReadTimeoutError as _DriverTimeoutError
 
 from .base_crawler import BaseCrawler, SessionExpiredError
 from config import RIDIBOOKS_COOKIE_FILE, RIDIBOOKS_LOGIN_URL, RIDIBOOKS_ID, RIDIBOOKS_PW
@@ -142,7 +143,9 @@ class RidibooksCrawler(BaseCrawler):
                 if '/books/' not in href:
                     continue
                 book_id = href.rstrip('/').split('/books/')[-1].split('?')[0]
-                if book_id.isdigit():
+                # 1612 등 실제 도서가 아닌 서비스 메타 페이지 제외
+                _RIDI_NON_BOOK_IDS = {'1612'}
+                if book_id.isdigit() and book_id not in _RIDI_NON_BOOK_IDS:
                     collected.add(f"https://ridibooks.com/books/{book_id}")
 
             curr_count = len(collected)
@@ -237,52 +240,82 @@ class RidibooksCrawler(BaseCrawler):
                 except Exception:
                     pass
 
-            # 설명
+            # 설명 - DOM 직접 추출로 \n 보존 (og:description은 개행 제거됨)
             desc = ""
-            try:
-                desc = self.driver.find_element(
-                    By.CSS_SELECTOR, "meta[property='og:description']"
-                ).get_attribute("content") or ""
-            except Exception:
-                pass
+            for sel in [".book_intro", ".intro", ".synopsis", ".detail_introduce", ".book_detail_description", ".content_detail"]:
+                try:
+                    t = self.driver.find_element(By.CSS_SELECTOR, sel).text.strip()
+                    if t:
+                        desc = t
+                        break
+                except Exception:
+                    pass
+            if not desc:
+                try:
+                    desc = self.driver.find_element(
+                        By.CSS_SELECTOR, "meta[property='og:description']"
+                    ).get_attribute("content") or ""
+                except Exception:
+                    pass
 
             # 작가 정보
             author = ""
             illustrator = ""
             original_author = ""
 
-            try:
-                # 리디북스 작가 블록은 역할(글/그림/원작)별로 구분됨
-                contributor_rows = self.driver.find_elements(
-                    By.CSS_SELECTOR,
-                    ".book_info_author .author_role_wrap, .authors_detail .contributor"
-                )
-                for row in contributor_rows:
-                    try:
-                        role = row.find_element(
-                            By.CSS_SELECTOR, ".role, .author_role, .type"
-                        ).text.strip().rstrip(":")
-                        name = row.find_element(
-                            By.CSS_SELECTOR, ".name, a, .author_name"
-                        ).text.strip()
-                        if not name:
-                            continue
-                        if "글" in role or "작가" in role or "저자" in role:
-                            if not author:
-                                author = name
-                        elif "그림" in role:
-                            if not illustrator:
-                                illustrator = name
-                        elif "원작" in role:
-                            if not original_author:
-                                original_author = name
-                        else:
-                            if not author:
-                                author = name
-                    except Exception:
-                        pass
-            except Exception:
-                pass
+            # 리디북스 작가 블록: 역할(글/그림/원작)별 구분 — 여러 셀렉터 패턴 시도
+            _AUTHOR_ROW_SELECTORS = [
+                ".book_info_author .author_role_wrap",
+                ".authors_detail .contributor",
+                ".author_info_wrap .author_info",
+                ".BookAuthor_authorInfo__",   # CSS Module 패턴
+                "[class*='authorInfo'] [class*='author']",
+                ".book_author li",
+                ".author li",
+            ]
+            for _sel in _AUTHOR_ROW_SELECTORS:
+                try:
+                    contributor_rows = self.driver.find_elements(By.CSS_SELECTOR, _sel)
+                    if not contributor_rows:
+                        continue
+                    for row in contributor_rows:
+                        try:
+                            role_el = None
+                            for rs in [".role", ".author_role", ".type", "[class*='role']", "[class*='Role']"]:
+                                try:
+                                    role_el = row.find_element(By.CSS_SELECTOR, rs)
+                                    break
+                                except Exception:
+                                    pass
+                            role = role_el.text.strip().rstrip(":") if role_el else ""
+
+                            name_el = None
+                            for ns in [".name", "a", ".author_name", "[class*='name']", "[class*='Name']", "span"]:
+                                try:
+                                    ne = row.find_element(By.CSS_SELECTOR, ns)
+                                    if ne.text.strip():
+                                        name_el = ne
+                                        break
+                                except Exception:
+                                    pass
+                            name = name_el.text.strip() if name_el else row.text.strip()
+                            if not name:
+                                continue
+
+                            if "글" in role or "작가" in role or "저자" in role or "지은이" in role:
+                                if not author: author = name
+                            elif "그림" in role or "그린이" in role:
+                                if not illustrator: illustrator = name
+                            elif "원작" in role:
+                                if not original_author: original_author = name
+                            else:
+                                if not author: author = name
+                        except Exception:
+                            pass
+                    if author or illustrator or original_author:
+                        break
+                except Exception:
+                    pass
 
             # 폴백: 메타 태그
             if not author and not illustrator:
@@ -375,7 +408,7 @@ class RidibooksCrawler(BaseCrawler):
                 "source_url": url,
             }
 
-        except (InvalidSessionIdException, SessionExpiredError):
+        except (InvalidSessionIdException, SessionExpiredError, _DriverTimeoutError):
             raise
         except Exception as e:
             self._log.error("crawl_detail 실패 (%s): %s", url, e)

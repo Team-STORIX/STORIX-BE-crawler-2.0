@@ -30,6 +30,15 @@ class BatchImporter:
         self._verbose = verbose
         self._error_sample: list[tuple[str, list[str]]] = []  # (works_name, errors)
 
+    def _ensure_connected(self) -> bool:
+        try:
+            self._conn.ping(reconnect=True, attempts=3, delay=2)
+            self._cursor = self._conn.cursor()
+            return True
+        except Exception as e:
+            print(f'⚠️ DB 재연결 실패: {e}')
+            return False
+
     def _review_queue_path(self, base_dir: Path) -> Path:
         return base_dir / 'manual_review_queue.jsonl'
 
@@ -69,6 +78,10 @@ class BatchImporter:
                     print(f'    ⚠️  검수큐 [{name}]: {" | ".join(errors)}')
             fallback.queue_for_review(record, errors, review_path)
             stats.reviewed += 1
+            return
+
+        if not self._ensure_connected():
+            stats.failed += 1
             return
 
         ok = save_one_row(self._conn, self._cursor, record)

@@ -203,32 +203,49 @@ def save_one_row(connection, cursor, raw_data):
         )
         existing = cursor.fetchone()
         changed = False
-        status = "신규"
 
         if existing:
             works_id = existing[0]
+            # 새 값 없음 → 기존 유지 / 기존 없음 → 새 값 / 둘 다 있음 → priority 높은 쪽
             cursor.execute(f"""
                 UPDATE works SET
                     age_classification = COALESCE(NULLIF(%s, ''), age_classification),
                     description        = COALESCE(NULLIF(%s, ''), description),
                     thumbnail_url      = COALESCE(NULLIF(%s, ''), thumbnail_url),
                     works_type         = COALESCE(NULLIF(%s, ''), works_type),
-                    author             = CASE WHEN %s IS NOT NULL AND %s >= ({PRIORITY_CASE_SQL}) THEN %s ELSE author END,
-                    illustrator        = CASE WHEN %s IS NOT NULL AND %s >= ({PRIORITY_CASE_SQL}) THEN %s ELSE illustrator END,
-                    original_author    = CASE WHEN %s IS NOT NULL AND %s >= ({PRIORITY_CASE_SQL}) THEN %s ELSE original_author END,
-                    genre              = CASE WHEN %s <> '' AND %s >= ({PRIORITY_CASE_SQL}) THEN %s ELSE genre END
+                    author = CASE
+                        WHEN NULLIF(%s, '') IS NULL          THEN author
+                        WHEN COALESCE(author, '') = ''       THEN %s
+                        WHEN %s >= ({PRIORITY_CASE_SQL})     THEN %s
+                        ELSE author END,
+                    illustrator = CASE
+                        WHEN NULLIF(%s, '') IS NULL          THEN illustrator
+                        WHEN COALESCE(illustrator, '') = ''  THEN %s
+                        WHEN %s >= ({PRIORITY_CASE_SQL})     THEN %s
+                        ELSE illustrator END,
+                    original_author = CASE
+                        WHEN NULLIF(%s, '') IS NULL            THEN original_author
+                        WHEN COALESCE(original_author, '') = '' THEN %s
+                        WHEN %s >= ({PRIORITY_CASE_SQL})       THEN %s
+                        ELSE original_author END,
+                    genre = CASE
+                        WHEN NULLIF(%s, '') IS NULL          THEN genre
+                        WHEN COALESCE(genre, '') = ''        THEN %s
+                        WHEN %s >= ({PRIORITY_CASE_SQL})     THEN %s
+                        ELSE genre END,
+                    artist_name = COALESCE(NULLIF(%s, ''), artist_name)
                 WHERE works_id = %s
             """, (
                 data['age_classification'], data['description'],
                 data['thumbnail_url'], data['works_type'],
-                data['author'], p, data['author'],
-                data['illustrator'], p, data['illustrator'],
-                data['original_author'], p, data['original_author'],
-                data['genre'], p, data['genre'],
+                data['author'], data['author'], p, data['author'],
+                data['illustrator'], data['illustrator'], p, data['illustrator'],
+                data['original_author'], data['original_author'], p, data['original_author'],
+                data['genre'], data['genre'], p, data['genre'],
+                data['artist_name'],
                 works_id,
             ))
             changed = cursor.rowcount > 0
-            status = "업데이트" if changed else "변경없음"
         else:
             cursor.execute("""
                 INSERT INTO works
@@ -252,26 +269,31 @@ def save_one_row(connection, cursor, raw_data):
             )
             changed = changed or cursor.rowcount > 0
 
-        # 해시태그 처리
+        # 해시태그 처리 - 실제 변경된 경우에만 갱신
         if hashtag_list:
-            cursor.execute("DELETE FROM works_hashtag WHERE works_id = %s", (works_id,))
-            for tag_name in hashtag_list:
-                cursor.execute("""
-                    INSERT INTO hashtag (name)
-                    VALUES (%s)
-                    ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id)
-                """, (tag_name,))
-                hashtag_id = cursor.lastrowid
+            cursor.execute("""
+                SELECT h.name FROM hashtag h
+                JOIN works_hashtag wh ON h.id = wh.hashtag_id
+                WHERE wh.works_id = %s
+            """, (works_id,))
+            existing_tags = {row[0] for row in cursor.fetchall()}
 
-                cursor.execute(
-                    "INSERT IGNORE INTO works_hashtag (works_id, hashtag_id) VALUES (%s, %s)",
-                    (works_id, hashtag_id)
-                )
-            changed = True
+            if set(hashtag_list) != existing_tags:
+                cursor.execute("DELETE FROM works_hashtag WHERE works_id = %s", (works_id,))
+                for tag_name in hashtag_list:
+                    cursor.execute("""
+                        INSERT INTO hashtag (name)
+                        VALUES (%s)
+                        ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id)
+                    """, (tag_name,))
+                    hashtag_id = cursor.lastrowid
+                    cursor.execute(
+                        "INSERT IGNORE INTO works_hashtag (works_id, hashtag_id) VALUES (%s, %s)",
+                        (works_id, hashtag_id)
+                    )
+                changed = True
 
-        if existing:
-            status = "업데이트" if changed else "변경없음"
-
+        status = "신규" if not existing else ("업데이트" if changed else "변경없음")
         log_prefix = {
             "신규": "✨ [신규]",
             "업데이트": "🔄 [업데이트]",
@@ -285,7 +307,10 @@ def save_one_row(connection, cursor, raw_data):
 
     except Exception as e:
         print(f"❌ [DB 에러] {data.get('works_name')} -> {e}")
-        connection.rollback()
+        try:
+            connection.rollback()
+        except Exception:
+            pass
         backup_failed_row(data, str(e))
         safe_save_to_csv(data, status="실패")
         return False

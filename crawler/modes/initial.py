@@ -259,7 +259,23 @@ def run_kakao_page(writer: JSONLWriter):
 
         for section_url, section_label in KAKAO_INITIAL_SECTIONS:
             print(f'\n=== [카카오페이지: {section_label}] ===')
-            urls = lead.get_list_urls(section_url)
+            urls = []
+            for _attempt in range(3):
+                try:
+                    urls = lead.get_list_urls(section_url)
+                    break
+                except Exception as _e:
+                    if _attempt < 2:
+                        print(f'⚠️  lead 드라이버 오류, 재시작 ({_attempt + 1}/2): {_e}')
+                        try:
+                            lead.close_driver()
+                        except Exception:
+                            pass
+                        time.sleep(3)
+                        lead.start_driver()
+                        lead.login_with_cookies()
+                    else:
+                        print(f'❌  lead 드라이버 복구 실패, 섹션 건너뜀: {section_label}')
             print(f'📊 {len(urls)}개')
             total = len(urls)
             with ThreadPoolExecutor(max_workers=n) as executor:

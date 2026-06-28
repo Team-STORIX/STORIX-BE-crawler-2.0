@@ -6,6 +6,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import NoSuchElementException, InvalidSessionIdException
+from urllib3.exceptions import ReadTimeoutError as _DriverTimeoutError
 
 from .base_crawler import BaseCrawler, SessionExpiredError
 
@@ -277,7 +278,7 @@ class NaverCrawler(BaseCrawler):
 
             artist = self.driver.find_element(By.XPATH, '//*[@id="content"]/div[1]/div/div[1]/span').text
             desc = self.driver.find_element(By.XPATH, '//*[@id="content"]/div[1]/div/div[2]/p').text
-            genre = self.driver.find_element(By.XPATH, '//*[@id="content"]/div[1]/div/div[2]/div/div/a[1]').text
+            genre = self.driver.find_element(By.XPATH, '//*[@id="content"]/div[1]/div/div[2]/div/div/a[1]').text.lstrip('#').strip()
             age = self.driver.find_element(By.XPATH, '//*[@id="content"]/div[1]/div/div[1]/em').text.strip().split('∙')[-1].strip()
             
             hashtags = []
@@ -286,7 +287,7 @@ class NaverCrawler(BaseCrawler):
                 
                 # 첫 번째(장르)를 제외한 나머지
                 if len(all_tags) > 1:
-                    hashtags = [tag.text.strip().lstrip('#') for tag in all_tags[1:]]
+                    hashtags = [t for tag in all_tags[1:] if (t := tag.text.strip().lstrip('#'))]
             except NoSuchElementException:
                 pass 
 
@@ -308,7 +309,7 @@ class NaverCrawler(BaseCrawler):
                 "source_url": url
             }
         
-        except InvalidSessionIdException:
+        except (InvalidSessionIdException, _DriverTimeoutError):
             raise
         except Exception as e:
             self._log.warning("crawl_detail 실패 (%s): %s", url, e)

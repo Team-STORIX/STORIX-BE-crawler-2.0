@@ -289,6 +289,17 @@ class KakaoCrawler(BaseCrawler):
             self.driver.execute_script("window.scrollTo(0, 0);")
             time.sleep(0.5)
 
+            # 설명 더보기 클릭 (접혀 있을 때 DOM에 텍스트가 없는 경우 대비)
+            try:
+                more_btn = self.driver.find_element(
+                    By.XPATH,
+                    "//div[@data-t-obj and contains(@data-t-obj, '더보기')]"
+                )
+                self.driver.execute_script("arguments[0].click();", more_btn)
+                time.sleep(0.5)
+            except Exception:
+                pass
+
             # 제목 (여러 셀렉터 fallback)
             title = ""
             _title_candidates = [
@@ -309,15 +320,21 @@ class KakaoCrawler(BaseCrawler):
                 except Exception:
                     pass
 
-            # 설명 - DOM 직접 추출로 \n 보존 (og:description은 개행 제거됨)
+            # 설명 - JS innerText로 \n 보존 (og:description은 개행 제거됨)
+            # whitespace-pre-wrap span이 실제 설명 컨테이너 (class*="pre-wrap" 으로 매칭)
             desc = ""
             try:
                 desc = self.driver.execute_script("""
                     const candidates = [
+                        document.querySelector('[class*="pre-wrap"]'),
                         document.querySelector('[class*="pre-line"]'),
                         document.querySelector('[class*="preLine"]'),
                         document.querySelector('[class*="pre_line"]'),
                         document.querySelector('pre'),
+                        document.querySelector('[class*="desc"]'),
+                        document.querySelector('[class*="Desc"]'),
+                        document.querySelector('[class*="synopsis"]'),
+                        document.querySelector('[class*="introduce"]'),
                     ];
                     for (const el of candidates) {
                         if (el && el.innerText && el.innerText.trim().length > 20) {
@@ -355,7 +372,7 @@ class KakaoCrawler(BaseCrawler):
                         if label == "글": author = value
                         elif label == "그림": illustrator = value
                         elif label == "원작": original_author = value
-                        elif label == "지은이": author = value
+                        elif label in ("지은이", "작가", "저자"): author = value
                         elif label == "글/그림": author = value; illustrator = value
                         elif label == "연령등급" or label == "이용등급":
                             if "19" in value or "청불" in value: age = "18세 이용가"

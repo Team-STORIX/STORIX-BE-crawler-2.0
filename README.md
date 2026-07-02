@@ -234,6 +234,20 @@ docker compose --profile scheduler restart
 
 ---
 
+## 플랫폼 식별자
+
+| CLI `--platform` | DB `platform` 값 | 비고 |
+|------------------|-----------------|------|
+| `naver_webtoon`  | `네이버 웹툰`    | comic.naver.com |
+| `naver_novel`    | `네이버 웹소설`  | novel.naver.com |
+| `kakao_page`     | `카카오페이지`   | page.kakao.com |
+| `ridibooks`      | `리디북스`       | ridibooks.com |
+
+- CLI `--platform` 값은 크롤러 선택 및 파일명 구분에 사용됩니다.
+- DB `platform` 값은 `works_platform` 테이블의 `platform` 컬럼에 그대로 적재됩니다.
+
+---
+
 ## DB 스키마
 
 ### works_platform 중간 테이블

@@ -277,7 +277,8 @@ class NaverCrawler(BaseCrawler):
             title = title_raw.replace("휴재", "").replace(" [독점]", "").strip()
 
             artist = self.driver.find_element(By.XPATH, '//*[@id="content"]/div[1]/div/div[1]/span').text
-            desc = self.driver.find_element(By.XPATH, '//*[@id="content"]/div[1]/div/div[2]/p').text
+            _desc_el = self.driver.find_element(By.XPATH, '//*[@id="content"]/div[1]/div/div[2]/p')
+            desc = (self.driver.execute_script("return arguments[0].innerText", _desc_el) or "").strip()
             genre = self.driver.find_element(By.XPATH, '//*[@id="content"]/div[1]/div/div[2]/div/div/a[1]').text.lstrip('#').strip()
             age = self.driver.find_element(By.XPATH, '//*[@id="content"]/div[1]/div/div[1]/em').text.strip().split('∙')[-1].strip()
             

@@ -240,16 +240,49 @@ class RidibooksCrawler(BaseCrawler):
                 except Exception:
                     pass
 
-            # 설명 - DOM 직접 추출로 \n 보존 (og:description은 개행 제거됨)
+            # 더보기 클릭 (description 펼치기 — line-clamp 해제)
+            try:
+                more_btn = self.driver.find_element(
+                    By.XPATH,
+                    "//h2[normalize-space()='작품 소개']/following-sibling::div[1]//button"
+                )
+                self.driver.execute_script("arguments[0].click();", more_btn)
+                time.sleep(0.5)
+            except Exception:
+                pass
+
+            # 설명 - '작품 소개' h2 다음 형제 div innerText (\n 보존)
+            # 구조: h2[작품 소개] → div.container → div.text-wrapper(버튼 제외) → div(br 포함 텍스트)
             desc = ""
-            for sel in [".book_intro", ".intro", ".synopsis", ".detail_introduce", ".book_detail_description", ".content_detail"]:
-                try:
-                    t = self.driver.find_element(By.CSS_SELECTOR, sel).text.strip()
-                    if t:
-                        desc = t
-                        break
-                except Exception:
-                    pass
+            try:
+                desc = self.driver.execute_script("""
+                    const h2s = document.querySelectorAll('h2');
+                    for (const h2 of h2s) {
+                        if (h2.textContent.trim() === '작품 소개') {
+                            const container = h2.nextElementSibling;
+                            if (!container) continue;
+                            const textDiv = container.querySelector('div');
+                            if (textDiv && textDiv.innerText && textDiv.innerText.trim().length > 20) {
+                                return textDiv.innerText.trim();
+                            }
+                            return container.innerText.trim() || null;
+                        }
+                    }
+                    return null;
+                """) or ""
+                desc = desc.strip()
+            except Exception:
+                pass
+            if not desc:
+                for sel in [".book_intro", ".intro", ".synopsis", ".detail_introduce", ".book_detail_description", ".content_detail"]:
+                    try:
+                        _el = self.driver.find_element(By.CSS_SELECTOR, sel)
+                        t = (self.driver.execute_script("return arguments[0].innerText", _el) or "").strip()
+                        if t:
+                            desc = t
+                            break
+                    except Exception:
+                        pass
             if not desc:
                 try:
                     desc = self.driver.find_element(
@@ -263,61 +296,90 @@ class RidibooksCrawler(BaseCrawler):
             illustrator = ""
             original_author = ""
 
-            # 리디북스 작가 블록: 역할(글/그림/원작)별 구분 — 여러 셀렉터 패턴 시도
-            _AUTHOR_ROW_SELECTORS = [
-                ".book_info_author .author_role_wrap",
-                ".authors_detail .contributor",
-                ".author_info_wrap .author_info",
-                ".BookAuthor_authorInfo__",   # CSS Module 패턴
-                "[class*='authorInfo'] [class*='author']",
-                ".book_author li",
-                ".author li",
-            ]
-            for _sel in _AUTHOR_ROW_SELECTORS:
-                try:
-                    contributor_rows = self.driver.find_elements(By.CSS_SELECTOR, _sel)
-                    if not contributor_rows:
+            # 방법 1: #BookDetailHomeAuthorProfileTab 탭 버튼
+            # 구조: <button>역할<div/>(구분자)이름</button> → button.text = "역할\n이름"
+            try:
+                tab_buttons = self.driver.find_elements(
+                    By.CSS_SELECTOR, "#BookDetailHomeAuthorProfileTab ul button"
+                )
+                for btn in tab_buttons:
+                    text = btn.text.strip()
+                    if not text:
                         continue
-                    for row in contributor_rows:
-                        try:
-                            role_el = None
-                            for rs in [".role", ".author_role", ".type", "[class*='role']", "[class*='Role']"]:
-                                try:
-                                    role_el = row.find_element(By.CSS_SELECTOR, rs)
-                                    break
-                                except Exception:
-                                    pass
-                            role = role_el.text.strip().rstrip(":") if role_el else ""
+                    parts = text.split('\n', 1)
+                    if len(parts) < 2:
+                        continue
+                    role = parts[0].strip()
+                    name = parts[1].strip()
+                    if not name:
+                        continue
+                    if role in ("글", "지은이", "작가", "저자"):
+                        if not author: author = name
+                    elif role in ("그림", "그린이"):
+                        if not illustrator: illustrator = name
+                    elif role == "원작":
+                        if not original_author: original_author = name
+                    elif role == "글/그림":
+                        if not author: author = name
+                        if not illustrator: illustrator = name
+                    else:
+                        if not author: author = name
+            except Exception:
+                pass
 
-                            name_el = None
-                            for ns in [".name", "a", ".author_name", "[class*='name']", "[class*='Name']", "span"]:
-                                try:
-                                    ne = row.find_element(By.CSS_SELECTOR, ns)
-                                    if ne.text.strip():
-                                        name_el = ne
+            # 방법 2: 기존 셀렉터 fallback (구버전 레이아웃)
+            if not author and not illustrator and not original_author:
+                _AUTHOR_ROW_SELECTORS = [
+                    ".book_info_author .author_role_wrap",
+                    ".authors_detail .contributor",
+                    ".author_info_wrap .author_info",
+                    "[class*='authorInfo'] [class*='author']",
+                    ".book_author li",
+                    ".author li",
+                ]
+                for _sel in _AUTHOR_ROW_SELECTORS:
+                    try:
+                        contributor_rows = self.driver.find_elements(By.CSS_SELECTOR, _sel)
+                        if not contributor_rows:
+                            continue
+                        for row in contributor_rows:
+                            try:
+                                role_el = None
+                                for rs in [".role", ".author_role", ".type", "[class*='role']", "[class*='Role']"]:
+                                    try:
+                                        role_el = row.find_element(By.CSS_SELECTOR, rs)
                                         break
-                                except Exception:
-                                    pass
-                            name = name_el.text.strip() if name_el else row.text.strip()
-                            if not name:
-                                continue
+                                    except Exception:
+                                        pass
+                                role = role_el.text.strip().rstrip(":") if role_el else ""
+                                name_el = None
+                                for ns in [".name", "a", ".author_name", "[class*='name']", "[class*='Name']", "span"]:
+                                    try:
+                                        ne = row.find_element(By.CSS_SELECTOR, ns)
+                                        if ne.text.strip():
+                                            name_el = ne
+                                            break
+                                    except Exception:
+                                        pass
+                                name = name_el.text.strip() if name_el else row.text.strip()
+                                if not name:
+                                    continue
+                                if "글" in role or "작가" in role or "저자" in role or "지은이" in role:
+                                    if not author: author = name
+                                elif "그림" in role or "그린이" in role:
+                                    if not illustrator: illustrator = name
+                                elif "원작" in role:
+                                    if not original_author: original_author = name
+                                else:
+                                    if not author: author = name
+                            except Exception:
+                                pass
+                        if author or illustrator or original_author:
+                            break
+                    except Exception:
+                        pass
 
-                            if "글" in role or "작가" in role or "저자" in role or "지은이" in role:
-                                if not author: author = name
-                            elif "그림" in role or "그린이" in role:
-                                if not illustrator: illustrator = name
-                            elif "원작" in role:
-                                if not original_author: original_author = name
-                            else:
-                                if not author: author = name
-                        except Exception:
-                            pass
-                    if author or illustrator or original_author:
-                        break
-                except Exception:
-                    pass
-
-            # 폴백: 메타 태그
+            # 방법 3: 메타 태그 폴백
             if not author and not illustrator:
                 try:
                     meta_author = self.driver.find_element(

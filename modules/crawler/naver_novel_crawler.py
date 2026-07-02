@@ -90,9 +90,9 @@ class NaverNovelCrawler(NaverCrawler):
             if not title:
                 return None
 
-            # 작가
+            # 작가: href에 target=author가 있는 링크가 가장 신뢰할 수 있는 셀렉터
             author = ""
-            for sel in [".author em", ".writer em", ".author a", ".writer a", ".author", ".writer"]:
+            for sel in ["a[href*='target=author']", ".author em", ".writer em", ".author a", ".writer a", ".author", ".writer"]:
                 try:
                     t = self.driver.find_element(By.CSS_SELECTOR, sel).text.strip()
                     if t:
@@ -108,11 +108,12 @@ class NaverNovelCrawler(NaverCrawler):
                 except Exception:
                     pass
 
-            # 설명 - DOM 직접 추출로 \n 보존 (og:description은 개행 제거됨)
+            # 설명: #summaryText가 "더보기" 링크를 제외한 본문만 담고 있음
             desc = ""
-            for sel in [".synopsis", ".des", ".story", ".info_area p", ".synopsis_wrap", ".introduce", ".content"]:
+            for sel in ["#summaryText", ".synopsis", ".des", ".story", ".synopsis_wrap", ".introduce"]:
                 try:
-                    t = self.driver.find_element(By.CSS_SELECTOR, sel).text.strip()
+                    _el = self.driver.find_element(By.CSS_SELECTOR, sel)
+                    t = (self.driver.execute_script("return arguments[0].innerText", _el) or "").strip()
                     if t:
                         desc = t
                         break
@@ -126,19 +127,41 @@ class NaverNovelCrawler(NaverCrawler):
                 except Exception:
                     pass
 
-            # 장르 + 해시태그
+            # 장르: .info_group의 .item 중 링크가 없고 연재 상태가 아닌 첫 번째 텍스트
+            _STATUS_WORDS = {"자유연재", "완결", "휴재", "연재중", "연재", "독점", "기다무"}
             genre = ""
             hashtags: list[str] = []
-            for sel in [".genre_area a", ".badge_list a", ".category a", ".genre a", ".tag_list a"]:
-                try:
-                    els = self.driver.find_elements(By.CSS_SELECTOR, sel)
-                    tags = [el.text.strip().lstrip('#') for el in els if el.text.strip()]
-                    if tags:
-                        genre = tags[0]
-                        hashtags = tags[1:]
+            try:
+                items = self.driver.find_elements(By.CSS_SELECTOR, ".info_group .item")
+                for item in items:
+                    if item.find_elements(By.TAG_NAME, "a"):
+                        continue
+                    t = item.text.strip()
+                    if t and t not in _STATUS_WORDS:
+                        genre = t
                         break
-                except Exception:
-                    pass
+            except Exception:
+                pass
+
+            # 해시태그: .tag_collection의 a.tag 요소들
+            try:
+                tag_els = self.driver.find_elements(By.CSS_SELECTOR, ".tag_collection a.tag")
+                hashtags = [el.text.strip().lstrip('#') for el in tag_els if el.text.strip()]
+            except Exception:
+                pass
+
+            # fallback: 장르/해시태그 둘 다 못 찾은 경우 기존 방식 시도
+            if not genre and not hashtags:
+                for sel in [".genre_area a", ".badge_list a", ".category a", ".genre a", ".tag_list a"]:
+                    try:
+                        els = self.driver.find_elements(By.CSS_SELECTOR, sel)
+                        tags = [el.text.strip().lstrip('#') for el in els if el.text.strip()]
+                        if tags:
+                            genre = tags[0]
+                            hashtags = tags[1:]
+                            break
+                    except Exception:
+                        pass
 
             # 썸네일
             thumb = ""

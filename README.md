@@ -238,10 +238,12 @@ docker compose --profile scheduler restart
 
 | CLI `--platform` | DB `platform` 값 | 비고 |
 |------------------|-----------------|------|
-| `naver_webtoon`  | `네이버 웹툰`    | comic.naver.com |
-| `naver_novel`    | `네이버 웹소설`  | novel.naver.com |
-| `kakao_page`     | `카카오페이지`   | page.kakao.com |
-| `ridibooks`      | `리디북스`       | ridibooks.com |
+| `naver_webtoon`  | `NAVER_WEBTOON`  | comic.naver.com |
+| `naver_novel`    | `NAVER_NOVEL`    | novel.naver.com |
+| `kakao_page`     | `KAKAO_PAGE`     | page.kakao.com |
+| `ridibooks`      | `RIDIBOOKS`      | ridibooks.com |
+| -                | `BOMTOON`        | bomtoon.com |
+| -                | `NAVER_SERIES`   | series.naver.com |
 
 - CLI `--platform` 값은 크롤러 선택 및 파일명 구분에 사용됩니다.
 - DB `platform` 값은 `works_platform` 테이블의 `platform` 컬럼에 그대로 적재됩니다.
@@ -263,8 +265,8 @@ works_platform (works_id, platform)
 **예시**: 동일 작품이 네이버와 카카오에 모두 연재 중인 경우
 ```
 works:          { works_id: 1, works_name: "작품명", artist_name: "작가명", ... }
-works_platform: { works_id: 1, platform: "네이버 웹툰" }
-                { works_id: 1, platform: "카카오페이지" }
+works_platform: { works_id: 1, platform: "NAVER_WEBTOON" }
+                { works_id: 1, platform: "KAKAO_PAGE" }
 ```
 
 ---

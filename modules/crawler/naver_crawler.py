@@ -298,7 +298,7 @@ class NaverCrawler(BaseCrawler):
             except Exception: pass
 
             return {
-                "platform": "네이버 웹툰", 
+                "platform": "NAVER_WEBTOON",
                 "works_name": title, 
                 "artist_name": artist,
                 "age_classification": age, 

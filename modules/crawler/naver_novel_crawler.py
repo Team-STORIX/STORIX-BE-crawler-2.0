@@ -183,7 +183,7 @@ class NaverNovelCrawler(NaverCrawler):
                 age = "12세 이용가"
 
             return {
-                "platform": "네이버 웹소설",
+                "platform": "NAVER_NOVEL",
                 "works_name": title,
                 "artist_name": author,
                 "author": author,

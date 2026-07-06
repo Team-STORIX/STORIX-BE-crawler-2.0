@@ -422,7 +422,7 @@ class KakaoCrawler(BaseCrawler):
             except Exception: pass
 
             return {
-                "platform": "카카오페이지",
+                "platform": "KAKAO_PAGE",
                 "works_name": title, 
                 "artist_name": artist_name,
                 "author": author,

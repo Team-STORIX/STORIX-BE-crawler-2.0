@@ -4,7 +4,7 @@ VALID_AGE = {'전체연령가', '12세 이용가', '15세 이용가', '18세 이
 
 VALID_WORKS_TYPE = {'웹툰', '웹소설', ''}
 
-VALID_PLATFORM = {'카카오페이지', '네이버 웹툰', '네이버 웹소설', '리디북스', '네이버 시리즈'}
+VALID_PLATFORM = {'KAKAO_PAGE', 'NAVER_WEBTOON', 'NAVER_NOVEL', 'RIDIBOOKS', 'BOMTOON', 'NAVER_SERIES'}
 
 
 def validate(record: dict) -> tuple[bool, list[str]]:

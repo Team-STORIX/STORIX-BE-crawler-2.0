@@ -455,7 +455,7 @@ class RidibooksCrawler(BaseCrawler):
                 works_type = "웹툰"
 
             return {
-                "platform": "리디북스",
+                "platform": "RIDIBOOKS",
                 "works_name": title,
                 "artist_name": artist_name,
                 "author": author,

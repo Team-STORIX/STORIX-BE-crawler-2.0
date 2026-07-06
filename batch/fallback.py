@@ -8,11 +8,12 @@ SIMILARITY_THRESHOLD = 0.85
 _review_lock = threading.Lock()
 
 _PLATFORM_KEY_MAP = {
-    'naver_webtoon': '네이버 웹툰',
-    'naver_novel': '네이버 웹소설',
-    'kakao_page': '카카오페이지',
-    'ridibooks': '리디북스',
-    'naver_series': '네이버 시리즈',
+    'naver_webtoon': 'NAVER_WEBTOON',
+    'naver_novel': 'NAVER_NOVEL',
+    'kakao_page': 'KAKAO_PAGE',
+    'ridibooks': 'RIDIBOOKS',
+    'bomtoon': 'BOMTOON',
+    'naver_series': 'NAVER_SERIES',
 }
 
 
@@ -29,7 +30,7 @@ def _extract_work_id(source_url: str) -> str:
 def try_resolve(record: dict) -> tuple[dict, bool]:
     record = dict(record)
 
-    # 내부 플랫폼 키 → 한국어명 정규화 (구버전 JSONL 호환)
+    # 내부 플랫폼 키 → enum 값 정규화 (구버전 JSONL 호환)
     platform = record.get('platform', '')
     if platform in _PLATFORM_KEY_MAP:
         record['platform'] = _PLATFORM_KEY_MAP[platform]

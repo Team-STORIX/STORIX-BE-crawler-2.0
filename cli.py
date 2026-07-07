@@ -15,8 +15,15 @@ def _configure_console() -> None:
 _configure_console()
 
 
-def _load_titles(args) -> list[str]:
-    """--titles-file 또는 --titles 옵션에서 작품명 리스트를 읽어 반환."""
+# 섹션 헤더 텍스트 → 작품 타입
+_TYPE_HEADERS = {'웹툰': '웹툰', '웹소설': '웹소설'}
+
+
+def _load_titles(args) -> list[tuple[str, str | None]]:
+    """--titles-file(섹션 헤더 형식) 또는 --titles에서 (제목, 타입) 목록을 읽어 반환.
+
+    타입은 '웹툰' | '웹소설' | None(인라인 입력 → 타입 미지정).
+    """
     titles_file = getattr(args, 'titles_file', None)
     titles_str = getattr(args, 'titles', None)
 
@@ -25,13 +32,46 @@ def _load_titles(args) -> list[str]:
         if not path.exists():
             print(f'❌ 파일을 찾을 수 없습니다: {path}')
             sys.exit(1)
-        with open(path, encoding='utf-8') as f:
-            return [line.strip() for line in f if line.strip()]
+        return _parse_titles_file(path)
 
     if titles_str:
-        return [t.strip() for t in titles_str.split(',') if t.strip()]
+        # 인라인 목록은 타입 정보가 없음 → None (대상 플랫폼 무관하게 검색)
+        return [(t.strip(), None) for t in titles_str.split(',') if t.strip()]
 
     return []
+
+
+def _parse_titles_file(path: Path) -> list[tuple[str, str | None]]:
+    """섹션 헤더 형식 파싱.
+
+        ## 웹툰            ← 이 아래 제목은 모두 '웹툰' 타입
+        내가 키운 S급들
+        ## 웹소설
+        마법학교 마법사로 살아가는 법
+
+    '#' 주석 줄과 빈 줄은 무시. 헤더 없이 나온 제목은 스킵한다.
+    """
+    result: list[tuple[str, str | None]] = []
+    current_type: str | None = None
+
+    for raw in path.read_text(encoding='utf-8').splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        if line.startswith('##'):
+            header = line.lstrip('#').strip()
+            current_type = _TYPE_HEADERS.get(header)
+            if current_type is None:
+                print(f'⚠️  알 수 없는 섹션 헤더 무시: "{line}" (웹툰 | 웹소설 만 지원)')
+            continue
+        if line.startswith('#'):
+            continue  # 주석
+        if current_type is None:
+            print(f'⚠️  타입 헤더 없이 나온 제목 스킵: "{line}" (## 웹툰 / ## 웹소설 아래에 배치)')
+            continue
+        result.append((line, current_type))
+
+    return result
 
 
 def cmd_login(args):
@@ -128,7 +168,7 @@ def cmd_crawl(args):
             print('❌ 검색할 작품명이 없습니다.')
             print('   --titles-file titles.txt  또는  --titles "작품A,작품B"')
             sys.exit(1)
-        run_search_titles(platform, titles)
+        run_search_titles(platform, titles, titles_file=getattr(args, 'titles_file', None))
 
     elif mode == 'custom_url':
         from crawler.modes.custom_url import run_custom_url

@@ -34,6 +34,8 @@ def _normalize_record(data: dict, platform: str, mode: str) -> dict:
             data['platform_work_id'] = source.rstrip('/').split('/')[-1].split('?')[0]
         elif '/books/' in source:
             data['platform_work_id'] = source.rstrip('/').split('/books/')[-1].split('?')[0]
+        elif 'productNo=' in source:
+            data['platform_work_id'] = source.split('productNo=')[-1].split('&')[0]
 
     return {
         'schema_version': '2.0',

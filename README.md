@@ -1,6 +1,6 @@
 # STORIX-BE-Crawler 2.0
 
-네이버 웹툰 / 카카오페이지 / 리디북스 크롤러
+네이버 웹툰 / 네이버 웹소설 / 네이버 시리즈 / 카카오페이지 / 리디북스 크롤러
 Selenium 병렬 워커 → JSONL 산출물 → DB 배치 적재 파이프라인
 
 ---
@@ -80,6 +80,10 @@ python cli.py crawl --platform naver_webtoon --mode search_titles --titles-file 
 # 작품명 리스트로 검색 크롤링 (쉼표 구분 직접 입력)
 python cli.py crawl --platform all --mode search_titles --titles "나 혼자만 레벨업,재혼 황후"
 
+# 네이버 웹소설(novel.naver.com) / 네이버 시리즈(series.naver.com)도 지원
+python cli.py crawl --platform naver_novel  --mode search_titles --titles-file titles.txt
+python cli.py crawl --platform naver_series --mode search_titles --titles "화산귀환,재벌집 막내아들"
+
 # 커스텀 URL 크롤링 (네이버 웹툰 - 일일 연재+ 인기순, 상위 213개)
 python cli.py crawl --mode custom_url --url "https://comic.naver.com/webtoon?tab=dailyPlus" --count 213
 
@@ -89,6 +93,13 @@ python cli.py crawl --mode custom_url --url "https://comic.naver.com/webtoon?tab
 # 커스텀 URL 크롤링 (카카오페이지, 상위 300개)
 python cli.py crawl --mode custom_url --url "https://www.kakaopage.com/content/..." --count 300
 ```
+
+> **`search_titles` 모드 (임의 목록으로 특정 작품만 채우기)**
+> - 지원 플랫폼: `naver_webtoon`, `naver_novel`, `naver_series`, `kakao_page`, `all` (리디북스 미지원)
+> - `titles.txt`에 작품명을 줄바꿈으로 나열하면 각 플랫폼에서 제목 검색 → 상세 크롤 → JSONL 저장.
+> - `--platform all`은 위 4개 플랫폼을 순회하며, **한 곳에서라도 찾으면** 해당 작품을 처리합니다.
+> - **`--titles-file` 사용 시 크롤에 성공한 작품은 파일에서 자동 제거**되어, `titles.txt`에는 못 찾은 작품만 남습니다(재시도용). `--titles`(직접 입력)는 파일을 수정하지 않습니다.
+> - 이후 `batch import`가 빈 필드만 `COALESCE`로 채우므로 기존 값은 보존됩니다.
 
 **배치 적재**
 ```bash
@@ -239,11 +250,11 @@ docker compose --profile scheduler restart
 | CLI `--platform` | DB `platform` 값 | 비고 |
 |------------------|-----------------|------|
 | `naver_webtoon`  | `NAVER_WEBTOON`  | comic.naver.com |
-| `naver_novel`    | `NAVER_NOVEL`    | novel.naver.com |
+| `naver_novel`    | `NAVER_NOVEL`    | novel.naver.com (search_titles 지원) |
+| `naver_series`   | `NAVER_SERIES`   | series.naver.com — 웹소설·웹툰 단행본 (search_titles 지원) |
 | `kakao_page`     | `KAKAO_PAGE`     | page.kakao.com |
 | `ridibooks`      | `RIDIBOOKS`      | ridibooks.com |
 | -                | `BOMTOON`        | bomtoon.com |
-| -                | `NAVER_SERIES`   | series.naver.com |
 
 - CLI `--platform` 값은 크롤러 선택 및 파일명 구분에 사용됩니다.
 - DB `platform` 값은 `works_platform` 테이블의 `platform` 컬럼에 그대로 적재됩니다.
@@ -291,7 +302,7 @@ works_platform: { works_id: 1, platform: "NAVER_WEBTOON" }
 │   │   ├── initial.py              # 전체 작품 크롤링 (네이버/카카오 섹션별 + 리디북스 카테고리), 워커 2개
 │   │   ├── new_works.py            # 신작 탭 크롤링
 │   │   ├── update_fields.py        # source_url 목록으로 필드 재크롤링
-│   │   └── search_titles.py        # 작품명 리스트 → 검색 → JSONL 저장
+│   │   └── search_titles.py        # 작품명 리스트 → 플랫폼별 검색 → JSONL 저장, 성공분은 titles-file에서 자동 제거
 │   └── output/
 │       └── jsonl_writer.py         # 크롤 결과를 JSONL로 기록, platform_work_id 기준 중복 제거, artist_name 정규화
 │
@@ -300,7 +311,8 @@ works_platform: { works_id: 1, platform: "NAVER_WEBTOON" }
 │   │   ├── base_crawler.py         # WebDriver 초기화, crawl_detail_with_retry(), 세션 복구
 │   │   ├── naver_crawler.py        # 네이버 웹툰 크롤러 (genre # 제거, hashtags 빈 문자열 필터)
 │   │   ├── kakao_crawler.py        # 카카오페이지 크롤러 (작품명 UI 레이블 제거, description \n 보존)
-│   │   ├── naver_novel_crawler.py  # 네이버 웹소설 크롤러 (description DOM 직접 추출)
+│   │   ├── naver_novel_crawler.py  # 네이버 웹소설 크롤러 (novel.naver.com, 장르목록·상세·제목검색)
+│   │   ├── naver_series_crawler.py # 네이버 시리즈 크롤러 (series.naver.com, 웹소설·웹툰 단행본, 제목검색)
 │   │   └── ridibooks_crawler.py    # 리디북스 크롤러 (작가 추출 다중 셀렉터, 비정상 URL 필터)
 │   ├── db_handler.py               # MySQL 연결, save_one_row() (priority 공존 upsert), works_platform 연동
 │   └── logger.py                   # 구조화 로거 팩토리

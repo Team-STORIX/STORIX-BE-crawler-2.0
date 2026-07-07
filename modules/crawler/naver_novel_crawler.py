@@ -15,6 +15,64 @@ class NaverNovelCrawler(NaverCrawler):
 
     _platform = 'naver_novel'
 
+    def search_url_by_title(self, title: str) -> str | None:
+        """제목으로 네이버 웹소설(novel.naver.com) URL 검색.
+
+        검색 결과의 '대표 작품' 카드 제목만 class 없는 <strong>에 담기고,
+        하단 추천 카드는 .subj를 사용한다. 대표 카드가 없으면(정식 웹소설이
+        없고 도전/베스트리그만 있거나 결과 없음) None을 반환한다.
+        """
+        import urllib.parse
+        import re
+
+        self.driver.get(
+            f"https://novel.naver.com/search?keyword={urllib.parse.quote(title)}"
+        )
+        time.sleep(2)
+
+        def normalize(s: str) -> str:
+            return re.sub(r'[\s\[\]()·∙#]', '', s).lower()
+
+        norm_title = normalize(title)
+
+        # 대표 카드 제목: 정식 웹소설(webnovel/list) 링크 안의 class 없는 <strong>
+        strongs = self.driver.find_elements(
+            By.CSS_SELECTOR, "a[href*='webnovel/list?novelId='] strong:not([class])"
+        )
+
+        exact = None
+        partial = None
+        for strong in strongs:
+            text = (strong.text or '').strip()
+            if not text:
+                continue
+            try:
+                href = strong.find_element(
+                    By.XPATH, "./ancestor::a[1]"
+                ).get_attribute('href') or ''
+            except Exception:
+                continue
+            if 'novelId=' not in href:
+                continue
+            norm_text = normalize(text)
+
+            if norm_text == norm_title:
+                exact = (href, text)
+                break
+            if partial is None and (norm_title in norm_text or norm_text in norm_title):
+                partial = (href, text)
+
+        if exact:
+            print(f"   ↳ 검색 결과 (정확): {exact[0]} [{exact[1]}]")
+            return exact[0]
+
+        if partial:
+            print(f"   ↳ 검색 결과 (부분): {partial[0]} [{partial[1]}]")
+            return partial[0]
+
+        print(f"   ⚠️  '{title}' 정식 웹소설 검색 결과 없음 — 스킵")
+        return None
+
     def get_genre_urls(self, genre_url: str) -> list[str]:
         print(f"📂 URL 수집 시작: {genre_url}")
         self.driver.get(genre_url)

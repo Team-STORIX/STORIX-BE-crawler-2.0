@@ -2,7 +2,12 @@ import mysql.connector
 from mysql.connector import Error as MySQLError
 import csv
 import os
+import re
 from config import FAILED_CSV, OUTPUT_CSV
+
+# 토큰 전체가 역할 키워드로만 구성됐는지 판별 (예: '글', '그림', '글그림', '원작').
+# '글쓰는기계'처럼 키워드가 이름의 일부인 경우를 역할 라벨로 오인하지 않기 위함.
+_ROLE_TOKEN_RE = re.compile(r'^(?:글|그림|원작|각색)+$')
 
 # 장르 우선순위
 GENRE_PRIORITY = {
@@ -95,25 +100,34 @@ def parse_artists(artist_name_raw):
         part = part.strip()
         if not part: continue
 
-        has_author = '글' in part or '각색' in part
-        has_illustrator = '그림' in part
-        has_original = '원작' in part
-        
-        # 이름만 추출
-        name = part.replace('원작', '').replace('글', '').replace('각색', '').replace('그림', '').strip()
+        # 공백 토큰 단위로 분리: 토큰 '전체'가 역할 키워드일 때만 역할 라벨로 인정하고,
+        # 이름이 시작된 뒤의 토큰은 모두 이름의 일부로 취급한다. ('글쓰는기계' → 이름)
+        roles: set[str] = set()
+        name_tokens: list[str] = []
+        for tok in part.split():
+            if not name_tokens and _ROLE_TOKEN_RE.match(tok):
+                if '글' in tok or '각색' in tok:
+                    roles.add('글')
+                if '그림' in tok:
+                    roles.add('그림')
+                if '원작' in tok:
+                    roles.add('원작')
+            else:
+                name_tokens.append(tok)
 
+        name = ' '.join(name_tokens).strip()
         if not name:
             continue
 
-        if not has_author and not has_illustrator and not has_original:
+        if not roles:
             if not author:
                 author = name
             elif not illustrator:
                 illustrator = name
-        
-        if has_author: author = name
-        if has_illustrator: illustrator = name
-        if has_original: original_author = name
+        else:
+            if '글' in roles: author = name
+            if '그림' in roles: illustrator = name
+            if '원작' in roles: original_author = name
 
     if len(parts) == 1 and author and not illustrator and not original_author:
         illustrator = author

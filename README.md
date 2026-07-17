@@ -65,7 +65,7 @@ docker compose up db -d
 python cli.py crawl --platform all --mode initial
 
 # 신작 크롤링
-python cli.py crawl --platform naver_webtoon --mode new_works
+python cli.py crawl --platform all --mode new_works
 
 # 특정 플랫폼만
 python cli.py crawl --platform kakao_page --mode initial
@@ -107,7 +107,7 @@ python cli.py crawl --mode custom_url --url "https://www.kakaopage.com/content/.
 python cli.py batch import
 
 # 특정 날짜 폴더 전체 DB 적재
-python cli.py batch import --input ./output/2026-05-09/
+python cli.py batch import --input ./output/2026-07-17/
 
 # 감시 모드 (새 파일 생성 시 자동 적재)
 python cli.py batch import --input ./output/ --watch
@@ -226,6 +226,54 @@ docker compose --profile scheduler restart
 
 > Apple Silicon(M1/M2/M3) Mac에서는 Dockerfile에 `--platform=linux/amd64`가 설정되어 있습니다.
 > Chrome + MySQL을 동시에 실행하면 메모리 부족이 발생할 수 있으니, 로컬에서는 `docker compose up db`만 사용하고 크롤러는 Python으로 직접 실행하세요.
+
+---
+
+### 세션 등록 API + 세션등록 툴 (원격 서버 운영용)
+
+서버에는 GUI가 없으므로, 세션(쿠키)은 로컬에서 추출해 API로 등록합니다.
+
+**서버 측** — 세션 등록 API (`api/session_api.py`):
+
+```bash
+# .env에 SESSION_API_TOKEN=<임의의 긴 토큰> 추가 후
+docker compose --profile api up -d session-api   # :8100
+```
+
+| 엔드포인트 | 설명 |
+|---|---|
+| `GET /health` | 헬스체크 (인증 불필요) |
+| `GET /sessions` | 플랫폼별 세션 등록 상태 조회 |
+| `POST /sessions/{platform}` | 쿠키 JSON 등록 → `sessions/*.pkl` 저장 |
+
+인증은 `Authorization: Bearer <SESSION_API_TOKEN>` 헤더를 사용합니다.
+
+**로컬 측** — 세션 추출 툴 (`tools/register_session.py`):
+
+```bash
+# 개발자: 직접 실행
+pip install selenium requests
+python tools/register_session.py
+
+# 기획/운영 배포용: exe 빌드
+powershell -ExecutionPolicy Bypass -File tools\build_exe.ps1
+# → tools/dist/세션등록.exe + session_tool.config.json 을 함께 전달
+```
+
+exe를 더블클릭 → 뜨는 크롬 창에서 로그인(2차인증 포함) → 자동 감지 후 서버 업로드까지 완료됩니다.
+`session_tool.config.json`이 없으면 `sessions/*.pkl` 파일 저장 모드로 동작합니다.
+
+---
+
+### 배포 (CI/CD)
+
+`develop`/`main` 푸시 시 GitHub Actions가 자동으로 빌드·배포합니다.
+
+1. **CI** (`.github/workflows/ci.yml`): ECR에 이미지 빌드/푸시 — 태그 `{dev|prod}-{sha}`, `{dev|prod}-latest`
+2. **CD** (`.github/workflows/cd.yml`): CI 성공 시 SSM으로 EC2에 접속해 `docker-compose.prod.yml` 기준 `pull` + `up -d` (scheduler, session-api)
+
+필요한 레포 시크릿: `APP_DEPLOY_ROLE_ARN`, `ECR_REGISTRY`, `PROD_INSTANCE_ID`, `DEV_INSTANCE_ID`
+서버 전제: `/home/ubuntu/storix-crawler/`에 `docker-compose.prod.yml`과 `.env` 배치, ECR에 `storix-crawler` 리포지토리 생성
 
 ---
 

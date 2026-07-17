@@ -5,9 +5,10 @@ import os
 import re
 from config import FAILED_CSV, OUTPUT_CSV
 
-# 토큰 전체가 역할 키워드로만 구성됐는지 판별 (예: '글', '그림', '글그림', '원작').
+# 토큰 전체가 역할 키워드로만 구성됐는지 판별 (예: '글', '그림', '글그림', '원작', '작화').
 # '글쓰는기계'처럼 키워드가 이름의 일부인 경우를 역할 라벨로 오인하지 않기 위함.
-_ROLE_TOKEN_RE = re.compile(r'^(?:글|그림|원작|각색)+$')
+# '작화'는 '그림'의 동의어(카카오/리디 일부 표기).
+_ROLE_TOKEN_RE = re.compile(r'^(?:글|그림|작화|원작|각색)+$')
 
 # 장르 우선순위
 GENRE_PRIORITY = {
@@ -100,22 +101,26 @@ def parse_artists(artist_name_raw):
         part = part.strip()
         if not part: continue
 
-        # 공백 토큰 단위로 분리: 토큰 '전체'가 역할 키워드일 때만 역할 라벨로 인정하고,
-        # 이름이 시작된 뒤의 토큰은 모두 이름의 일부로 취급한다. ('글쓰는기계' → 이름)
+        # 공백 토큰 단위로 분리: 토큰 '전체'가 역할 키워드일 때만 역할 라벨로 인정한다.
+        # ('글쓰는기계' → 이름) 라벨은 이름 앞(카카오식 '글 홍길동')에도,
+        # 이름 뒤(네이버식 '홍길동 ∙ 글/그림')에도 올 수 있어 양쪽을 모두 떼어낸다.
         roles: set[str] = set()
-        name_tokens: list[str] = []
-        for tok in part.split():
-            if not name_tokens and _ROLE_TOKEN_RE.match(tok):
-                if '글' in tok or '각색' in tok:
-                    roles.add('글')
-                if '그림' in tok:
-                    roles.add('그림')
-                if '원작' in tok:
-                    roles.add('원작')
-            else:
-                name_tokens.append(tok)
+        tokens = part.split()
 
-        name = ' '.join(name_tokens).strip()
+        def _absorb_role(tok: str) -> None:
+            if '글' in tok or '각색' in tok:
+                roles.add('글')
+            if '그림' in tok or '작화' in tok:
+                roles.add('그림')
+            if '원작' in tok:
+                roles.add('원작')
+
+        while tokens and _ROLE_TOKEN_RE.match(tokens[0]):
+            _absorb_role(tokens.pop(0))
+        while tokens and _ROLE_TOKEN_RE.match(tokens[-1]):
+            _absorb_role(tokens.pop())
+
+        name = ' '.join(tokens).strip()
         if not name:
             continue
 

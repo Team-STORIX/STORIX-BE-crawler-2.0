@@ -73,6 +73,22 @@ services:
       - scheduler
     command: ["python", "-m", "scheduler.runner"]
 
+  session-api:
+    build: .
+    image: storix-crawler:latest
+    container_name: storix_session_api
+    restart: unless-stopped
+    environment:
+      - DOCKER_ENV=true
+      - SESSION_API_TOKEN=${SESSION_API_TOKEN:-}
+    volumes:
+      - ./sessions:/app/sessions
+    ports:
+      - "8100:8100"
+    profiles:
+      - api
+    command: ["uvicorn", "api.session_api:app", "--host", "0.0.0.0", "--port", "8100"]
+
   db:
     image: mysql:8.0
     container_name: storix_db

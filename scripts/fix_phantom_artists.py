@@ -32,6 +32,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from config import MYSQL_CONFIG
 from modules.db_handler import connect_database, parse_artists, _canonical_artist_name
+from scripts.works_ref_migration import migrate_service_refs
 
 
 def find_phantoms(artist_name: str) -> list[str]:
@@ -126,6 +127,10 @@ def main():
     # 2) 병합
     for r, fix, twin in merges:
         keep_id, drop_id = twin['works_id'], r['works_id']
+        # 서비스 테이블(topic_room, 즐겨찾기 등) 참조를 먼저 keeper 로 이전.
+        # 충돌 잔여가 있으면 고아 참조(API NPE)를 만들지 않도록 이 병합은 스킵.
+        if not migrate_service_refs(wcur, keep_id, drop_id):
+            continue
         # twin의 빈 필드를 오염 행 값으로 채움
         wcur.execute(
             "UPDATE works SET "

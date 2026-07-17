@@ -23,6 +23,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from config import MYSQL_CONFIG
 from modules.db_handler import connect_database
+from scripts.works_ref_migration import migrate_service_refs
 
 
 def main():
@@ -102,6 +103,10 @@ def main():
         )
         for s in sibs:
             sid = s['works_id']
+            # 서비스 테이블(topic_room, 즐겨찾기 등) 참조를 먼저 keeper 로 이전.
+            # 충돌 잔여가 있으면 고아 참조(API NPE)를 만들지 않도록 이 형제행은 삭제 스킵.
+            if not migrate_service_refs(wcur, kid, sid):
+                continue
             wcur.execute("INSERT IGNORE INTO works_platform (works_id, platform) "
                          "SELECT %s, platform FROM works_platform WHERE works_id=%s", (kid, sid))
             wcur.execute("INSERT IGNORE INTO works_hashtag (works_id, hashtag_id) "

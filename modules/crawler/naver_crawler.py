@@ -270,13 +270,37 @@ class NaverCrawler(BaseCrawler):
             if "nid.naver.com" in self.driver.current_url:
                 raise SessionExpiredError(f"네이버 로그인 리다이렉트 감지: {url}")
 
+            # 내려간 작품은 홈(/index)으로 리다이렉트됨 → 10초 대기 없이 즉시 스킵
+            if 'titleId=' not in self.driver.current_url:
+                self._log.warning("작품 페이지 아님(내려간 작품 추정): %s → %s", url, self.driver.current_url)
+                return None
+
             wait = WebDriverWait(self.driver, 10)
             
             # 제목 추출 및 전처리
             title_raw = wait.until(EC.visibility_of_element_located((By.XPATH, '//*[@id="content"]/div[1]/div/h2'))).text
             title = title_raw.replace("휴재", "").replace(" [독점]", "").strip()
 
-            artist = self.driver.find_element(By.XPATH, '//*[@id="content"]/div[1]/div/div[1]/span').text
+            # 작가 영역: 작가 한 명당 span 하나 (`이름 ∙ 역할` 구조, 역할 = 글|그림|원작|글/그림)
+            # 역할 라벨은 빼고 이름만 모으고, 역할별 필드도 채운다.
+            author = illustrator = original_author = ""
+            artist_names = []
+            for _span in self.driver.find_elements(By.XPATH, '//*[@id="content"]/div[1]/div/div[1]/span'):
+                _text = _span.text.strip()
+                if not _text or '∙' not in _text:
+                    continue
+                _name_part, _role = _text.rsplit('∙', 1)
+                _links = _span.find_elements(By.TAG_NAME, 'a')
+                name = (_links[0].text if _links else _name_part).strip()
+                _role = _role.strip()
+                if not name:
+                    continue
+                if name not in artist_names:
+                    artist_names.append(name)
+                if '글' in _role and not author: author = name
+                if '그림' in _role and not illustrator: illustrator = name
+                if '원작' in _role and not original_author: original_author = name
+            artist = ', '.join(artist_names)
             _desc_el = self.driver.find_element(By.XPATH, '//*[@id="content"]/div[1]/div/div[2]/p')
             desc = (self.driver.execute_script("return arguments[0].innerText", _desc_el) or "").strip()
             genre = self.driver.find_element(By.XPATH, '//*[@id="content"]/div[1]/div/div[2]/div/div/a[1]').text.lstrip('#').strip()
@@ -299,9 +323,12 @@ class NaverCrawler(BaseCrawler):
 
             return {
                 "platform": "NAVER_WEBTOON",
-                "works_name": title, 
+                "works_name": title,
                 "artist_name": artist,
-                "age_classification": age, 
+                "author": author,
+                "illustrator": illustrator,
+                "original_author": original_author,
+                "age_classification": age,
                 "description": desc, 
                 "genre": genre,
                 "hashtags": hashtags, 

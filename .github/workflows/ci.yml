@@ -1,0 +1,58 @@
+name: STORIX Crawler CI - Build & Push to ECR
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  build-push:
+    name: Build & Push to ECR
+    runs-on: ubuntu-latest
+    env:
+      AWS_REGION: ap-northeast-2
+      ECR_REPOSITORY: storix-crawler
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve env tag by branch
+        id: meta
+        run: |
+          if [ "${GITHUB_REF_NAME}" = "main" ]; then
+            echo "env_tag=prod" >> "$GITHUB_OUTPUT"
+          else
+            echo "env_tag=dev" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
+        with:
+          role-to-assume: ${{ secrets.APP_DEPLOY_ROLE_ARN }}
+          aws-region: ap-northeast-2
+
+      - name: Login to ECR
+        env:
+          ECR_REGISTRY: ${{ secrets.ECR_REGISTRY }}
+        run: |
+          aws ecr get-login-password --region "$AWS_REGION" \
+            | docker login --username AWS --password-stdin "$ECR_REGISTRY"
+
+      - name: Build & Push
+        env:
+          ECR_REGISTRY: ${{ secrets.ECR_REGISTRY }}
+          ENV_TAG: ${{ steps.meta.outputs.env_tag }}
+        run: |
+          IMAGE="$ECR_REGISTRY/$ECR_REPOSITORY"
+          docker build \
+            -t "$IMAGE:${ENV_TAG}-${GITHUB_SHA}" \
+            -t "$IMAGE:${ENV_TAG}-latest" \
+            .
+          docker push "$IMAGE:${ENV_TAG}-${GITHUB_SHA}"
+          docker push "$IMAGE:${ENV_TAG}-latest"

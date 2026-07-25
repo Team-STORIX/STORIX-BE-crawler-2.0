@@ -6,11 +6,24 @@ search_titles 모드: 작품명 리스트 → 플랫폼 검색 → 크롤링 →
 """
 from pathlib import Path
 
+from selenium.common.exceptions import InvalidSessionIdException, WebDriverException
+from urllib3.exceptions import ReadTimeoutError as _DriverTimeoutError
+
+from modules.crawler.base_crawler import SessionExpiredError
 from modules.crawler.naver_crawler import NaverCrawler
 from modules.crawler.naver_novel_crawler import NaverNovelCrawler
 from modules.crawler.naver_series_crawler import NaverSeriesCrawler
 from modules.crawler.kakao_crawler import KakaoCrawler
 from crawler.output.jsonl_writer import JSONLWriter
+
+# 제목 검색(search_url_by_title) 단계에서 드라이버가 멈추면 나는 예외들.
+# crawl_detail_with_retry 와 달리 이 단계는 재시작 보호가 없어 여기서 직접 처리한다.
+_DRIVER_ERRORS = (
+    InvalidSessionIdException,
+    SessionExpiredError,
+    _DriverTimeoutError,
+    WebDriverException,
+)
 
 SUPPORTED_PLATFORMS = ['naver_webtoon', 'naver_novel', 'naver_series', 'kakao_page', 'all']
 
@@ -43,6 +56,8 @@ def run_search_titles(
         return
 
     targets = _ALL_TARGETS if platform == 'all' else [platform]
+    # found 를 호출자가 소유해, 한 플랫폼이 중간에 터져도 그때까지 크롤한 진행분이
+    # titles.txt 정리에 반영되도록 한다. (_search_and_write 가 이 집합을 in-place 로 채움)
     found: set[str] = set()
     for p in targets:
         # 이 플랫폼이 취급하는 타입의 작품만 추린다. (타입 None은 항상 포함)
@@ -53,7 +68,7 @@ def run_search_titles(
             print(f'\n⏭️  [{label}] 해당 타입 작품이 없어 스킵')
             continue
         try:
-            found |= _search_and_write(subset, p)
+            _search_and_write(subset, p, found)
         except Exception as e:
             # 한 플랫폼(로그인 실패 등)의 오류가 나머지 플랫폼·파일 정리를 막지 않도록 격리
             print(f'⚠️  [{p}] 건너뜀: {e}')
@@ -97,9 +112,13 @@ def _remove_found_from_file(titles_file: str, found: set[str]) -> None:
         print('   남은 작품: ' + ', '.join(leftover_titles))
 
 
-def _search_and_write(titles: list[str], platform: str) -> set[str]:
+def _search_and_write(titles: list[str], platform: str, found: set[str]) -> set[str]:
+    """titles 를 순회하며 검색·크롤·저장. 성공 제목을 in-place 로 found 에 추가한다.
+
+    한 작품에서 드라이버가 멈추거나(타임아웃) 예외가 나도 그 작품만 건너뛰고
+    나머지를 계속한다. 드라이버 이상이면 재시작 후 이어서 진행한다.
+    """
     CrawlerClass, label = _CRAWLER_MAP[platform]
-    found: set[str] = set()
 
     crawler = CrawlerClass()
     crawler.start_driver()
@@ -114,21 +133,33 @@ def _search_and_write(titles: list[str], platform: str) -> set[str]:
             for i, title in enumerate(titles, 1):
                 print(f'\n  [{i}/{len(titles)}] "{title}" 검색 중...')
 
-                url = crawler.search_url_by_title(title)
-                if not url:
-                    print(f'  ⚠️  검색 결과 없음 — 스킵')
-                    skip_count += 1
-                    continue
+                try:
+                    url = crawler.search_url_by_title(title)
+                    if not url:
+                        print(f'  ⚠️  검색 결과 없음 — 스킵')
+                        skip_count += 1
+                        continue
 
-                result = crawler.crawl_detail_with_retry(url)
-                if not result:
-                    print(f'  ❌ 크롤링 실패')
+                    result = crawler.crawl_detail_with_retry(url)
+                    if not result:
+                        print(f'  ❌ 크롤링 실패')
+                        fail_count += 1
+                        continue
+
+                    writer.write(result)
+                    found.add(title.strip())
+                    ok_count += 1
+                except _DRIVER_ERRORS as e:
+                    # 제목 검색 단계의 드라이버 다운. 재시작 후 다음 작품 계속.
+                    print(f'  ♻️  드라이버 이상 — 재시작 후 계속: {e}')
+                    crawler._restart_driver()
                     fail_count += 1
                     continue
-
-                writer.write(result)
-                found.add(title.strip())
-                ok_count += 1
+                except Exception as e:
+                    # 그 외 예기치 못한 오류도 이 작품만 스킵.
+                    print(f'  ❌ 예기치 못한 오류 — 스킵: {e}')
+                    fail_count += 1
+                    continue
 
             print(
                 f'\n✅ [{label}] 완료 — '

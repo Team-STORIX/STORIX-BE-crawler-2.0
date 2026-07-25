@@ -98,8 +98,47 @@ python cli.py crawl --mode custom_url --url "https://www.kakaopage.com/content/.
 > - 지원 플랫폼: `naver_webtoon`, `naver_novel`, `naver_series`, `kakao_page`, `all` (리디북스 미지원)
 > - `titles.txt`에 작품명을 줄바꿈으로 나열하면 각 플랫폼에서 제목 검색 → 상세 크롤 → JSONL 저장.
 > - `--platform all`은 위 4개 플랫폼을 순회하며, **한 곳에서라도 찾으면** 해당 작품을 처리합니다.
+> - 제목 매칭은 **완전일치 → 부분일치(포함) → 유사도 ≥90%** 순으로 시도합니다. 정규화(공백·괄호·`·∙#` 제거) 후 비교하며, 유사 매칭 채택 시 로그에 `(유사 92%)`처럼 점수를 남깁니다. 임계값은 `BaseCrawler.TITLE_FUZZY_THRESHOLD`로 조정.
+> - **네이버 웹소설**은 정식(시리즈에디션)에 없으면 **베스트리그·챌린지리그(베스트도전)**까지 검색합니다. 리그 우선순위는 `정식 > 베스트 > 챌린지`, 로그에 `(베스트리그·정확)`처럼 출처를 표기합니다. 단 아마추어 리그는 2차창작·팬픽 오탐을 막기 위해 **부분일치를 제외하고 완전일치·유사도만** 인정합니다.
 > - **`--titles-file` 사용 시 크롤에 성공한 작품은 파일에서 자동 제거**되어, `titles.txt`에는 못 찾은 작품만 남습니다(재시도용). `--titles`(직접 입력)는 파일을 수정하지 않습니다.
 > - 이후 `batch import`가 빈 필드만 `COALESCE`로 채우므로 기존 값은 보존됩니다.
+
+**해시태그/플랫폼 빈 works 채우기** (`scripts/fill_missing_works.py`)
+
+`works_hashtag` 또는 `works_platform`이 하나도 없는 works를 찾아, `works_type`(웹툰/웹소설)별 섹션 헤더 형식으로 `titles.txt`를 생성합니다. 그대로 `search_titles`에 넣어 재크롤하면 빈 해시태그·플랫폼이 채워집니다.
+
+```bash
+# 1단계: 대상 조회 (읽기 전용, 파일 미변경 — 미리보기만)
+python scripts/fill_missing_works.py
+
+# 2단계: titles.txt 에 기록 (-o 로 경로 변경 가능)
+python scripts/fill_missing_works.py --write
+
+# 3단계: 재크롤
+python cli.py crawl --platform all --mode search_titles --titles-file titles.txt
+
+# 4단계: 중복 없이 DB 반영 (fill_import.py — 일반 batch import 대신 사용)
+python scripts/fill_import.py --input output/2026-07-25/search_titles.jsonl --dry-run  # 분류 미리보기
+python scripts/fill_import.py --input output/2026-07-25/search_titles.jsonl            # 실제 반영
+```
+
+> - 기본은 **읽기 전용**이며, 실제 기록은 `--write`가 있어야 합니다(`titles.txt` 실수 덮어쓰기 방지).
+> - 해시태그 0 / 플랫폼 0 건수를 나눠 요약 출력합니다.
+> - `works_type`이 웹툰/웹소설이 아닌 행은 `search_titles`가 스킵하므로 파일에 넣지 않고 **경고로 따로 보고**합니다(수동 처리 필요).
+
+**왜 `fill_import.py`인가 (중복 행 방지)**
+
+일반 `batch import`는 `(works_name + artist_name)`으로 기존 행을 찾으므로, 재크롤한 작가명이 DB와 조금이라도 다르면 **빈 행을 채우는 대신 새 행을 하나 더 만듭니다.** [scripts/fill_import.py](scripts/fill_import.py)는 `works_name`으로 기존 행을 찾아 이렇게 분기합니다:
+
+| 상황 | 처리 |
+|------|------|
+| 크롤 작가 == 기존 작가 | 그 행을 정상 채움 (`save_one_row`) |
+| 기존 작가가 비어있음 | 그 행에 작가명 세팅 후 채움 (ADOPT) |
+| 기존 작가가 이미 다른 값 | 채우지 않고 **검수큐(별도 폴더)에 저장** [CONFLICT] |
+| 빈 작가 행 다수 / 매칭 없음 / 크롤 작가 없음 | 검수큐 |
+
+> - 채우는 값의 병합 규칙은 `save_one_row`와 동일(빈 값 유지·채워진 값 반영, 해시태그는 있을 때만 교체, 플랫폼은 `INSERT IGNORE` 추가).
+> - 검수큐는 기본 `output/fill_review/artist_conflict_queue.jsonl`에 쌓이며 `python cli.py batch review --input <경로>`로 조회. `--review-dir`로 위치 변경 가능.
 
 **배치 적재**
 ```bash
@@ -377,6 +416,12 @@ works_platform: { works_id: 1, platform: "NAVER_WEBTOON" }
 ├── monitor/
 │   ├── session_watcher.py          # 로그인 리다이렉트 감지, 연속 None 경보
 │   └── platform_status.py         # 플랫폼별 실행 이력 기록 및 요약 출력
+│
+├── scripts/                        # 운영·정비용 단발 스크립트
+│   ├── diagnose_empty_desc.py      # description 빈 works 원인 분류 (읽기 전용)
+│   ├── fill_missing_works.py       # 해시태그/플랫폼 빈 works → titles.txt 생성 (재크롤용)
+│   ├── fill_import.py              # 채우기 크롤 결과를 중복 없이 DB 반영, 작가 충돌은 검수큐로
+│   └── fix_series_age_badge.py     # 적재된 NAVER_SERIES '19' 배지 오염 제목 재크롤·정리
 │
 └── output/                         # 크롤링 산출물 (날짜별 JSONL, .gitignore 처리됨)
     └── YYYY-MM-DD/

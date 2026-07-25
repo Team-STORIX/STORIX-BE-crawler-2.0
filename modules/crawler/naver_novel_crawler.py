@@ -15,62 +15,78 @@ class NaverNovelCrawler(NaverCrawler):
 
     _platform = 'naver_novel'
 
+    # 검색결과 카드의 리그 구분 (href 경로) → (우선순위, 표기). 낮은 순위가 우선.
+    # 정식 웹소설을 항상 우선하고, 정식이 없을 때만 베스트리그·챌린지리그로 폴백한다.
+    _LEAGUE_RANK = {'/webnovel/list': 0, '/best/list': 1, '/challenge/list': 2}
+    _LEAGUE_NAME = {'/webnovel/list': '정식', '/best/list': '베스트리그', '/challenge/list': '챌린지리그'}
+
     def search_url_by_title(self, title: str) -> str | None:
         """제목으로 네이버 웹소설(novel.naver.com) URL 검색.
 
-        검색 결과의 '대표 작품' 카드 제목만 class 없는 <strong>에 담기고,
-        하단 추천 카드는 .subj를 사용한다. 대표 카드가 없으면(정식 웹소설이
-        없고 도전/베스트리그만 있거나 결과 없음) None을 반환한다.
+        검색결과 영역(.component_section)만 스코프해 우측 랭킹 사이드바(.league_wrap)를
+        배제한다. 리그 우선순위(정식 > 베스트리그 > 챌린지리그) → 매치품질(정확 > 부분 >
+        유사) 순으로 가장 좋은 후보를 고른다. 어느 리그에도 매치가 없으면 None.
         """
         import urllib.parse
-        import re
 
         self.driver.get(
             f"https://novel.naver.com/search?keyword={urllib.parse.quote(title)}"
         )
         time.sleep(2)
 
-        def normalize(s: str) -> str:
-            return re.sub(r'[\s\[\]()·∙#]', '', s).lower()
+        norm_title = self._norm_title(title)
 
-        norm_title = normalize(title)
-
-        # 대표 카드 제목: 정식 웹소설(webnovel/list) 링크 안의 class 없는 <strong>
-        strongs = self.driver.find_elements(
-            By.CSS_SELECTOR, "a[href*='webnovel/list?novelId='] strong:not([class])"
+        # 검색결과 카드 링크만 (사이드바 랭킹은 .league_wrap 아래라 제외됨).
+        anchors = self.driver.find_elements(
+            By.CSS_SELECTOR, ".component_section a[href*='novelId=']"
         )
 
-        exact = None
-        partial = None
-        for strong in strongs:
-            text = (strong.text or '').strip()
+        # 후보 선택 키: (리그순위, 품질, -유사도) — 튜플이 작을수록 우선.
+        # 품질 0=정확, 1=부분, 2=유사(≥임계값).
+        best_key = None
+        best = None  # (href, text, league_path, quality, ratio)
+        for a in anchors:
+            href = a.get_attribute('href') or ''
+            league = next((p for p in self._LEAGUE_RANK if p in href), None)
+            if league is None:
+                continue
+
+            try:
+                text = a.find_element(By.CSS_SELECTOR, '.title').text.strip()
+            except Exception:
+                text = (a.get_attribute('title') or a.text or '').strip()
             if not text:
                 continue
-            try:
-                href = strong.find_element(
-                    By.XPATH, "./ancestor::a[1]"
-                ).get_attribute('href') or ''
-            except Exception:
-                continue
-            if 'novelId=' not in href:
-                continue
-            norm_text = normalize(text)
+            norm_text = self._norm_title(text)
 
+            # 부분일치(substring)는 정식 웹소설에만 허용한다. 베스트/챌린지리그엔 원작
+            # 제목을 포함하는 2차창작·팬픽이 많아, substring 을 허용하면 오탐이 된다.
+            # (예: '전지적 독자 시점' → '[전지적 독자 시점/전독시 팬픽] 피투성이')
+            # 아마추어 리그는 완전일치 + 유사도(길이 민감)만 인정한다.
+            is_official = league == '/webnovel/list'
             if norm_text == norm_title:
-                exact = (href, text)
-                break
-            if partial is None and (norm_title in norm_text or norm_text in norm_title):
-                partial = (href, text)
+                quality, ratio = 0, 1.0
+            elif is_official and (norm_title in norm_text or norm_text in norm_title):
+                quality, ratio = 1, 0.0
+            else:
+                ratio = self._title_ratio(norm_title, norm_text)
+                if ratio < self.TITLE_FUZZY_THRESHOLD:
+                    continue
+                quality = 2
 
-        if exact:
-            print(f"   ↳ 검색 결과 (정확): {exact[0]} [{exact[1]}]")
-            return exact[0]
+            key = (self._LEAGUE_RANK[league], quality, -ratio)
+            if best_key is None or key < best_key:
+                best_key = key
+                best = (href, text, league, quality, ratio)
 
-        if partial:
-            print(f"   ↳ 검색 결과 (부분): {partial[0]} [{partial[1]}]")
-            return partial[0]
+        if best:
+            href, text, league, quality, ratio = best
+            league_name = self._LEAGUE_NAME[league]
+            kind = {0: '정확', 1: '부분'}.get(quality, f'유사 {ratio:.0%}')
+            print(f"   ↳ 검색 결과 ({league_name}·{kind}): {href} [{text}]")
+            return href
 
-        print(f"   ⚠️  '{title}' 정식 웹소설 검색 결과 없음 — 스킵")
+        print(f"   ⚠️  '{title}' 네이버 웹소설 검색 결과 없음 — 스킵")
         return None
 
     def get_genre_urls(self, genre_url: str) -> list[str]:

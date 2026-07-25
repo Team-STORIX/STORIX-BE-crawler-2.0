@@ -38,10 +38,7 @@ class NaverSeriesCrawler(NaverCrawler):
         self.driver.get(self._SEARCH_URL.format(urllib.parse.quote(title)))
         time.sleep(2)
 
-        def normalize(s: str) -> str:
-            return re.sub(r'[\s\[\]()·∙#]', '', s).lower()
-
-        norm_title = normalize(title)
+        norm_title = self._norm_title(title)
 
         # 제목 링크만 선택 (class 예: 'N=a:nov.title' / 'N=a:com.title'). 이미지 링크는 제외.
         links = self.driver.find_elements(
@@ -49,6 +46,8 @@ class NaverSeriesCrawler(NaverCrawler):
         )
 
         exact_novel = exact_comic = partial_novel = partial_comic = None
+        fuzzy_novel = fuzzy_comic = None
+        fuzzy_novel_score = fuzzy_comic_score = 0.0
         for a in links:
             href = a.get_attribute('href') or ''
             if 'detail.series' not in href:
@@ -57,7 +56,7 @@ class NaverSeriesCrawler(NaverCrawler):
             if not text:
                 continue
             is_novel = '/novel/' in href
-            norm_text = normalize(text)
+            norm_text = self._norm_title(text)
 
             if norm_text == norm_title:
                 if is_novel and not exact_novel:
@@ -69,10 +68,24 @@ class NaverSeriesCrawler(NaverCrawler):
                     partial_novel = (href, text)
                 elif not is_novel and not partial_comic:
                     partial_comic = (href, text)
+            else:
+                ratio = self._title_ratio(norm_title, norm_text)
+                if ratio >= self.TITLE_FUZZY_THRESHOLD:
+                    if is_novel and ratio > fuzzy_novel_score:
+                        fuzzy_novel_score, fuzzy_novel = ratio, (href, text)
+                    elif not is_novel and ratio > fuzzy_comic_score:
+                        fuzzy_comic_score, fuzzy_comic = ratio, (href, text)
 
-        hit = exact_novel or exact_comic or partial_novel or partial_comic
+        hit = (exact_novel or exact_comic or partial_novel or partial_comic
+               or fuzzy_novel or fuzzy_comic)
         if hit:
-            kind = '정확' if hit in (exact_novel, exact_comic) else '부분'
+            if hit in (exact_novel, exact_comic):
+                kind = '정확'
+            elif hit in (partial_novel, partial_comic):
+                kind = '부분'
+            else:
+                score = fuzzy_novel_score if hit is fuzzy_novel else fuzzy_comic_score
+                kind = f'유사 {score:.0%}'
             print(f"   ↳ 검색 결과 ({kind}): {hit[0]} [{hit[1]}]")
             return hit[0]
 
@@ -126,12 +139,19 @@ class NaverSeriesCrawler(NaverCrawler):
 
             works_type = "웹툰" if "/comic/" in url else "웹소설"
 
-            # 제목
+            # 제목: h2 안의 연령 배지(<span class="ico_age2 n19_v2">19</span>)를 DOM에서
+            # 떼어낸 뒤 읽는다. '191305호'처럼 배지 뒤가 숫자로 이어지면 문자열
+            # 후처리로는 '19'만 못 떼므로, 배지 요소 자체를 제거해야 한다.
             title = ""
             try:
-                title = self._clean_title(
-                    self.driver.find_element(By.CSS_SELECTOR, ".end_head h2").text.strip()
+                h2 = self.driver.find_element(By.CSS_SELECTOR, ".end_head h2")
+                raw = self.driver.execute_script(
+                    "var h = arguments[0].cloneNode(true);"
+                    "h.querySelectorAll('[class*=\"ico_age\"]').forEach(function(e){e.remove();});"
+                    "return h.textContent;",
+                    h2,
                 )
+                title = self._clean_title((raw or "").strip())
             except Exception:
                 pass
             if not title:

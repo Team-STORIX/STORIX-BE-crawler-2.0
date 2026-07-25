@@ -1,6 +1,8 @@
 import os
+import re
 import time
 import random
+from difflib import SequenceMatcher
 
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
@@ -18,10 +20,26 @@ class SessionExpiredError(Exception):
 class BaseCrawler:
     _platform: str = ''
 
+    # 제목 검색 매칭 임계값. 완전일치·부분일치(포함)로 못 잡은 후보 중
+    # 정규화 문자열 유사도가 이 값 이상이면 마지막 순위로 채택한다.
+    TITLE_FUZZY_THRESHOLD: float = 0.9
+
     def __init__(self, headless: bool = False):
         self.driver = None
         self._headless = headless
         self._log = get_logger(self.__class__.__name__)
+
+    @staticmethod
+    def _norm_title(s: str) -> str:
+        """제목 비교용 정규화: 공백·괄호·구분기호(·∙#) 제거 후 소문자화."""
+        return re.sub(r'[\s\[\]()·∙#]', '', s).lower()
+
+    @staticmethod
+    def _title_ratio(norm_a: str, norm_b: str) -> float:
+        """정규화된 두 제목의 유사도(0.0~1.0). SequenceMatcher 기반."""
+        if not norm_a or not norm_b:
+            return 0.0
+        return SequenceMatcher(None, norm_a, norm_b).ratio()
 
     def start_driver(self):
         if self.driver is not None: return

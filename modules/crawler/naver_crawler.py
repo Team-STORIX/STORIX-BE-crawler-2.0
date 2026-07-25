@@ -154,17 +154,13 @@ class NaverCrawler(BaseCrawler):
             return False
 
     def search_url_by_title(self, title: str) -> str | None:
-        """제목으로 네이버 웹툰 URL 검색. 정확 매칭 또는 부분 매칭만 반환 (불일치 시 None)."""
+        """제목으로 네이버 웹툰 URL 검색. 정확·부분·유사(≥임계값) 매칭 반환 (불일치 시 None)."""
         import urllib.parse
-        import re
 
         self.driver.get(f"https://comic.naver.com/search?keyword={urllib.parse.quote(title)}")
         time.sleep(2)
 
-        def normalize(s: str) -> str:
-            return re.sub(r'[\s\[\]()·∙#]', '', s).lower()
-
-        norm_title = normalize(title)
+        norm_title = self._norm_title(title)
 
         # 검색 결과 섹션 내 링크 우선 탐색
         candidates = []
@@ -184,6 +180,8 @@ class NaverCrawler(BaseCrawler):
 
         exact = None
         partial = None
+        fuzzy = None
+        fuzzy_score = 0.0
 
         for el in candidates:
             href = el.get_attribute('href') or ''
@@ -192,7 +190,7 @@ class NaverCrawler(BaseCrawler):
             text = (el.get_attribute('title') or el.text or '').replace('[독점]', '').replace('휴재', '').strip()
             if not text:
                 continue
-            norm_text = normalize(text)
+            norm_text = self._norm_title(text)
 
             if norm_text == norm_title:
                 exact = (href, text)
@@ -201,6 +199,11 @@ class NaverCrawler(BaseCrawler):
             if partial is None and (norm_title in norm_text or norm_text in norm_title):
                 partial = (href, text)
 
+            ratio = self._title_ratio(norm_title, norm_text)
+            if ratio >= self.TITLE_FUZZY_THRESHOLD and ratio > fuzzy_score:
+                fuzzy_score = ratio
+                fuzzy = (href, text)
+
         if exact:
             print(f"   ↳ 검색 결과 (정확): {exact[0]} [{exact[1]}]")
             return exact[0]
@@ -208,6 +211,10 @@ class NaverCrawler(BaseCrawler):
         if partial:
             print(f"   ↳ 검색 결과 (부분): {partial[0]} [{partial[1]}]")
             return partial[0]
+
+        if fuzzy:
+            print(f"   ↳ 검색 결과 (유사 {fuzzy_score:.0%}): {fuzzy[0]} [{fuzzy[1]}]")
+            return fuzzy[0]
 
         print(f"   ⚠️  '{title}'과 일치하는 검색 결과 없음 — 스킵")
         return None

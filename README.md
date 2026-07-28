@@ -75,14 +75,15 @@ python cli.py crawl --platform ridibooks --mode initial
 python cli.py crawl --platform all --mode update_fields --input ./output/2026-05-09/
 
 # 작품명 리스트로 검색 크롤링 (파일 입력)
-python cli.py crawl --platform naver_webtoon --mode search_titles --titles-file titles.txt
+python cli.py crawl --platform all --mode search_titles --titles-file titles.txt
 
 # 작품명 리스트로 검색 크롤링 (쉼표 구분 직접 입력)
 python cli.py crawl --platform all --mode search_titles --titles "나 혼자만 레벨업,재혼 황후"
 
-# 네이버 웹소설(novel.naver.com) / 네이버 시리즈(series.naver.com)도 지원
+# 네이버 웹소설(novel.naver.com) / 네이버 시리즈(series.naver.com) / 리디북스도 지원
 python cli.py crawl --platform naver_novel  --mode search_titles --titles-file titles.txt
 python cli.py crawl --platform naver_series --mode search_titles --titles "화산귀환,재벌집 막내아들"
+python cli.py crawl --platform ridibooks    --mode search_titles --titles "갓겜하다 갓됨 갓뎀!"
 
 # 커스텀 URL 크롤링 (네이버 웹툰 - 일일 연재+ 인기순, 상위 213개)
 python cli.py crawl --mode custom_url --url "https://comic.naver.com/webtoon?tab=dailyPlus" --count 213
@@ -92,14 +93,23 @@ python cli.py crawl --mode custom_url --url "https://comic.naver.com/webtoon?tab
 
 # 커스텀 URL 크롤링 (카카오페이지, 상위 300개)
 python cli.py crawl --mode custom_url --url "https://www.kakaopage.com/content/..." --count 300
+
+# 커스텀 URL 크롤링 (리디북스 단건 상세 — 특정 작품을 URL로 직접)
+python cli.py crawl --mode custom_url --url "https://ridibooks.com/books/5131000001"
+
+# 커스텀 URL 크롤링 (리디북스 카테고리 목록, 상위 200개)
+python cli.py crawl --mode custom_url --url "https://ridibooks.com/category/bestsellers/1613?period=steady" --count 200
 ```
 
+> **리디 단건 URL**을 이미 알고 있으면 `custom_url` 모드에 `/books/<id>` 상세 URL을 직접 넣어 크롤한 뒤 `batch import`(또는 `scripts/fill_import.py`)로 적재하세요. 카테고리 목록 URL을 주면 목록을 수집해 각 상세를 크롤합니다. 작품명만 있으면 아래 `search_titles`를 쓰면 됩니다.
+
 > **`search_titles` 모드 (임의 목록으로 특정 작품만 채우기)**
-> - 지원 플랫폼: `naver_webtoon`, `naver_novel`, `naver_series`, `kakao_page`, `all` (리디북스 미지원)
+> - 지원 플랫폼: `naver_webtoon`, `naver_novel`, `naver_series`, `kakao_page`, `ridibooks`, `all`
 > - `titles.txt`에 작품명을 줄바꿈으로 나열하면 각 플랫폼에서 제목 검색 → 상세 크롤 → JSONL 저장.
-> - `--platform all`은 위 4개 플랫폼을 순회하며, **한 곳에서라도 찾으면** 해당 작품을 처리합니다.
+> - `--platform all`은 위 5개 플랫폼을 순회하며, **한 곳에서라도 찾으면** 해당 작품을 처리합니다.
 > - 제목 매칭은 **완전일치 → 부분일치(포함) → 유사도 ≥90%** 순으로 시도합니다. 정규화(공백·괄호·`·∙#` 제거) 후 비교하며, 유사 매칭 채택 시 로그에 `(유사 92%)`처럼 점수를 남깁니다. 임계값은 `BaseCrawler.TITLE_FUZZY_THRESHOLD`로 조정.
 > - **네이버 웹소설**은 정식(시리즈에디션)에 없으면 **베스트리그·챌린지리그(베스트도전)**까지 검색합니다. 리그 우선순위는 `정식 > 베스트 > 챌린지`, 로그에 `(베스트리그·정확)`처럼 출처를 표기합니다. 단 아마추어 리그는 2차창작·팬픽 오탐을 막기 위해 **부분일치를 제외하고 완전일치·유사도만** 인정합니다.
+> - **리디북스**는 `ridibooks.com/search`에서 `/books/<id>`를 찾아 매칭합니다. 성인(19금) 작품은 **성인 인증된 계정으로 로그인**돼 있어야 검색 결과에 노출되니, 리디 세션(`sessions/ridibooks_cookies.pkl`)이 성인 인증 상태인지 확인하세요. 리디 상세는 `works_type` 자동감지가 약해 웹소설이 `웹툰`으로 잡힐 수 있으니 적재 후 확인이 필요합니다.
 > - **`--titles-file` 사용 시 크롤에 성공한 작품은 파일에서 자동 제거**되어, `titles.txt`에는 못 찾은 작품만 남습니다(재시도용). `--titles`(직접 입력)는 파일을 수정하지 않습니다.
 > - 이후 `batch import`가 빈 필드만 `COALESCE`로 채우므로 기존 값은 보존됩니다.
 
@@ -139,6 +149,40 @@ python scripts/fill_import.py --input output/2026-07-25/search_titles.jsonl     
 
 > - 채우는 값의 병합 규칙은 `save_one_row`와 동일(빈 값 유지·채워진 값 반영, 해시태그는 있을 때만 교체, 플랫폼은 `INSERT IGNORE` 추가).
 > - 검수큐는 기본 `output/fill_review/artist_conflict_queue.jsonl`에 쌓이며 `python cli.py batch review --input <경로>`로 조회. `--review-dir`로 위치 변경 가능.
+
+**이름이 유사한 작품 병합 검수** (`scripts/review_similar_works.py`)
+
+`패밀리 레스토랑 가자` vs `패밀리 레스토랑 가자[단행본]`, `나 혼자만 레벨업` vs `나혼자만 레벨업`처럼 표기 차이로 갈린 **같은 작품**을 사람이 한 쌍씩 확인해 병합합니다. `works_name`을 정규화(공백·기호 제거, 소문자화)해 유사도 ≥ 임계값(기본 0.8)인 쌍만 뽑아, 두 작품을 나란히 띄우고 **어느 쪽을 기준(우선)으로 합칠지** 물어봅니다.
+
+```bash
+# 1단계: 후보쌍만 확인 (읽기 전용, DB 변경 없음)
+python scripts/review_similar_works.py --dry-run
+
+# 2단계: 검수 시작 (한 쌍씩 1/2/s/q 입력 — 선택은 즉시 반영)
+python scripts/review_similar_works.py
+
+# 옵션
+python scripts/review_similar_works.py --skip-sequels     # 시즌·N부·외전·연도만 다른 쌍 제외 (권장)
+python scripts/review_similar_works.py --threshold 0.85   # 더 엄격하게
+python scripts/review_similar_works.py --type 웹툰         # 웹툰끼리만 비교
+python scripts/review_similar_works.py --cross-type       # 웹툰↔웹소설도 비교(기본은 같은 타입끼리만)
+```
+
+> `--skip-sequels`는 `마음의소리 ⇄ 마음의소리2`, `아일랜드 1부 ⇄ 2부`, `2025 루키 단편선 ⇄ 2024 루키 단편선`처럼 **시즌·N부·외전·연도만 다른 별개 편**을 후보에서 자동 제외합니다. 단 `개정판`·`단행본`·`완전판` 같은 **판본 차이는 같은 작품**으로 보고 후보에 그대로 남깁니다(`패밀리 레스토랑 가자 ⇄ 패밀리 레스토랑 가자[단행본]`).
+
+각 쌍에서 입력값:
+
+| 입력 | 동작 |
+|------|------|
+| `1` | **[1]번을 기준(우선)**으로 [2] 흡수 병합 |
+| `2` | **[2]번을 기준(우선)**으로 [1] 흡수 병합 |
+| `s` (또는 Enter) | 건너뛰기 |
+| `q` | 종료 |
+
+> - **기준으로 고른 행의 값이 우선**이며, 비어 있는 필드(작가·장르·연령·썸네일·설명 등)만 상대 행 값으로 채웁니다. 이후 상대 행의 플랫폼·해시태그·서비스 참조(즐겨찾기/토픽룸 등)를 기준 행으로 옮기고 상대 행을 삭제합니다.
+> - 서비스 참조 이전은 `merge_split_works`와 동일하게 [scripts/works_ref_migration.py](scripts/works_ref_migration.py)를 사용합니다. 유니크 충돌로 못 옮기는 **사용자 데이터가 남으면 그 행은 삭제하지 않고 경고만** 남깁니다(고아 참조 → API NPE 방지).
+> - 화면에 작가·플랫폼·설명 길이가 함께 표시됩니다. `시즌1 vs 시즌2`, `외전`처럼 이름만 비슷하고 다른 작품이면 `s`로 건너뛰세요.
+> - ⚠️ 병합 선택은 **즉시 커밋**됩니다. `--dry-run`으로 후보 규모를 먼저 확인한 뒤 시작하세요.
 
 **배치 적재**
 ```bash
@@ -421,6 +465,9 @@ works_platform: { works_id: 1, platform: "NAVER_WEBTOON" }
 │   ├── diagnose_empty_desc.py      # description 빈 works 원인 분류 (읽기 전용)
 │   ├── fill_missing_works.py       # 해시태그/플랫폼 빈 works → titles.txt 생성 (재크롤용)
 │   ├── fill_import.py              # 채우기 크롤 결과를 중복 없이 DB 반영, 작가 충돌은 검수큐로
+│   ├── review_similar_works.py     # 이름 유사(≥80%) 작품쌍을 사람이 한 쌍씩 검수·병합 (기준행 우선)
+│   ├── merge_split_works.py        # works_name 같고 작가 표기만 다른 쪼개진 행 자동 병합
+│   ├── works_ref_migration.py     # works 삭제 전 서비스 테이블(즐겨찾기/토픽룸 등) 참조 이전 공용 로직
 │   └── fix_series_age_badge.py     # 적재된 NAVER_SERIES '19' 배지 오염 제목 재크롤·정리
 │
 └── output/                         # 크롤링 산출물 (날짜별 JSONL, .gitignore 처리됨)

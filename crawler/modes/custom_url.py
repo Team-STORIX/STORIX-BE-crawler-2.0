@@ -2,31 +2,37 @@ import re
 from urllib.parse import urlparse, parse_qs
 from modules.crawler.naver_crawler import NaverCrawler
 from modules.crawler.kakao_crawler import KakaoCrawler
+from modules.crawler.ridibooks_crawler import RidibooksCrawler
 from crawler.output.jsonl_writer import JSONLWriter
 
-SUPPORTED_PLATFORMS = ['naver_webtoon', 'kakao_page']
+SUPPORTED_PLATFORMS = ['naver_webtoon', 'kakao_page', 'ridibooks']
+
+# 리디북스 단건 상세 URL 판별: /books/<숫자>
+_RIDI_BOOK_RE = re.compile(r'/books/(\d+)')
 
 
 def parse_url_to_platform(url: str) -> tuple[str, str]:
     """
     URL을 파싱해서 (platform, page_type) 반환.
-    
+
     Returns:
-        (platform, page_type): 예) ('naver_webtoon', 'dailyPlus')
-    
+        (platform, page_type): 예) ('naver_webtoon', 'dailyPlus'),
+                               리디 단건은 ('ridibooks', 'book'),
+                               리디 카테고리는 ('ridibooks', 'category')
+
     Raises:
         ValueError: 지원하지 않는 URL
     """
     parsed = urlparse(url)
     domain = parsed.netloc.lower()
-    
+
     # 네이버 웹툰
     if 'naver.com' in domain:
         # tab 파라미터 추출
         params = parse_qs(parsed.query)
         tab = params.get('tab', [''])[0] or 'dailyPlus'
         return 'naver_webtoon', tab
-    
+
     # 카카오페이지
     elif 'kakaopage.com' in domain:
         # /content/ 이후의 부분을 page_type으로 사용
@@ -37,7 +43,11 @@ def parse_url_to_platform(url: str) -> tuple[str, str]:
                 page_type = path_parts[content_idx + 1]
                 return 'kakao_page', page_type
         return 'kakao_page', 'default'
-    
+
+    # 리디북스: /books/<id> 단건 상세 vs 카테고리(베스트셀러) 목록
+    elif 'ridibooks.com' in domain:
+        return 'ridibooks', ('book' if _RIDI_BOOK_RE.search(parsed.path) else 'category')
+
     else:
         raise ValueError(f'지원하지 않는 도메인: {domain}')
 
@@ -68,6 +78,8 @@ def run_custom_url(url: str, count: int | None = None) -> None:
         _crawl_naver(url, page_type, count)
     elif platform == 'kakao_page':
         _crawl_kakao(url, page_type, count)
+    elif platform == 'ridibooks':
+        _crawl_ridibooks(url, page_type, count)
 
 
 def _crawl_naver(url: str, tab: str, count: int | None) -> None:
@@ -136,6 +148,51 @@ def _crawl_kakao(url: str, page_type: str, count: int | None) -> None:
         
         print(f'✅ 완료: {writer.count}건 저장')
     
+    finally:
+        crawler.close_driver()
+
+
+def _crawl_ridibooks(url: str, page_type: str, count: int | None) -> None:
+    """리디북스 커스텀 크롤링.
+
+    page_type == 'book'     → /books/<id> 단건 상세 1건 크롤
+    page_type == 'category' → 베스트셀러 등 카테고리 목록에서 URL 수집 후 각 상세 크롤
+    """
+    crawler = RidibooksCrawler()
+
+    print(f'\n🔐 리디북스 로그인...')
+    crawler.start_driver()
+
+    try:
+        if not crawler.login():
+            print('❌ 로그인 실패')
+            return
+        print(f'✅ 로그인 성공')
+
+        if page_type == 'book':
+            book_urls = [url]
+            print(f'\n📡 단건 상세 크롤링...')
+        else:
+            # 카테고리 URL → base + query 로 분리해 목록 수집
+            from urllib.parse import urlsplit, urlunsplit
+            sp = urlsplit(url)
+            base_url = urlunsplit((sp.scheme, sp.netloc, sp.path, '', ''))
+            print(f'\n📡 카테고리 목록 수집...')
+            book_urls = crawler.get_category_urls(base_url, sp.query, count or 500)
+
+        if not book_urls:
+            print('❌ 크롤링할 URL이 없습니다.')
+            return
+
+        print(f'\n📝 JSONL 저장 중... ({len(book_urls)}건)')
+        with JSONLWriter(platform='ridibooks', mode='custom_url') as writer:
+            for book_url in book_urls:
+                detail = crawler.crawl_detail_with_retry(book_url)
+                if detail:
+                    writer.write(detail)
+
+        print(f'✅ 완료: {writer.count}건 저장')
+
     finally:
         crawler.close_driver()
 

@@ -1,3 +1,4 @@
+import re
 import time
 import pickle
 
@@ -124,6 +125,71 @@ class RidibooksCrawler(BaseCrawler):
 
         print("❌ [리디북스] 로그인 실패.")
         return False
+
+    def search_url_by_title(self, title: str) -> str | None:
+        """제목으로 리디북스 작품 URL 검색. 정확·부분·유사(≥임계값) 매칭 반환 (불일치 시 None).
+
+        검색 결과 카드는 emotion 해시 클래스라 안정적인 셀렉터가 없어, `/books/<id>`
+        링크(속성 기반)를 훑어 (책ID, 화면표시 제목) 쌍을 모아 매칭한다. 같은 책에
+        썸네일·제목 두 앵커가 걸리므로 책ID로 합쳐 텍스트가 있는 쪽을 제목으로 쓴다.
+        """
+        import urllib.parse
+
+        self.driver.get(f"https://ridibooks.com/search?q={urllib.parse.quote(title)}")
+        try:
+            WebDriverWait(self.driver, 15).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, "a[href*='/books/']"))
+            )
+        except TimeoutException:
+            print(f"   ⚠️  '{title}' 검색 결과 로딩 실패 — 스킵")
+            return None
+        time.sleep(1)
+
+        norm_title = self._norm_title(title)
+
+        # 책ID → (href, 표시 제목). 검색 결과 순서(가장 위)가 먼저 들어오도록 유지.
+        by_id: dict[str, tuple[str, str]] = {}
+        for el in self.driver.find_elements(By.CSS_SELECTOR, "a[href*='/books/']"):
+            href = el.get_attribute('href') or ''
+            m = re.search(r'/books/(\d+)', href)
+            if not m:
+                continue
+            book_id = m.group(1)
+            clean_url = f"https://ridibooks.com/books/{book_id}"
+            text = (el.get_attribute('title') or el.text or '').strip().split('\n')[0].strip()
+            prev = by_id.get(book_id)
+            # 텍스트가 있는 앵커(제목 링크)를 우선 채택, 없으면 URL만이라도 보존
+            if prev is None or (not prev[1] and text):
+                by_id[book_id] = (clean_url, text)
+
+        exact = partial = fuzzy = None
+        fuzzy_score = 0.0
+        for clean_url, text in by_id.values():
+            if not text:
+                continue
+            norm_text = self._norm_title(text)
+            if norm_text == norm_title:
+                exact = (clean_url, text)
+                break
+            if partial is None and (norm_title in norm_text or norm_text in norm_title):
+                partial = (clean_url, text)
+            ratio = self._title_ratio(norm_title, norm_text)
+            if ratio >= self.TITLE_FUZZY_THRESHOLD and ratio > fuzzy_score:
+                fuzzy_score = ratio
+                fuzzy = (clean_url, text)
+
+        if exact:
+            print(f"   ↳ 검색 결과 (정확): {exact[0]} [{exact[1]}]")
+            return exact[0]
+        if partial:
+            print(f"   ↳ 검색 결과 (부분): {partial[0]} [{partial[1]}]")
+            return partial[0]
+        if fuzzy:
+            print(f"   ↳ 검색 결과 (유사 {fuzzy_score:.0%}): {fuzzy[0]} [{fuzzy[1]}]")
+            return fuzzy[0]
+
+        print(f"   ⚠️  '{title}'과 일치하는 검색 결과 없음 — 스킵")
+        return None
 
     def get_category_urls(self, base_url: str, extra_params: str, max_count: int) -> list[str]:
         """카테고리 베스트셀러 URL 목록 수집 (스크롤 + 더보기 버튼)."""

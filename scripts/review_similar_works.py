@@ -69,6 +69,40 @@ def normalize_name(name: str) -> str:
     return re.sub(r'[\s\W_]+', '', name.lower())
 
 
+# '같은 작품의 다른 편'을 가리키는 시퀄/시즌 표기들. 이것만 다르면 별개 작품으로 본다.
+# 주의: '개정판/단행본/완전판' 같은 '판본' 표기는 여기 넣지 않는다(같은 작품 → 병합 대상).
+_SEQUEL_PATTERNS = [
+    r'시즌\s*\d+',          # 시즌2, 시즌 3
+    r'\d+\s*부',            # 1부, 6부
+    r'\d+\s*학기',          # 2학기
+    r'외전', r'번외',        # 외전 / 번외
+    r'(?:^|\s)(?:19|20)\d{2}(?=\s|$)',  # 앞머리 연도 (2025 루키 단편선)
+]
+
+
+def _split_sequel(name: str):
+    """(base, marker) 반환 — 시퀄 표기를 떼어낸 정규화 기준명과, 떼어낸 표기 집합."""
+    s = name.lower()
+    markers = []
+    for pat in _SEQUEL_PATTERNS:
+        for m in re.findall(pat, s):
+            markers.append(re.sub(r'\s+', '', m))
+        s = re.sub(pat, ' ', s)
+    # 남은 맨 뒤 숫자 (마음의소리2, 창천무신2, 야쿠자가 사랑을 한다면2)
+    tail = re.search(r'(\d+)\s*$', s)
+    if tail:
+        markers.append(tail.group(1))
+        s = s[:tail.start()]
+    return normalize_name(s), tuple(sorted(markers))
+
+
+def is_sequel_pair(a: str, b: str) -> bool:
+    """기준명은 같은데 시퀄/시즌/연도 표기만 다르면 True (= 별개 편, 병합 후보 제외)."""
+    base_a, mark_a = _split_sequel(a)
+    base_b, mark_b = _split_sequel(b)
+    return bool(base_a) and base_a == base_b and mark_a != mark_b
+
+
 def name_similarity(a: str, b: str, threshold: float) -> float:
     """정규화 이름 a,b 의 유사도(0~1). 임계값 미만이 확정되면 조기에 0.0 반환."""
     if not a or not b:
@@ -83,10 +117,14 @@ def name_similarity(a: str, b: str, threshold: float) -> float:
     return sm.ratio()
 
 
-def find_candidate_pairs(rows, threshold: float, same_type_only: bool):
-    """유사도 >= threshold 인 (score, row_a, row_b) 목록을 점수 내림차순으로 반환."""
+def find_candidate_pairs(rows, threshold: float, same_type_only: bool, skip_sequels: bool):
+    """유사도 >= threshold 인 (score, row_a, row_b) 목록을 점수 내림차순으로 반환.
+
+    반환: (pairs, sequel_skipped_count)
+    """
     enriched = [(r, normalize_name(r['works_name'])) for r in rows]
     pairs = []
+    sequel_skipped = 0
     n = len(enriched)
     for i in range(n):
         ri, ni = enriched[i]
@@ -99,10 +137,14 @@ def find_candidate_pairs(rows, threshold: float, same_type_only: bool):
             if same_type_only and ri['works_type'] != rj['works_type']:
                 continue
             score = name_similarity(ni, nj, threshold)
-            if score >= threshold:
-                pairs.append((score, ri, rj))
+            if score < threshold:
+                continue
+            if skip_sequels and is_sequel_pair(ri['works_name'], rj['works_name']):
+                sequel_skipped += 1
+                continue
+            pairs.append((score, ri, rj))
     pairs.sort(key=lambda p: p[0], reverse=True)
-    return pairs
+    return pairs, sequel_skipped
 
 
 def _fmt_work(tag: str, r: dict) -> str:
@@ -169,6 +211,9 @@ def main():
                     help='특정 works_type 만 대상(예: 웹툰, 웹소설). 미지정 시 전체')
     ap.add_argument('--cross-type', action='store_true',
                     help='다른 works_type 끼리도 비교(기본은 같은 타입끼리만)')
+    ap.add_argument('--skip-sequels', action='store_true',
+                    help='시즌·N부·외전·연도만 다른 쌍은 후보에서 제외(별개 편). '
+                         '개정판·단행본 등 판본 차이는 그대로 후보로 남김')
     ap.add_argument('--dry-run', action='store_true',
                     help='후보쌍만 나열하고 종료(DB 변경 없음)')
     args = ap.parse_args()
@@ -186,12 +231,18 @@ def main():
     if args.works_type:
         rows = [r for r in rows if r['works_type'] == args.works_type]
 
-    pairs = find_candidate_pairs(rows, args.threshold, same_type_only=not args.cross_type)
+    pairs, sequel_skipped = find_candidate_pairs(
+        rows, args.threshold,
+        same_type_only=not args.cross_type,
+        skip_sequels=args.skip_sequels,
+    )
 
     print(f"\n{'=' * 70}")
     print(f"이름 유사도 ≥ {args.threshold:.0%} 후보쌍: {len(pairs)}건"
           + (f"  (타입: {args.works_type})" if args.works_type else "")
           + ("  [교차 타입 비교]" if args.cross_type else ""))
+    if args.skip_sequels:
+        print(f"  (시퀄/시즌/연도만 다른 {sequel_skipped}쌍은 제외됨)")
     print(f"{'=' * 70}")
 
     if args.dry_run:

@@ -177,6 +177,7 @@ def cmd_crawl(args):
         if not url:
             print('❌ custom_url 모드는 --url이 필수입니다.')
             print('   예: python cli.py crawl --mode custom_url --url "https://comic.naver.com/webtoon?tab=dailyPlus" --count 213')
+            print('   지원 도메인: comic.naver.com | kakaopage.com | ridibooks.com(/books/<id> 단건 또는 카테고리)')
             sys.exit(1)
         run_custom_url(url, count)
 

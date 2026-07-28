@@ -14,6 +14,7 @@ from modules.crawler.naver_crawler import NaverCrawler
 from modules.crawler.naver_novel_crawler import NaverNovelCrawler
 from modules.crawler.naver_series_crawler import NaverSeriesCrawler
 from modules.crawler.kakao_crawler import KakaoCrawler
+from modules.crawler.ridibooks_crawler import RidibooksCrawler
 from crawler.output.jsonl_writer import JSONLWriter
 
 # 제목 검색(search_url_by_title) 단계에서 드라이버가 멈추면 나는 예외들.
@@ -25,16 +26,17 @@ _DRIVER_ERRORS = (
     WebDriverException,
 )
 
-SUPPORTED_PLATFORMS = ['naver_webtoon', 'naver_novel', 'naver_series', 'kakao_page', 'all']
+SUPPORTED_PLATFORMS = ['naver_webtoon', 'naver_novel', 'naver_series', 'kakao_page', 'ridibooks', 'all']
 
 _CRAWLER_MAP = {
     'naver_webtoon': (NaverCrawler, '네이버 웹툰'),
     'naver_novel': (NaverNovelCrawler, '네이버 웹소설'),
     'naver_series': (NaverSeriesCrawler, '네이버 시리즈'),
     'kakao_page': (KakaoCrawler, '카카오'),
+    'ridibooks': (RidibooksCrawler, '리디북스'),
 }
 
-_ALL_TARGETS = ['naver_webtoon', 'naver_novel', 'naver_series', 'kakao_page']
+_ALL_TARGETS = ['naver_webtoon', 'naver_novel', 'naver_series', 'kakao_page', 'ridibooks']
 
 # 플랫폼이 취급하는 작품 타입. 여기 없는 타입의 작품은 해당 플랫폼에서 검색하지 않는다.
 # (타입 None = 인라인 입력 → 타입 무관하게 전 플랫폼 검색)
@@ -43,6 +45,7 @@ _PLATFORM_TYPES = {
     'naver_novel': {'웹소설'},
     'naver_series': {'웹툰', '웹소설'},
     'kakao_page': {'웹툰', '웹소설'},
+    'ridibooks': {'웹툰', '웹소설'},
 }
 
 

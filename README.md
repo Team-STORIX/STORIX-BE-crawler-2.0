@@ -464,6 +464,7 @@ works_platform: { works_id: 1, platform: "NAVER_WEBTOON" }
 ├── scripts/                        # 운영·정비용 단발 스크립트
 │   ├── diagnose_empty_desc.py      # description 빈 works 원인 분류 (읽기 전용)
 │   ├── fill_missing_works.py       # 해시태그/플랫폼 빈 works → titles.txt 생성 (재크롤용)
+│   ├── fill_missing_genre.py       # genre 빈 works → titles.txt 생성 (재크롤용)
 │   ├── fill_import.py              # 채우기 크롤 결과를 중복 없이 DB 반영, 작가 충돌은 검수큐로
 │   ├── review_similar_works.py     # 이름 유사(≥80%) 작품쌍을 사람이 한 쌍씩 검수·병합 (기준행 우선)
 │   ├── merge_split_works.py        # works_name 같고 작가 표기만 다른 쪼개진 행 자동 병합

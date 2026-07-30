@@ -1,8 +1,7 @@
 # titles.txt — search_titles 모드 작품명 목록
-# fill_missing_works.py 자동 생성 (해시태그/플랫폼 빈 works)
+# fill_missing_genre.py 자동 생성 (genre 빈 works)
 # 검색 성공한 작품은 search_titles 실행 후 이 파일에서 자동 제거됩니다.
 
 ## 웹툰
 
 ## 웹소설
-갓겜하다 갓됨 갓뎀!

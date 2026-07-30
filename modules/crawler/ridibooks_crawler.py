@@ -11,6 +11,44 @@ from urllib3.exceptions import ReadTimeoutError as _DriverTimeoutError
 from .base_crawler import BaseCrawler, SessionExpiredError
 from config import RIDIBOOKS_COOKIE_FILE, RIDIBOOKS_LOGIN_URL, RIDIBOOKS_ID, RIDIBOOKS_PW
 
+# 리디 브레드크럼 카테고리 텍스트 → 대표 장르(DB 표준값).
+# 위에서부터 먼저 매칭되는 것을 채택 → 로판/BL/무협을 로맨스·판타지보다 앞에 둔다.
+# (실제 리디 분류: 로판 e북/웹소설, BL 소설/웹소설/만화/웹툰, 무협 소설,
+#  정통·퓨전·현대 판타지·판타지 웹소설, 로맨스 e북/웹소설, 라이트노벨 등)
+_RIDI_GENRE_KEYWORDS = [
+    ('로판', '로판'),
+    ('BL', 'BL'),
+    ('무협', '무협'),
+    ('판타지', '판타지'),
+    ('로맨스', '로맨스'),
+    ('라이트노벨', '판타지'),   # 라이트노벨은 대개 판타지 계열 → 판타지로 귀속
+    # 일반 소설 카테고리(예: "추리/미스터리/스릴러") 대응
+    ('스릴러', '스릴러'),
+    ('미스터리', '스릴러'),
+    ('추리', '스릴러'),
+    ('드라마', '드라마'),
+    ('액션', '액션'),
+]
+
+# 웹툰/웹소설이 아닌 '일반 단행본' 카테고리 — 이런 작품은 크롤 대상에서 제외(스킵).
+# 나라별 문학("일본 소설" 등)과 비소설 섹션(에세이/인문/자기계발 등)이 신호.
+# 주의: '무협 소설' 같은 장르 웹소설은 여기 걸리지 않도록 나라명이 붙은 형태만 넣는다.
+_RIDI_NON_TARGET_CAT_KEYWORDS = (
+    '한국 소설', '일본 소설', '영미 소설', '중국 소설', '외국 소설',
+    '프랑스 소설', '독일 소설', '러시아 소설', '북유럽 소설', '대만 소설',
+    '에세이', '시/희곡', '인문', '자기계발', '경제/경영', '경제경영',
+    '역사/문화', '종교/역학', '과학/공학', '자연/과학', '예술/대중문화',
+    '가정/생활', '건강/취미', '컴퓨터/IT', '외국어', '잡지',
+    '대학교재/전문서', '수험서/자격증', '초중고참고서',
+    '유아', '어린이', '청소년',
+)
+
+
+def _ridi_is_general_lit(cat_texts: list[str]) -> bool:
+    """브레드크럼 카테고리가 일반 단행본(비웹툰·비웹소설)이면 True."""
+    blob = ' '.join(cat_texts)
+    return any(kw in blob for kw in _RIDI_NON_TARGET_CAT_KEYWORDS)
+
 
 class RidibooksCrawler(BaseCrawler):
     _platform = 'ridibooks'
@@ -362,6 +400,40 @@ class RidibooksCrawler(BaseCrawler):
             illustrator = ""
             original_author = ""
 
+            # 방법 0 (현재 레이아웃): 상단 정보의 저자 목록
+            #   구조: <ul><li><div><a href="/author/ID">이름</a> 역할</div></li></ul>
+            #   역할 텍스트(저자/글/그림/글그림/원작)는 앵커 뒤 텍스트노드로 붙는다.
+            #   출판사는 /search 링크라 /author 링크만 보면 자연히 제외된다.
+            #   추천 캐러셀에도 /author 링크가 있어, 저자 링크를 가진 '첫 ul'로 범위를 좁힌다.
+            try:
+                author_lis = self.driver.find_elements(
+                    By.XPATH,
+                    "(//ul[.//a[contains(@href,'/author/')]])[1]"
+                    "//li[.//a[contains(@href,'/author/')]]"
+                )
+                for li in author_lis:
+                    try:
+                        a_el = li.find_element(By.CSS_SELECTOR, "a[href*='/author/']")
+                        name = a_el.text.strip()
+                        if not name:
+                            continue
+                        # li 전체 텍스트에서 이름을 뺀 나머지가 역할 (예: "유한려 저자" → "저자")
+                        role = li.text.replace(name, '').strip()
+                        role = role.replace('/', '').replace('·', '').replace(' ', '')
+                        if '글' in role and '그림' in role:      # 글그림 / 글·그림
+                            if not author: author = name
+                            if not illustrator: illustrator = name
+                        elif '그림' in role or '그린이' in role:
+                            if not illustrator: illustrator = name
+                        elif '원작' in role:
+                            if not original_author: original_author = name
+                        else:  # 저자/글/지은이/글쓴이/역할없음 → 글作家
+                            if not author: author = name
+                    except Exception:
+                        continue
+            except Exception:
+                pass
+
             # 방법 1: #BookDetailHomeAuthorProfileTab 탭 버튼
             # 구조: <button>역할<div/>(구분자)이름</button> → button.text = "역할\n이름"
             try:
@@ -483,27 +555,40 @@ class RidibooksCrawler(BaseCrawler):
                 else:
                     age = "전체연령가"
 
-            # works_type 감지: 카테고리/breadcrumb 링크 → og:section → fallback
-            works_type = ""
+            # 상단 브레드크럼 카테고리(/category/ 링크) 텍스트 — genre·works_type 판정에 함께 사용.
+            #   예) ["판타지 웹소설", "현대 판타지"] / ["로맨스 e북", "하이틴", "현대물"]
+            #   추천 캐러셀에도 /category 링크가 있어 '첫 ul'로 범위를 좁힌다.
+            cat_texts: list[str] = []
             try:
-                for sel in [
-                    ".book_info_category a", ".category_tag a",
-                    ".book_metadata a", "a[href*='category']", "nav a",
-                ]:
-                    els = self.driver.find_elements(By.CSS_SELECTOR, sel)
-                    for el in els:
-                        t = el.text.strip()
-                        href = el.get_attribute("href") or ""
-                        if "소설" in t or "novel" in href.lower():
-                            works_type = "웹소설"
-                            break
-                        elif "웹툰" in t or "만화" in t or "webtoon" in href.lower() or "comic" in href.lower():
-                            works_type = "웹툰"
-                            break
-                    if works_type:
-                        break
+                cat_els = self.driver.find_elements(
+                    By.XPATH,
+                    "(//ul[.//a[contains(@href,'/category/')]])[1]"
+                    "//a[contains(@href,'/category/')]"
+                )
+                cat_texts = [c.text.strip() for c in cat_els if c.text.strip()]
             except Exception:
                 pass
+            cat_blob = ' '.join(cat_texts)
+
+            # 일반 단행본(나라별 문학·에세이·인문 등)은 크롤 대상이 아니므로 스킵.
+            if cat_texts and _ridi_is_general_lit(cat_texts):
+                print(f"   ⏭️  일반문학/비대상 카테고리 — 스킵: {title} "
+                      f"({' > '.join(cat_texts)})")
+                return None
+
+            # 장르: 카테고리 텍스트에서 대표 장르 추론 (매칭 없으면 빈 값)
+            genre = ""
+            for kw, canonical in _RIDI_GENRE_KEYWORDS:
+                if kw in cat_blob:
+                    genre = canonical
+                    break
+
+            # works_type: 만화/웹툰 > 소설/노벨/e북 > og:section > 기본 웹툰
+            works_type = ""
+            if any(k in cat_blob for k in ('웹툰', '만화')):
+                works_type = "웹툰"
+            elif any(k in cat_blob for k in ('웹소설', '소설', '노벨', 'e북')):
+                works_type = "웹소설"
 
             if not works_type:
                 try:
@@ -529,7 +614,7 @@ class RidibooksCrawler(BaseCrawler):
                 "original_author": original_author,
                 "age_classification": age,
                 "description": desc,
-                "genre": "",
+                "genre": genre,
                 "hashtags": [],
                 "thumbnail_url": thumb,
                 "works_type": works_type,

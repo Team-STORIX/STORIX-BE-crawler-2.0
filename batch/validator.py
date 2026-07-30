@@ -1,4 +1,6 @@
-REQUIRED_FIELDS = ['works_name', 'artist_name', 'platform', 'source_url']
+# genre 는 서비스 API 가 NULL 을 허용하지 않아(장르 기반 추천 등에서 NPE) 필수로 둔다.
+# 장르 비어있는 레코드는 적재하지 않고 검수큐로 보낸다.
+REQUIRED_FIELDS = ['works_name', 'artist_name', 'platform', 'source_url', 'genre']
 
 VALID_AGE = {'전체연령가', '12세 이용가', '15세 이용가', '18세 이용가', ''}
 

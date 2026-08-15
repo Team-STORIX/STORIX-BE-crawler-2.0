@@ -53,6 +53,7 @@ LOAD_QUERY = """
            COALESCE(w.age_classification,'') AS age_classification,
            COALESCE(w.thumbnail_url, '')     AS thumbnail_url,
            COALESCE(w.description, '')       AS description,
+           COALESCE(w.is_onboarding, 0)      AS is_onboarding,
            (SELECT GROUP_CONCAT(DISTINCT platform ORDER BY platform SEPARATOR ', ')
               FROM works_platform WHERE works_id = w.works_id) AS platforms,
            (SELECT COUNT(*) FROM works_hashtag WHERE works_id = w.works_id) AS hashtag_count
@@ -156,8 +157,9 @@ def _fmt_work(tag: str, r: dict) -> str:
         f"그림:{r['illustrator']}" if r['illustrator'] else '',
         f"원작:{r['original_author']}" if r['original_author'] else '',
     ] if x) or (r['artist_name'] or '(작가 없음)')
+    onboarding_badge = '  🌟 ONBOARDING' if r['is_onboarding'] else ''
     return (
-        f" [{tag}] #{r['works_id']}  [{r['works_type'] or '?'}]  {r['works_name']}\n"
+        f" [{tag}] #{r['works_id']}  [{r['works_type'] or '?'}]  {r['works_name']}{onboarding_badge}\n"
         f"       작가 : {names}\n"
         f"       장르 : {r['genre'] or '-':6} | 연령 : {r['age_classification'] or '-':8} | 썸네일 : {thumb}\n"
         f"       설명 : {desc_len}자 | 플랫폼 : {platforms} | 해시태그 : {r['hashtag_count']}개"
@@ -183,8 +185,16 @@ def merge_pair(conn, wcur, keeper: dict, loser: dict) -> bool:
         (*params, loser['works_type'], kid),
     )
 
+    # 둘 중 하나라도 is_onboarding=TRUE 면, 사람이 병합을 선택(스킵 안 함)한 이상
+    # keeper 로 onboarding 상태를 반드시 이어받는다 — loser 가 삭제돼도 유실되지 않도록.
+    if keeper['is_onboarding'] or loser['is_onboarding']:
+        wcur.execute("UPDATE works SET is_onboarding=TRUE WHERE works_id=%s", (kid,))
+        print(f"  🌟 keeper #{kid}: is_onboarding=TRUE 로 유지/승격")
+
     # 2) 서비스 테이블 참조 이전 (즐겨찾기/토픽룸 등)
-    if not migrate_service_refs(wcur, kid, lid):
+    # allow_onboarding_drop=True: 사람이 이 쌍을 직접 검토해 병합을 선택했으므로,
+    # loser 가 onboarding 이어도 위에서 keeper 로 이미 승격했으니 삭제를 막지 않는다.
+    if not migrate_service_refs(wcur, kid, lid, allow_onboarding_drop=True):
         # 충돌 잔여 → loser 삭제 불가. 채우기만 커밋하고 병합 미완으로 보고.
         conn.commit()
         print(f"  ⚠️ #{lid} 삭제 보류(사용자 데이터 충돌). #{kid} 필드 채우기만 반영됨.")

@@ -8,3 +8,4 @@
 .idea/
 output/
 venv/
+*.txt

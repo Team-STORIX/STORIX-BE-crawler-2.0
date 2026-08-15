@@ -40,7 +40,9 @@ MISSING_QUERY = """
 """
 
 # search_titles 가 인식하는 타입 헤더 (cli._TYPE_HEADERS 와 일치)
-SECTION_TYPES = ['웹툰', '웹소설']
+# '단행본'은 DB works_type 에 없는 값이라 보통 0건이지만, 손으로 제목을 넣을 자리로
+# 빈 섹션을 항상 남겨둔다. (단행본 섹션은 시리즈·카카오·리디에서만 검색됨)
+SECTION_TYPES = ['웹툰', '웹소설', '단행본']
 
 
 def main():
@@ -83,7 +85,7 @@ def main():
     for wtype in SECTION_TYPES:
         print(f"  · [{wtype}] {len(by_type[wtype])}건")
     if untyped:
-        print(f"  ⚠️ works_type 미지정(웹툰/웹소설 아님) {len(untyped)}건 → titles.txt 스킵")
+        print(f"  ⚠️ works_type 미지정({'/'.join(SECTION_TYPES)} 아님) {len(untyped)}건 → titles.txt 스킵")
         for r in untyped[:15]:
             print(f"      #{r['works_id']} {r['works_name']!r} type={r['works_type']!r}")
         if len(untyped) > 15:

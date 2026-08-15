@@ -1,3 +1,5 @@
+import re
+import json
 import time
 import random
 import pickle
@@ -12,9 +14,39 @@ from .base_crawler import BaseCrawler, SessionExpiredError
 
 from config import NAVER_COOKIE_FILE, NAVER_ID, NAVER_PW
 
+# 아마추어 리그(도전만화·베스트도전) 상세 URL. 정식 연재와 페이지 구조가 달라 파싱을 분리한다.
+_AMATEUR_PATHS = ('/challenge/', '/bestChallenge/')
+
+# webtoonLevelCode → 로그 표기
+_LEVEL_LABEL = {'WEBTOON': '정식', 'BEST_CHALLENGE': '베스트도전', 'CHALLENGE': '도전만화'}
+
+# communityArtists[].artistTypeList → 역할
+_ARTIST_ROLES = {
+    'ARTIST_WRITER': '글',
+    'ARTIST_PAINTER': '그림',
+    'ARTIST_ORIGINAL': '원작',
+    'ARTIST_ORIGINAL_AUTHOR': '원작',
+}
+
+
+def _normalize_age(text: str | None) -> str:
+    """연령 표기를 batch.validator.VALID_AGE 값으로 정규화. 모르는 값은 ''(빈 값 허용)."""
+    t = (text or '').strip()
+    if not t:
+        return ''
+    if '19' in t or '청소년' in t or '청불' in t:
+        return '18세 이용가'   # DB 표준값은 18세 이용가
+    for n in ('15', '12'):
+        if n in t:
+            return f'{n}세 이용가'
+    if '전체' in t:
+        return '전체연령가'
+    return ''
+
+
 class NaverCrawler(BaseCrawler):
     _platform = 'naver_webtoon'
-    
+
     def _is_logged_in(self) -> bool:
         """NID_AUT 쿠키 존재 여부로 네이버 로그인 확인 (XPATH보다 신뢰성 높음)."""
         self.driver.get("https://www.naver.com")
@@ -282,6 +314,11 @@ class NaverCrawler(BaseCrawler):
                 self._log.warning("작품 페이지 아님(내려간 작품 추정): %s → %s", url, self.driver.current_url)
                 return None
 
+            # 도전만화·베스트도전은 상세 레이아웃이 정식과 달라(장르가 태그목록에 없음)
+            # 아래 정식용 XPath 를 쓰면 연령·장르 자리가 밀린다 → 전용 파서로 분기.
+            if any(p in self.driver.current_url for p in _AMATEUR_PATHS):
+                return self._crawl_detail_amateur(url)
+
             wait = WebDriverWait(self.driver, 10)
             
             # 제목 추출 및 전처리
@@ -349,3 +386,120 @@ class NaverCrawler(BaseCrawler):
         except Exception as e:
             self._log.warning("crawl_detail 실패 (%s): %s", url, e)
             return None
+
+    # ------------------------------------------------------------------
+    # 도전만화 · 베스트도전 (아마추어 리그)
+    # ------------------------------------------------------------------
+    def _crawl_detail_amateur(self, url: str) -> dict | None:
+        """도전만화·베스트도전 상세.
+
+        아마추어 리그는 정식 연재와 상세 레이아웃이 달라(장르가 태그 목록에 섞이지
+        않고 별도 필드로 내려옴) 정식용 XPath 를 쓰면 연령·장르 자리가 밀린다.
+        페이지가 CSR 이라 DOM 대신 페이지가 쓰는 내부 API 응답을 그대로 읽는다.
+        """
+        m = re.search(r'titleId=(\d+)', self.driver.current_url)
+        if not m:
+            self._log.warning("titleId 를 찾지 못함: %s", self.driver.current_url)
+            return None
+
+        info = self._fetch_title_info(m.group(1))
+        if not info:
+            return None
+
+        level = info.get('webtoonLevelCode') or ''
+        if level == 'WEBTOON':
+            # 정식으로 승격된 작품이 아마추어 URL 로 들어온 경우 — 데이터는 그대로 쓴다.
+            self._log.info("정식 승격 작품을 아마추어 URL 로 접근: %s", url)
+
+        record = self._parse_amateur_info(info, url)
+        if not record['works_name']:
+            self._log.warning("작품명 없음 (titleId=%s)", m.group(1))
+            return None
+
+        label = _LEVEL_LABEL.get(level, level or '?')
+        print(f"  ℹ️  [{label}] 장르={record['genre'] or '-'} "
+              f"연령={record['age_classification'] or '-'} 작가={record['artist_name'] or '-'}")
+        if record['artist_name'] and '*' in record['artist_name']:
+            # 도전만화는 작가명이 아이디 마스킹(smil****)으로 내려온다 → 적재 후 확인 필요
+            self._log.warning("작가명이 마스킹된 아이디임 (%s): %s", record['artist_name'], url)
+        return record
+
+    def _fetch_title_info(self, title_id: str) -> dict | None:
+        """작품 상세 API 를 브라우저 세션으로 호출(로그인·성인인증 쿠키 유지)."""
+        script = """
+            const cb = arguments[arguments.length - 1];
+            fetch('/api/article/list/info?titleId=' + arguments[0], {credentials: 'include'})
+                .then(r => r.ok ? r.text() : Promise.reject('HTTP ' + r.status))
+                .then(t => cb({ok: true, body: t}))
+                .catch(e => cb({ok: false, err: String(e)}));
+        """
+        try:
+            self.driver.set_script_timeout(20)
+            res = self.driver.execute_async_script(script, str(title_id))
+        except (InvalidSessionIdException, _DriverTimeoutError):
+            raise
+        except Exception as e:
+            self._log.warning("작품 정보 API 호출 실패 (titleId=%s): %s", title_id, e)
+            return None
+
+        if not res or not res.get('ok'):
+            self._log.warning("작품 정보 API 오류 (titleId=%s): %s", title_id, (res or {}).get('err'))
+            return None
+        try:
+            return json.loads(res['body'])
+        except ValueError as e:
+            self._log.warning("작품 정보 API 응답 파싱 실패 (titleId=%s): %s", title_id, e)
+            return None
+
+    @staticmethod
+    def _parse_amateur_info(info: dict, url: str) -> dict:
+        """API 응답 → 레코드. (DOM 접근이 없어 단독 테스트 가능)"""
+        author = illustrator = original_author = ""
+        artist_names: list[str] = []
+        for a in info.get('communityArtists') or []:
+            name = (a.get('name') or '').strip()
+            if not name:
+                continue
+            if name not in artist_names:
+                artist_names.append(name)
+            for _type in a.get('artistTypeList') or []:
+                role = _ARTIST_ROLES.get(_type)
+                if role == '글' and not author:
+                    author = name
+                elif role == '그림' and not illustrator:
+                    illustrator = name
+                elif role == '원작' and not original_author:
+                    original_author = name
+
+        # 장르: 정식의 curationTagList 와 달리 genres 필드로 따로 내려온다.
+        genres = [(g.get('description') or '').strip() for g in info.get('genres') or []]
+        genres = [g for g in genres if g]
+        genre = genres[0] if genres else ""
+
+        # 해시태그: challengeTagList. 장르와 겹치는 항목은 뺀다('판타지 '처럼 공백이 붙어 옴)
+        seen = {g.replace(' ', '') for g in genres}
+        hashtags = []
+        for t in info.get('challengeTagList') or []:
+            t = (t or '').strip()
+            key = t.replace(' ', '')
+            if t and key not in seen:
+                seen.add(key)
+                hashtags.append(t)
+
+        return {
+            "platform": "NAVER_WEBTOON",
+            "works_name": (info.get('titleName') or '').strip(),
+            "artist_name": ', '.join(artist_names),
+            "author": author,
+            "illustrator": illustrator,
+            "original_author": original_author,
+            "age_classification": _normalize_age((info.get('age') or {}).get('description')),
+            "description": (info.get('synopsis') or '').strip(),
+            "genre": genre,
+            "hashtags": hashtags,
+            "thumbnail_url": (info.get('sharedThumbnailUrl')
+                              or info.get('posterThumbnailUrl')
+                              or info.get('thumbnailUrl') or ''),
+            "works_type": "웹툰",
+            "source_url": url,
+        }

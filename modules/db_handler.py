@@ -1,9 +1,6 @@
 import mysql.connector
 from mysql.connector import Error as MySQLError
-import csv
-import os
 import re
-from config import FAILED_CSV, OUTPUT_CSV
 
 # 토큰 전체가 역할 키워드로만 구성됐는지 판별 (예: '글', '그림', '글그림', '원작', '작화').
 # '글쓰는기계'처럼 키워드가 이름의 일부인 경우를 역할 라벨로 오인하지 않기 위함.
@@ -321,7 +318,6 @@ def save_one_row(connection, cursor, raw_data):
 
         connection.commit()
         print(f"  {log_prefix} {data['works_name']}")
-        safe_save_to_csv(data, status=status)
         return True
 
     except Exception as e:
@@ -330,8 +326,6 @@ def save_one_row(connection, cursor, raw_data):
             connection.rollback()
         except Exception:
             pass
-        backup_failed_row(data, str(e))
-        safe_save_to_csv(data, status="실패")
         return False
     finally:
         if lock_acquired:
@@ -342,39 +336,3 @@ def save_one_row(connection, cursor, raw_data):
                 )
             except Exception:
                 pass
-    
-
-CSV_COLUMNS = [
-    "status", "platform", "works_name", "artist_name", "author",
-    "illustrator", "original_author", "age_classification",
-    "genre", "works_type", "description", "hashtags", "thumbnail_url", "source_url",
-]
-
-def save_to_csv(data: dict, status: str = "") -> None:
-    """DB 적재 결과를 output_rows.csv 에 항상 기록."""
-    file_exists = OUTPUT_CSV.is_file()
-    with open(OUTPUT_CSV, "a", newline="", encoding="utf-8-sig") as f:
-        writer = csv.DictWriter(f, fieldnames=CSV_COLUMNS, extrasaction="ignore")
-        if not file_exists:
-            writer.writeheader()
-        writer.writerow({
-            **data,
-            "status": status,
-            "hashtags": ", ".join(data.get("hashtags") or []),
-        })
-
-
-def safe_save_to_csv(data: dict, status: str = "") -> None:
-    try:
-        save_to_csv(data, status=status)
-    except Exception as e:
-        print(f"⚠️ [CSV 기록 실패] {data.get('works_name')} -> {e}")
-
-
-def backup_failed_row(data, err_msg):
-    file_exists = os.path.isfile(FAILED_CSV)
-    with open(FAILED_CSV, "a", newline="", encoding="utf-8-sig") as f:
-        writer = csv.writer(f)
-        if not file_exists:
-            writer.writerow(["works_name", "error", "data_dump"])
-        writer.writerow([data.get('works_name'), err_msg, str(data)])

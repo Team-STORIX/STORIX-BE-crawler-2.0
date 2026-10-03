@@ -105,6 +105,7 @@ python cli.py crawl --mode custom_url --url "https://ridibooks.com/category/best
 > **`search_titles` 모드 (임의 목록으로 특정 작품만 채우기)**
 > - 지원 플랫폼: `naver_webtoon`, `naver_novel`, `naver_series`, `kakao_page`, `ridibooks`, `all`
 > - `titles.txt`에 작품명을 줄바꿈으로 나열하면 각 플랫폼에서 제목 검색 → 상세 크롤 → JSONL 저장.
+> - `titles.txt`는 레포에 포함되지 않습니다(`.gitignore`). 직접 만들거나 아래 `scripts/fill_missing_works.py --write` / `scripts/fill_missing_genre.py --write`로 생성하세요.
 > - 제목은 **`## 웹툰` / `## 웹소설` / `## 단행본`** 섹션 헤더 아래에 둡니다. 이 타입은 DB의 `works_type`이 아니라 **어느 플랫폼에서 검색할지 고르는 필터**이며(적재되는 `works_type`은 크롤러가 상세페이지에서 다시 판정), 헤더 없이 나온 제목은 스킵됩니다.
 >   - `웹툰` → 네이버 웹툰·시리즈·카카오·리디 / `웹소설` → 네이버 웹소설·시리즈·카카오·리디
 >   - `단행본` → **시리즈·카카오·리디만** (연재 사이트인 `comic.naver.com`·`novel.naver.com`은 건너뜀)
@@ -185,7 +186,7 @@ python scripts/review_similar_works.py --cross-type       # 웹툰↔웹소설�
 | `q` | 종료 |
 
 > - **기준으로 고른 행의 값이 우선**이며, 비어 있는 필드(작가·장르·연령·썸네일·설명 등)만 상대 행 값으로 채웁니다. 이후 상대 행의 플랫폼·해시태그·서비스 참조(즐겨찾기/토픽룸 등)를 기준 행으로 옮기고 상대 행을 삭제합니다.
-> - 서비스 참조 이전은 `merge_split_works`와 동일하게 [scripts/works_ref_migration.py](scripts/works_ref_migration.py)를 사용합니다. 유니크 충돌로 못 옮기는 **사용자 데이터가 남으면 그 행은 삭제하지 않고 경고만** 남깁니다(고아 참조 → API NPE 방지).
+> - 서비스 참조 이전은 [scripts/works_ref_migration.py](scripts/works_ref_migration.py)를 사용합니다. 유니크 충돌로 못 옮기는 **사용자 데이터가 남으면 그 행은 삭제하지 않고 경고만** 남깁니다(고아 참조 → API NPE 방지).
 > - 화면에 작가·플랫폼·설명 길이가 함께 표시됩니다. `시즌1 vs 시즌2`, `외전`처럼 이름만 비슷하고 다른 작품이면 `s`로 건너뛰세요.
 > - ⚠️ 병합 선택은 **즉시 커밋**됩니다. `--dry-run`으로 후보 규모를 먼저 확인한 뒤 시작하세요.
 
@@ -463,14 +464,11 @@ works_platform: { works_id: 1, platform: "NAVER_WEBTOON" }
 │   └── runner.py                   # APScheduler BlockingScheduler 실행기
 │
 ├── scripts/                        # 운영·정비용 단발 스크립트
-│   ├── diagnose_empty_desc.py      # description 빈 works 원인 분류 (읽기 전용)
 │   ├── fill_missing_works.py       # 해시태그/플랫폼 빈 works → titles.txt 생성 (재크롤용)
 │   ├── fill_missing_genre.py       # genre 빈 works → titles.txt 생성 (재크롤용)
 │   ├── fill_import.py              # 채우기 크롤 결과를 중복 없이 DB 반영, 작가 충돌은 검수큐로
 │   ├── review_similar_works.py     # 이름 유사(≥80%) 작품쌍을 사람이 한 쌍씩 검수·병합 (기준행 우선)
-│   ├── merge_split_works.py        # works_name 같고 작가 표기만 다른 쪼개진 행 자동 병합
-│   ├── works_ref_migration.py     # works 삭제 전 서비스 테이블(즐겨찾기/토픽룸 등) 참조 이전 공용 로직
-│   └── fix_series_age_badge.py     # 적재된 NAVER_SERIES '19' 배지 오염 제목 재크롤·정리
+│   └── works_ref_migration.py      # works 삭제 전 서비스 테이블(즐겨찾기/토픽룸 등) 참조 이전 공용 로직
 │
 └── output/                         # 크롤링 산출물 (날짜별 JSONL, .gitignore 처리됨)
     └── YYYY-MM-DD/

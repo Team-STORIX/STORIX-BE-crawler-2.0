@@ -18,8 +18,6 @@ SESSIONS_DIR = BASE_DIR / "sessions"
 SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
 NAVER_COOKIE_FILE = SESSIONS_DIR / "naver_cookies.pkl"
 KAKAO_COOKIE_FILE = SESSIONS_DIR / "kakao_cookies.pkl"
-FAILED_CSV = BASE_DIR / "failed_rows.csv"
-OUTPUT_CSV = BASE_DIR / "output_rows.csv"
 OUTPUT_DIR = BASE_DIR / "output"
 
 # ---- 네이버 웹툰 설정 ----

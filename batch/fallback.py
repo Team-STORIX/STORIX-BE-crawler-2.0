@@ -12,15 +12,6 @@ _PLATFORM_KEY_MAP = {
     'ridibooks': 'RIDIBOOKS',
     'bomtoon': 'BOMTOON',
     'naver_series': 'NAVER_SERIES',
-    # 구버전 JSONL(enum converter 삭제 이전)의 한글 라벨 호환 — 공백 제거 후 조회
-    '네이버웹툰': 'NAVER_WEBTOON',
-    '네이버웹소설': 'NAVER_NOVEL',
-    '네이버시리즈': 'NAVER_SERIES',
-    '카카오': 'KAKAO_PAGE',
-    '카카오페이지': 'KAKAO_PAGE',
-    '리디북스': 'RIDIBOOKS',
-    '리디': 'RIDIBOOKS',
-    '봄툰': 'BOMTOON',
 }
 
 
@@ -37,9 +28,8 @@ def _extract_work_id(source_url: str) -> str:
 def try_resolve(record: dict) -> tuple[dict, bool]:
     record = dict(record)
 
-    # 내부 플랫폼 키/한글 라벨 → enum 값 정규화 (구버전 JSONL 호환)
-    # '네이버 웹툰'/'네이버웹툰' 같은 공백 표기 차이를 흡수하기 위해 공백 제거 후 조회
-    platform_key = (record.get('platform') or '').strip().replace(' ', '')
+    # 내부 플랫폼 키(naver_webtoon 등) → DB enum 값 정규화
+    platform_key = (record.get('platform') or '').strip()
     if platform_key in _PLATFORM_KEY_MAP:
         record['platform'] = _PLATFORM_KEY_MAP[platform_key]
 

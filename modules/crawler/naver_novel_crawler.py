@@ -13,7 +13,6 @@ from .base_crawler import SessionExpiredError
 class NaverNovelCrawler(NaverCrawler):
     """novel.naver.com 웹소설 크롤러. 로그인은 NaverCrawler와 동일한 쿠키 재사용."""
 
-    _platform = 'naver_novel'
 
     # 검색결과 카드의 리그 구분 (href 경로) → (우선순위, 표기). 낮은 순위가 우선.
     # 정식 웹소설을 항상 우선하고, 정식이 없을 때만 베스트리그·챌린지리그로 폴백한다.

@@ -2,17 +2,7 @@ import argparse
 import sys
 from pathlib import Path
 
-
-def _configure_console() -> None:
-    for stream in (sys.stdout, sys.stderr):
-        if hasattr(stream, 'reconfigure'):
-            try:
-                stream.reconfigure(encoding='utf-8', errors='replace')
-            except Exception:
-                pass
-
-
-_configure_console()
+import config  # noqa: F401  (stdout/stderr UTF-8 재설정 + .env 로드)
 
 
 # 섹션 헤더 텍스트 → 작품 타입

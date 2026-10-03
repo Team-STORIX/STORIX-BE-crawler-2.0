@@ -51,7 +51,6 @@ def _ridi_is_general_lit(cat_texts: list[str]) -> bool:
 
 
 class RidibooksCrawler(BaseCrawler):
-    _platform = 'ridibooks'
 
     def _save_cookies(self):
         try:

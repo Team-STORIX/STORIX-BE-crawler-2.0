@@ -30,7 +30,7 @@ def _load_source_urls(input_path: Path) -> dict[str, list[str]]:
     if input_path.is_dir():
         files = [
             f for f in input_path.rglob('*.jsonl')
-            if f.name not in {'manual_review_queue.jsonl', 'platform_status.jsonl'}
+            if f.name != 'manual_review_queue.jsonl'
         ]
     elif input_path.is_file():
         files = [input_path]

@@ -12,7 +12,6 @@ from .base_crawler import BaseCrawler, SessionExpiredError
 from config import KAKAO_COOKIE_FILE, KAKAO_LOGIN_URL, KAKAO_ID, KAKAO_PW
 
 class KakaoCrawler(BaseCrawler):
-    _platform = 'kakao_page'
 
     def _save_cookies(self):
         try:

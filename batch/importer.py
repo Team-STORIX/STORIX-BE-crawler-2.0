@@ -97,10 +97,7 @@ class BatchImporter:
             files = [path]
         elif path.is_dir():
             files = sorted(path.rglob('*.jsonl'))
-            files = [
-                f for f in files
-                if f.name not in {'manual_review_queue.jsonl', 'platform_status.jsonl'}
-            ]
+            files = [f for f in files if f.name != 'manual_review_queue.jsonl']
         else:
             raise FileNotFoundError(f'경로를 찾을 수 없습니다: {path}')
 

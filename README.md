@@ -12,7 +12,6 @@ Selenium 병렬 워커 → JSONL 산출물 → DB 배치 적재 파이프라인
 - 크롤링 모드: initial (전체), new_works (신작), update_fields (필드 갱신), search_titles (작품명 검색), **custom_url (URL 기반)**
 - 배치 적재: 스키마 검증 → 폴백 복구 → DB INSERT (`batch/`)
 - APScheduler 기반 자동 실행 (`scheduler/`)
-- 모니터링: 세션 만료 감지, 플랫폼별 실행 이력 (`monitor/`)
 - 병렬 워커 풀 (`ThreadPoolExecutor` + `queue.Queue`, 워커 2개)
 - 환경변수 자격증명 자동 로그인 → 쿠키 로그인 → 브라우저 수동 로그인 순으로 폴백
 - **works_platform 중간 테이블** — 동일 작품이 여러 플랫폼에 연재될 경우 플랫폼 목록 확장
@@ -463,10 +462,6 @@ works_platform: { works_id: 1, platform: "NAVER_WEBTOON" }
 │   ├── jobs.py                     # 크롤링 잡 함수 (6개)
 │   └── runner.py                   # APScheduler BlockingScheduler 실행기
 │
-├── monitor/
-│   ├── session_watcher.py          # 로그인 리다이렉트 감지, 연속 None 경보
-│   └── platform_status.py         # 플랫폼별 실행 이력 기록 및 요약 출력
-│
 ├── scripts/                        # 운영·정비용 단발 스크립트
 │   ├── diagnose_empty_desc.py      # description 빈 works 원인 분류 (읽기 전용)
 │   ├── fill_missing_works.py       # 해시태그/플랫폼 빈 works → titles.txt 생성 (재크롤용)
@@ -484,8 +479,7 @@ works_platform: { works_id: 1, platform: "NAVER_WEBTOON" }
         ├── search_titles.jsonl
         ├── update_fields.jsonl
         ├── naver_webtoon_initial.jsonl # 스케줄러 실행 시 플랫폼별 파일
-        ├── manual_review_queue.jsonl
-        └── platform_status.jsonl
+        └── manual_review_queue.jsonl
 ```
 
 ---

@@ -21,7 +21,6 @@ class NaverSeriesCrawler(NaverCrawler):
         웹툰  : https://series.naver.com/comic/detail.series?productNo=...
     """
 
-    _platform = 'naver_series'
 
     _SEARCH_URL = 'https://series.naver.com/search/search.series?t=all&q={}'
 

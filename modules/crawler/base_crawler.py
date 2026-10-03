@@ -10,7 +10,6 @@ from selenium.common.exceptions import InvalidSessionIdException
 from urllib3.exceptions import ReadTimeoutError as _DriverTimeoutError
 
 from modules.logger import get_logger
-from monitor.session_watcher import watcher
 
 
 class SessionExpiredError(Exception):
@@ -18,8 +17,6 @@ class SessionExpiredError(Exception):
 
 
 class BaseCrawler:
-    _platform: str = ''
-
     # 제목 검색 매칭 임계값. 완전일치·부분일치(포함)로 못 잡은 후보 중
     # 정규화 문자열 유사도가 이 값 이상이면 마지막 순위로 채택한다.
     TITLE_FUZZY_THRESHOLD: float = 0.9
@@ -77,21 +74,6 @@ class BaseCrawler:
     def human_pause(self, min_s=1.0, max_s=2.0):
         time.sleep(random.uniform(min_s, max_s))
     
-    def wait_for_login_gui(self, message: str):
-        in_docker = os.environ.get("DOCKER_ENV") == "true"
-        if in_docker:
-            return
-        try:
-            import tkinter as tk
-            from tkinter import messagebox
-            root = tk.Tk()
-            root.withdraw()
-            root.attributes('-topmost', True)
-            messagebox.showinfo("로그인 필요", message)
-            root.destroy()
-        except Exception:
-            input(f"\n{message}\n👉 완료 후 [Enter]를 누르세요...")
-
     def _restart_driver(self):
         in_docker = os.environ.get("DOCKER_ENV") == "true"
         try:
@@ -116,20 +98,14 @@ class BaseCrawler:
             except (InvalidSessionIdException, SessionExpiredError, _DriverTimeoutError) as e:
                 self._log.error("드라이버 재시작 (%s): %s", url, e)
                 self._restart_driver()
-                if self._platform:
-                    watcher.record_null(self._platform)
                 result = None
 
             if result is not None:
-                if self._platform:
-                    watcher.record_success(self._platform)
                 return result
             if attempt < max_attempts:
                 wait = 2.0 * attempt
                 self._log.warning("재시도 %d/%d (%s), %.0f초 대기", attempt, max_attempts - 1, url, wait)
                 time.sleep(wait)
-        if self._platform:
-            watcher.record_null(self._platform)
         self._log.error("최대 재시도 횟수 초과, 포기: %s", url)
         return None
 

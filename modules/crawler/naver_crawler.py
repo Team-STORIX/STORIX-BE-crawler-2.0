@@ -45,7 +45,6 @@ def _normalize_age(text: str | None) -> str:
 
 
 class NaverCrawler(BaseCrawler):
-    _platform = 'naver_webtoon'
 
     def _is_logged_in(self) -> bool:
         """NID_AUT 쿠키 존재 여부로 네이버 로그인 확인 (XPATH보다 신뢰성 높음)."""

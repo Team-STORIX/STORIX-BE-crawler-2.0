@@ -1,11 +1,27 @@
+# 환경/비밀
 .env
-*.pyc
 *.pkl
-*.png
-*.csv
-*/__pycache__/
-*.sh
-.idea/
-output/
+
+# 파이썬
+__pycache__/
+*.pyc
 venv/
-*.txt
+.idea/
+
+# 크롤링 산출물 (레포 루트의 output/ 만 — crawler/output/ 패키지는 제외)
+/output/
+*.csv
+*.png
+
+# search_titles 입력 파일 (자동 생성, 로컬 전용)
+titles*.txt
+
+# 로컬 전용 스크립트 (DB 터널 등)
+*.sh
+
+# OS
+.DS_Store
+
+# tools/build_exe.ps1 산출물
+tools/dist/
+tools/build/

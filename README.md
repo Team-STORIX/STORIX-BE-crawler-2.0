@@ -48,7 +48,7 @@ cp .env.example .env
 | 로컬 MySQL | `docker compose up db -d` 로 로컬 MySQL 컨테이너 실행. `.env`의 PORT를 `3306`으로 변경 |
 
 ```bash
-# SSM 터널 방식
+# SSM 터널 방식 (storix-db-tunnel.sh 는 레포에 포함되지 않음 — 인프라 담당자에게 별도 전달받아 사용)
 ./storix-db-tunnel.sh          # 터미널 1: 유지
 
 # 로컬 MySQL 방식
@@ -427,19 +427,25 @@ works_platform: { works_id: 1, platform: "NAVER_WEBTOON" }
 ├── config.py                       # URL, DB, 경로, 로그인 자격증명 상수
 ├── requirements.txt
 ├── Dockerfile
-├── docker-compose.yml
+├── docker-compose.yml              # 로컬용 (db / crawl / batch / scheduler / api 프로필)
+├── docker-compose.prod.yml         # EC2 배포용 (CD 워크플로우가 사용)
 ├── .env.example                    # 환경변수 템플릿
+├── .github/workflows/
+│   ├── ci.yml                      # ECR 이미지 빌드·푸시
+│   └── cd.yml                      # SSM 으로 EC2 에 pull + up -d
 │
 ├── sessions/                       # 쿠키 파일 저장소 (.gitignore 처리됨)
 │   ├── naver_cookies.pkl
-│   └── kakao_cookies.pkl
+│   ├── kakao_cookies.pkl
+│   └── ridibooks_cookies.pkl
 │
 ├── crawler/
 │   ├── modes/
 │   │   ├── initial.py              # 전체 작품 크롤링 (네이버/카카오 섹션별 + 리디북스 카테고리), 워커 2개
 │   │   ├── new_works.py            # 신작 탭 크롤링
 │   │   ├── update_fields.py        # source_url 목록으로 필드 재크롤링
-│   │   └── search_titles.py        # 작품명 리스트 → 플랫폼별 검색 → JSONL 저장, 성공분은 titles-file에서 자동 제거
+│   │   ├── search_titles.py        # 작품명 리스트 → 플랫폼별 검색 → JSONL 저장, 성공분은 titles-file에서 자동 제거
+│   │   └── custom_url.py           # 임의 목록/상세 URL 기반 크롤링 (--url, --count)
 │   └── output/
 │       └── jsonl_writer.py         # 크롤 결과를 JSONL로 기록, platform_work_id 기준 중복 제거, artist_name 정규화
 │
@@ -456,14 +462,22 @@ works_platform: { works_id: 1, platform: "NAVER_WEBTOON" }
 │
 ├── batch/
 │   ├── validator.py                # JSONL 레코드 스키마/값 검증
-│   ├── fallback.py                 # 누락 필드 복구, 유사도 검색, 수동 검수 큐 기록
-│   └── importer.py                 # JSONL → DB 적재, --watch 감시 모드
+│   ├── fallback.py                 # 누락 필드 복구, 플랫폼 키 정규화, 수동 검수 큐 기록
+│   ├── importer.py                 # JSONL → DB 적재, --watch 감시 모드
+│   └── reviewer.py                 # 검수 큐 대화형 수정 (batch fix)
 │
 ├── scheduler/
-│   ├── jobs.py                     # 크롤링 잡 함수 (6개)
+│   ├── jobs.py                     # 크롤링 잡 함수 (7개: initial 3 / new_works 2 / update_fields 2)
 │   └── runner.py                   # APScheduler BlockingScheduler 실행기
 │
-├── scripts/                        # 운영·정비용 단발 스크립트
+├── api/
+│   └── session_api.py              # 세션(쿠키) 등록 API (FastAPI, :8100)
+│
+├── tools/
+│   ├── register_session.py         # 로컬에서 로그인 → 쿠키 추출 → API 업로드 툴
+│   └── build_exe.ps1               # 위 툴을 exe 로 빌드 (PyInstaller)
+│
+├── scripts/                        # 운영·정비용 스크립트
 │   ├── fill_missing_works.py       # 해시태그/플랫폼 빈 works → titles.txt 생성 (재크롤용)
 │   ├── fill_missing_genre.py       # genre 빈 works → titles.txt 생성 (재크롤용)
 │   ├── fill_import.py              # 채우기 크롤 결과를 중복 없이 DB 반영, 작가 충돌은 검수큐로

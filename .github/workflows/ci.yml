@@ -1,58 +1,76 @@
-name: STORIX Crawler CI - Build & Push to ECR
+name: STORIX Crawler CI
 
 on:
+  pull_request:
+    branches:
+      - develop
+      - main
   push:
     branches:
-      - main
       - develop
+      - main
 
 permissions:
-  id-token: write
   contents: read
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  build-push:
-    name: Build & Push to ECR
+  test:
+    name: Test
     runs-on: ubuntu-latest
+
+    services:
+      # 검수 파이프라인 staging 테스트용 (tests/test_review.py)
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -ptest --silent"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+
     env:
-      AWS_REGION: ap-northeast-2
-      ECR_REPOSITORY: storix-crawler
+      REVIEW_TEST_MYSQL_HOST: 127.0.0.1
+      REVIEW_TEST_MYSQL_PORT: 3306
+      REVIEW_TEST_MYSQL_PASSWORD: test
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Resolve env tag by branch
-        id: meta
-        run: |
-          if [ "${GITHUB_REF_NAME}" = "main" ]; then
-            echo "env_tag=prod" >> "$GITHUB_OUTPUT"
-          else
-            echo "env_tag=dev" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Configure AWS credentials (OIDC)
-        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          role-to-assume: ${{ secrets.APP_DEPLOY_ROLE_ARN }}
-          aws-region: ap-northeast-2
+          python-version: '3.11'
+          cache: pip
 
-      - name: Login to ECR
-        env:
-          ECR_REGISTRY: ${{ secrets.ECR_REGISTRY }}
-        run: |
-          aws ecr get-login-password --region "$AWS_REGION" \
-            | docker login --username AWS --password-stdin "$ECR_REGISTRY"
+      - name: Install dependencies
+        run: pip install -r requirements.txt pytest httpx
 
-      - name: Build & Push
-        env:
-          ECR_REGISTRY: ${{ secrets.ECR_REGISTRY }}
-          ENV_TAG: ${{ steps.meta.outputs.env_tag }}
+      - name: Compile check
+        run: python -m compileall -q cli.py config.py api batch crawler modules scheduler
+
+      - name: Pytest
+        # 테스트가 하나도 없으면 pytest 가 5 로 끝난다. 그건 실패로 보지 않는다
         run: |
-          IMAGE="$ECR_REGISTRY/$ECR_REPOSITORY"
-          docker build \
-            -t "$IMAGE:${ENV_TAG}-${GITHUB_SHA}" \
-            -t "$IMAGE:${ENV_TAG}-latest" \
-            .
-          docker push "$IMAGE:${ENV_TAG}-${GITHUB_SHA}"
-          docker push "$IMAGE:${ENV_TAG}-latest"
+          set +e
+          python -m pytest -q
+          code=$?
+          [ "$code" -eq 0 ] || [ "$code" -eq 5 ]
+
+  docker:
+    name: Docker build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build image
+        run: docker build -t storix-crawler:ci .

@@ -16,6 +16,7 @@ from review.rules import AUTO_PASS, NEEDS_REVIEW, REJECTED, Verdict
 
 APPROVED = 'APPROVED'
 IMPORTED = 'IMPORTED'
+SKIPPED = 'SKIPPED'   # BE 가 만들지 않기로 한 건 (단행본인데 같은 웹소설이 이미 있음). 다시 보내지 않는다
 IMPORTABLE = (AUTO_PASS, APPROVED)
 
 STAGING_DATABASE = os.getenv('STAGING_DATABASE_NAME', 'storix_staging')
@@ -227,6 +228,24 @@ class StagingStore:
         cur.execute('UPDATE works_staging SET status = %s, imported_works_id = %s, import_error = NULL '
                     'WHERE id = %s', (IMPORTED, works_id, staging_id))
         self._conn.commit()
+
+    def _append_violation(self, staging_id: int, status: str, violation: dict) -> None:
+        cur = self._cursor()
+        cur.execute('SELECT violations FROM works_staging WHERE id = %s', (staging_id,))
+        row = cur.fetchone()
+        current = json.loads(row['violations']) if row and row['violations'] else []
+        cur.execute('UPDATE works_staging SET status = %s, violations = %s, import_error = NULL WHERE id = %s',
+                    (status, _dumps(current + [violation]), staging_id))
+        self._conn.commit()
+
+    def mark_suspected(self, staging_id: int, candidates: list[int]) -> None:
+        """BE 가 기존 작품과 중복 의심이라 만들지 않았다 → 검수 대기로 돌려 사람이 판단한다."""
+        self._append_violation(staging_id, NEEDS_REVIEW, {
+            'field': None, 'code': 'SUSPECTED_DUPLICATE', 'value': candidates, 'severity': NEEDS_REVIEW})
+
+    def mark_skipped(self, staging_id: int, candidates: list[int]) -> None:
+        self._append_violation(staging_id, SKIPPED, {
+            'field': None, 'code': 'SKIPPED_EXISTING_WEBNOVEL', 'value': candidates, 'severity': SKIPPED})
 
     def mark_import_failed(self, staging_id: int, error: str) -> None:
         # status 는 그대로 둔다. 다음 import 때 다시 시도된다

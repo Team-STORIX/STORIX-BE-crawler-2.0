@@ -5,7 +5,12 @@ BE 를 거치면 enum Converter 를 반드시 타고, ES 색인 이벤트도 같
 
 BE: POST /api/v1/admin/works/import (ADMIN)
   요청 {"items": [{stagingId, worksName, ..., genre: "FANTASY", ...}]}  ← enum 은 name
-  응답 result: [{stagingId, result: CREATED|UPDATED|UNCHANGED|FAILED, worksId, error}]
+  응답 result: [{stagingId, result, worksId, candidateWorksIds, error}]
+    CREATED | UPDATED | UNCHANGED  → IMPORTED
+    SUSPECTED_DUPLICATE            → 검수 대기로 되돌림 (candidateWorksIds 기록, 사람이 붙이거나 새로 만들게 결정)
+    SKIPPED                        → 단행본인데 같은 웹소설이 이미 있음. 종결, 다시 보내지 않음
+    FAILED                         → import_error 기록, 다음 실행 때 재시도
+  사람이 승인할 때 고른 targetWorksId(기존 작품에 붙임) / createNew(새로 만듦)를 함께 보낸다
   다른 import 가 돌고 있으면 409 (요청 전체 거절). 이때는 남은 청크도 보내지 않고 멈춘다
 """
 import logging
@@ -59,6 +64,10 @@ def to_request_item(staging_id: int, normalized: dict) -> dict:
     for src, dst in _FIELD_MAP.items():
         item[dst] = normalized.get(src) or None
     item['hashtags'] = item['hashtags'] or []
+    if normalized.get('_target_works_id'):
+        item['targetWorksId'] = normalized['_target_works_id']
+    if normalized.get('_create_new'):
+        item['createNew'] = True
     return item
 
 
@@ -74,7 +83,8 @@ class BackendClient:
 def run_import(store: StagingStore, client: BackendClient, limit: int = 500, run_id: str | None = None) -> dict:
     _ensure_file_log()
     rows = store.importable(limit, run_id)
-    summary = {'requested': len(rows), 'imported': 0, 'failed': 0, 'locked': False, 'results': {}}
+    summary = {'requested': len(rows), 'imported': 0, 'suspected': 0, 'skipped': 0, 'failed': 0,
+               'locked': False, 'results': {}}
     log.info('import 시작 base=%s run_id=%s requested=%d',
              getattr(getattr(client, '_session', None), 'base_url', '?'), run_id or 'ALL', len(rows))
 
@@ -111,6 +121,16 @@ def run_import(store: StagingStore, client: BackendClient, limit: int = 500, run
                 store.mark_imported(r['id'], res.get('worksId'))
                 summary['imported'] += 1
                 log.info('stagingId=%s %s worksId=%s %s', r['id'], result, res.get('worksId'), _label(r))
+            elif result == 'SUSPECTED_DUPLICATE':
+                candidates = res.get('candidateWorksIds') or []
+                store.mark_suspected(r['id'], candidates)
+                summary['suspected'] += 1
+                log.info('stagingId=%s %s candidates=%s %s', r['id'], result, candidates, _label(r))
+            elif result == 'SKIPPED':
+                candidates = res.get('candidateWorksIds') or []
+                store.mark_skipped(r['id'], candidates)
+                summary['skipped'] += 1
+                log.info('stagingId=%s %s candidates=%s %s', r['id'], result, candidates, _label(r))
             else:
                 error = (res or {}).get('error') or 'BE 응답에 결과 없음'
                 store.mark_import_failed(r['id'], error)

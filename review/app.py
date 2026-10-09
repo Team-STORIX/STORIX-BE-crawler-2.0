@@ -77,6 +77,9 @@ class ApproveRequest(BaseModel):
     reviewer: str = Field(..., min_length=1, max_length=100)
     # 고칠 필드만 보낸다. enum 은 BE name 이나 한글 dbValue 둘 다 된다
     overrides: dict[str, str | list[str] | None] = Field(default_factory=dict)
+    # 중복 의심 건: 기존 작품에 붙일지(target_works_id), 새로 만들지(create_new) 고른다
+    target_works_id: int | None = Field(default=None, ge=1)
+    create_new: bool = False
 
 
 class RejectRequest(BaseModel):
@@ -136,7 +139,8 @@ def review_item(staging_id: int, store: StagingStore = Depends(_store)):
 def approve(staging_id: int, req: ApproveRequest,
             store: StagingStore = Depends(_store), cat: EnumCatalog = Depends(_catalog)):
     try:
-        return service.approve(store, cat, staging_id, req.overrides, req.reviewer)
+        return service.approve(store, cat, staging_id, req.overrides, req.reviewer,
+                               req.target_works_id, req.create_new)
     except service.ReviewError as e:
         raise HTTPException(status_code=422, detail={'message': str(e), 'violations': e.violations})
 

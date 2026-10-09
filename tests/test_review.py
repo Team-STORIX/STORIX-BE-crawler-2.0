@@ -246,7 +246,7 @@ def test_breaker_flags_count_swing():
 class FakeStore:
     def __init__(self, rows):
         self.rows = rows
-        self.imported, self.failed = {}, {}
+        self.imported, self.failed, self.suspected, self.skipped = {}, {}, {}, {}
 
     def importable(self, limit, run_id=None):
         return self.rows[:limit]
@@ -256,6 +256,12 @@ class FakeStore:
 
     def mark_import_failed(self, sid, error):
         self.failed[sid] = error
+
+    def mark_suspected(self, sid, candidates):
+        self.suspected[sid] = candidates
+
+    def mark_skipped(self, sid, candidates):
+        self.skipped[sid] = candidates
 
 
 class FakeClient:
@@ -308,6 +314,32 @@ def test_import_marks_per_item_results_and_chunks(tmp_path):
     logged = (tmp_path / 'stage_import.log').read_text(encoding='utf-8')
     assert 'stagingId=1 CREATED worksId=1001 "전지적 독자 시점" / "싱숑, 슬리피-C"' in logged
     assert 'stagingId=3 FAILED error=genre 변환 실패' in logged
+
+
+def test_import_handles_suspected_and_skipped():
+    store = FakeStore(_rows(4))
+
+    def respond(items):
+        return [
+            {'stagingId': 1, 'result': 'CREATED', 'worksId': 10, 'candidateWorksIds': None},
+            {'stagingId': 2, 'result': 'SUSPECTED_DUPLICATE', 'worksId': None, 'candidateWorksIds': [8393, 15808]},
+            {'stagingId': 3, 'result': 'SKIPPED', 'worksId': None, 'candidateWorksIds': [9066]},
+            {'stagingId': 4, 'result': 'FAILED', 'worksId': None, 'error': 'artistName 값이 비어 있습니다'},
+        ]
+
+    summary = run_import(store, FakeClient(respond))
+    assert {k: summary[k] for k in ('imported', 'suspected', 'skipped', 'failed')} == \
+        {'imported': 1, 'suspected': 1, 'skipped': 1, 'failed': 1}
+    assert store.suspected == {2: [8393, 15808]}
+    assert store.skipped == {3: [9066]}
+    assert store.failed[4] == 'artistName 값이 비어 있습니다'
+
+
+def test_request_item_carries_reviewer_choice():
+    n = validate_item(item(), CATALOG).normalized
+    assert 'targetWorksId' not in to_request_item(1, n) and 'createNew' not in to_request_item(1, n)
+    assert to_request_item(1, {**n, '_target_works_id': 8393})['targetWorksId'] == 8393
+    assert to_request_item(1, {**n, '_create_new': True})['createNew'] is True
 
 
 def test_import_backend_down_fails_chunk_without_raising():
@@ -557,3 +589,29 @@ def test_session_passes_409_through_to_import(backend):
     summary = run_import(store, BackendClient(BackendSession(backend.url, 'admin@storix.kr', 'pw')))
     assert summary['locked'] is True
     assert store.failed == {}
+
+
+@needs_mysql
+def test_suspected_duplicate_goes_back_to_review_and_can_be_attached(store):
+    from review import service
+
+    service.load_run(store, CATALOG, [item(source_url='https://x/s1')], 'naver_test')
+    sid = store.queue(AUTO_PASS)[0]['id']
+
+    store.mark_suspected(sid, [8393])
+    row = store.get(sid)
+    assert row['status'] == NEEDS_REVIEW
+    assert row['violations'][-1] == {'field': None, 'code': 'SUSPECTED_DUPLICATE', 'value': [8393],
+                                     'severity': NEEDS_REVIEW}
+    assert store.importable() == []
+
+    with pytest.raises(service.ReviewError):
+        service.approve(store, CATALOG, sid, {}, 'tester', target_works_id=8393, create_new=True)
+
+    service.approve(store, CATALOG, sid, {}, 'tester', target_works_id=8393)
+    [r] = store.importable()
+    assert to_request_item(r['id'], r['normalized'])['targetWorksId'] == 8393
+
+    store.mark_skipped(sid, [9066])
+    assert store.get(sid)['status'] == 'SKIPPED'
+    assert store.importable() == []

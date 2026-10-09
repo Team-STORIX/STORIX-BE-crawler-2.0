@@ -50,8 +50,8 @@ class BackendClient:
         return self._session.request('POST', IMPORT_PATH, {'items': items}, timeout=self._timeout)
 
 
-def run_import(store: StagingStore, client: BackendClient, limit: int = 500) -> dict:
-    rows = store.importable(limit)
+def run_import(store: StagingStore, client: BackendClient, limit: int = 500, run_id: str | None = None) -> dict:
+    rows = store.importable(limit, run_id)
     summary = {'requested': len(rows), 'imported': 0, 'failed': 0, 'locked': False}
 
     for start in range(0, len(rows), CHUNK_SIZE):

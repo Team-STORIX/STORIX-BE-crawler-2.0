@@ -149,13 +149,25 @@ def reject(staging_id: int, req: RejectRequest, store: StagingStore = Depends(_s
         raise HTTPException(status_code=404, detail=str(e))
 
 
+@app.get('/import/preview', dependencies=[Depends(_auth)])
+def import_preview(run_id: str | None = None, store: StagingStore = Depends(_store)):
+    """POST /import 가 보낼 건수를 런별로. 보내기 전에 확인한다."""
+    return store.importable_summary(run_id)
+
+
 @app.post('/import', dependencies=[Depends(_auth)])
-def import_to_backend(limit: int = Query(500, ge=1, le=5000), store: StagingStore = Depends(_store)):
-    """AUTO_PASS · APPROVED 를 BE import API 로 승격. 보류된 런은 빠진다."""
+def import_to_backend(run_id: str | None = None,
+                      all_runs: bool = False,
+                      limit: int = Query(500, ge=1, le=5000),
+                      store: StagingStore = Depends(_store)):
+    """AUTO_PASS · APPROVED 를 BE import API 로 승격. 보류된 런은 빠진다.
+    run_id 나 all_runs=true 중 하나를 꼭 줘야 한다 — 의도하지 않은 런이 같이 나가지 않게."""
+    if not run_id and not all_runs:
+        raise HTTPException(status_code=400, detail='run_id 또는 all_runs=true 가 필요합니다. 먼저 GET /import/preview 로 확인하세요')
     if BACKEND is None:
         raise HTTPException(status_code=503, detail=BACKEND_MISSING)
     try:
-        return run_import(store, BackendClient(BACKEND), limit)
+        return run_import(store, BackendClient(BACKEND), limit, run_id)
     except BackendAuthError as e:
         raise HTTPException(status_code=502, detail=str(e))
 

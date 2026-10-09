@@ -51,6 +51,9 @@ class BackendSession:
         try:
             result = self._send('POST', LOGIN_PATH, {'email': self._email, 'password': self._password}, None, None)
         except urllib.error.HTTPError as e:
+            # 계정 문제만 인증 실패로 본다. 5xx 등은 서버 문제라 그대로 올린다
+            if e.code not in (400, 401, 403, 422):
+                raise
             raise BackendAuthError(f'BE ADMIN 로그인 실패: HTTP {e.code} ({self._email})') from None
         token = (result or {}).get('accessToken')
         if not token:

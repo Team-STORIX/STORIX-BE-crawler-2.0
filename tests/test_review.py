@@ -158,7 +158,7 @@ class FakeStore:
         self.rows = rows
         self.imported, self.failed = {}, {}
 
-    def importable(self, limit):
+    def importable(self, limit, run_id=None):
         return self.rows[:limit]
 
     def mark_imported(self, sid, works_id):
@@ -253,15 +253,23 @@ def store(monkeypatch):
     monkeypatch.setitem(config.MYSQL_CONFIG, 'user', 'root')
     monkeypatch.setitem(config.MYSQL_CONFIG, 'password', os.getenv('REVIEW_TEST_MYSQL_PASSWORD', ''))
 
+    # 실제 staging DB 를 절대 쓰지 않는다. 테스트가 남긴 행이 import 로 BE 에 나간 적이 있다
     from review import store as store_mod
+    test_db = 'storix_staging_pytest'
+    monkeypatch.setattr(store_mod, 'STAGING_DATABASE', test_db)
+
     store_mod.ensure_schema()
     conn = store_mod.connect()
     cur = conn.cursor()
     for t in ('review_decision', 'works_staging', 'staging_run'):
         cur.execute(f'DELETE FROM {t}')
     conn.commit()
-    yield store_mod.StagingStore(conn)
-    conn.close()
+    try:
+        yield store_mod.StagingStore(conn)
+    finally:
+        cur = conn.cursor()
+        cur.execute(f'DROP DATABASE IF EXISTS `{test_db}`')
+        conn.close()
 
 
 @needs_mysql
@@ -331,6 +339,25 @@ def test_held_run_is_not_importable_until_released(store):
 
     assert store.release_run(result['run_id'], 'tester') is True
     assert len(store.importable()) == 20
+
+
+@needs_mysql
+def test_import_can_be_limited_to_one_run(store):
+    from review import service
+
+    first = service.load_run(store, CATALOG, [item(source_url='https://x/r1')], 'a')
+    second = service.load_run(store, CATALOG, [item(source_url='https://x/r2'), item(source_url='https://x/r3')], 'b')
+
+    summary = {r['run_id']: r['n'] for r in store.importable_summary()}
+    assert summary == {first['run_id']: 1, second['run_id']: 2}
+    assert [r['n'] for r in store.importable_summary(second['run_id'])] == [2]
+
+    sent = []
+    client = FakeClient(lambda items: sent.extend(items) or
+                        [{'stagingId': i['stagingId'], 'result': 'CREATED', 'worksId': 1} for i in items])
+    assert run_import(store, client, run_id=second['run_id'])['imported'] == 2
+    assert {i['landingUrl'] for i in sent} == {'https://x/r2', 'https://x/r3'}
+    assert [r['n'] for r in store.importable_summary()] == [1]
 
 
 # ---------------------------------------------------------------- BE 세션 (로그인 · 재로그인)

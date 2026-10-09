@@ -190,17 +190,37 @@ class StagingStore:
 
     # ------------------------------------------------------------------ import
 
-    def importable(self, limit: int = 500) -> list[dict]:
-        """보류되지 않은 런의 AUTO_PASS / APPROVED 건."""
-        cur = self._cursor()
+    def _importable_where(self, run_id: str | None) -> tuple[str, tuple]:
         marks = ', '.join(['%s'] * len(IMPORTABLE))
+        where = f'WHERE s.status IN ({marks}) AND NOT r.held'
+        params: tuple = IMPORTABLE
+        if run_id:
+            where += ' AND s.run_id = %s'
+            params = (*params, run_id)
+        return where, params
+
+    def importable(self, limit: int = 500, run_id: str | None = None) -> list[dict]:
+        """보류되지 않은 런의 AUTO_PASS / APPROVED 건. run_id 를 주면 그 런만."""
+        where, params = self._importable_where(run_id)
+        cur = self._cursor()
         cur.execute(
             f'SELECT s.id, s.normalized FROM works_staging s '
-            f'JOIN staging_run r ON r.run_id = s.run_id '
-            f'WHERE s.status IN ({marks}) AND NOT r.held ORDER BY s.id LIMIT %s',
-            (*IMPORTABLE, limit),
+            f'JOIN staging_run r ON r.run_id = s.run_id {where} ORDER BY s.id LIMIT %s',
+            (*params, limit),
         )
         return [_loads(r, 'normalized') for r in cur.fetchall()]
+
+    def importable_summary(self, run_id: str | None = None) -> list[dict]:
+        """import 전에 사람이 확인할 런별 건수. 엉뚱한 런이 섞여 나가는 걸 막는다."""
+        where, params = self._importable_where(run_id)
+        cur = self._cursor()
+        cur.execute(
+            f'SELECT r.run_id, r.source, r.source_file, COUNT(*) AS n FROM works_staging s '
+            f'JOIN staging_run r ON r.run_id = s.run_id {where} '
+            f'GROUP BY r.run_id, r.source, r.source_file ORDER BY r.run_id',
+            params,
+        )
+        return cur.fetchall()
 
     def mark_imported(self, staging_id: int, works_id: int | None) -> None:
         cur = self._cursor()

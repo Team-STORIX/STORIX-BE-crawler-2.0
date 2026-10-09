@@ -277,8 +277,9 @@ def cmd_stage(args):
                 os.environ['REVIEW_CATALOG_FILE'] = args.catalog_file
             try:
                 catalog = load_catalog()
-            except BackendAuthError as e:
-                print(f'❌ {e}')
+            except (BackendAuthError, OSError) as e:
+                # OSError: BE 연결 실패(URLError) 포함
+                print(f'❌ enum 카탈로그를 못 받았습니다: {e}')
                 sys.exit(1)
             path = Path(args.input)
             files = sorted(path.glob('*.jsonl')) if path.is_dir() else [path]
@@ -296,8 +297,25 @@ def cmd_stage(args):
             if BACKEND is None:
                 print(f'❌ {BACKEND_MISSING}')
                 sys.exit(1)
+            # 보내기 전에 런별 건수를 보여주고 확인받는다. 엉뚱한 런이 섞여 나가는 걸 막는다
+            summary = store.importable_summary(args.run_id)
+            total = sum(r['n'] for r in summary)
+            if not total:
+                print('보낼 작품이 없습니다.')
+                return
+            print(f'BE({BACKEND.base_url}) 로 보낼 작품 {min(total, args.limit)}건 (최대 {args.limit}건)')
+            for r in summary:
+                print(f"  - {r['run_id']}  {r['source']:<24} {r['n']:>5}건  {r['source_file'] or ''}")
+            if not args.yes:
+                if not sys.stdin.isatty():
+                    print('❌ 확인할 수 없는 환경입니다. 내용을 확인했다면 --yes 를 붙이세요')
+                    sys.exit(1)
+                if input('진행할까요? [y/N] ').strip().lower() != 'y':
+                    print('취소했습니다.')
+                    return
             try:
-                print(json.dumps(run_import(store, BackendClient(BACKEND), args.limit), ensure_ascii=False))
+                print(json.dumps(run_import(store, BackendClient(BACKEND), args.limit, args.run_id),
+                                 ensure_ascii=False))
             except BackendAuthError as e:
                 print(f'❌ {e}')
                 sys.exit(1)
@@ -359,6 +377,8 @@ def main():
 
     stage_import_p = stage_sub.add_parser('import', help='AUTO_PASS · APPROVED 를 BE 로 승격')
     stage_import_p.add_argument('--limit', type=int, default=500)
+    stage_import_p.add_argument('--run-id', dest='run_id', help='이 런만 보낸다 (생략하면 보류 안 된 전체 런)')
+    stage_import_p.add_argument('--yes', action='store_true', help='확인 없이 진행 (건수를 이미 확인한 경우)')
 
     stage_sub.add_parser('stats', help='상태별 건수 · 자동화율')
 

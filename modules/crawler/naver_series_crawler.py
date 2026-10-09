@@ -98,7 +98,8 @@ class NaverSeriesCrawler(NaverCrawler):
             ['연재중', '무협', '글비가', '그림ARCHE, LICO', '출판사네이버웹툰', '15세 이용가']
         """
         author = illustrator = original_author = ''
-        age = '전체연령가'
+        # 연령 줄이 없으면 ''(판정 못 함). 전체연령가로 단정하면 새 작품은 틀린 값으로, 기존 작품은 덮어써져 들어간다
+        age = ''
         for ln in lines:
             if ln.startswith('글'):
                 author = ln[1:].strip()

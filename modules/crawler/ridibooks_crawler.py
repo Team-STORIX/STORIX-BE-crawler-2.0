@@ -529,30 +529,12 @@ class RidibooksCrawler(BaseCrawler):
             parts = [n for n in [author, illustrator, original_author] if n]
             artist_name = ", ".join(dict.fromkeys(parts))
 
-            # 연령 등급 (meta age rating이 가장 정확)
-            age = ""
-            try:
-                age_meta = self.driver.find_element(
-                    By.CSS_SELECTOR, "meta[property='books:rating:value'], meta[name='rating']"
-                ).get_attribute("content") or ""
-                if age_meta:
-                    if "19" in age_meta or "adult" in age_meta.lower():
-                        age = "18세 이용가"
-                    else:
-                        age = "전체연령가"
-            except Exception:
-                pass
-
+            # 연령 등급: 페이지에 내려오는 책 데이터(is_adult_only · age_limit)와 공지("15세 이용가 안내")로 판정.
+            # meta 'books:rating:value' 는 별점(4.8)이라 연령이 아니다 — 이걸 읽어서 15세가 전부 전체연령가로 들어갔다
+            m = re.search(r'/books/(\d+)', self.driver.current_url)
+            age = parse_ridi_age(self.driver.page_source, m.group(1) if m else '')
             if not age:
-                src = self.driver.page_source
-                if "19세 이용가" in src or "성인 전용" in src or "청소년 이용불가" in src:
-                    age = "18세 이용가"
-                elif "15세 이용가" in src:
-                    age = "15세 이용가"
-                elif "12세 이용가" in src:
-                    age = "12세 이용가"
-                else:
-                    age = "전체연령가"
+                self._log.warning("리디 연령을 판정하지 못함(검수 대기로): %s", url)
 
             # 상단 브레드크럼 카테고리(/category/ 링크) 텍스트 — genre·works_type 판정에 함께 사용.
             #   예) ["판타지 웹소설", "현대 판타지"] / ["로맨스 e북", "하이틴", "현대물"]
@@ -625,3 +607,28 @@ class RidibooksCrawler(BaseCrawler):
         except Exception as e:
             self._log.error("crawl_detail 실패 (%s): %s", url, e)
             return None
+
+
+def parse_ridi_age(src: str, book_id: str) -> str:
+    """리디 책 상세 페이지 HTML → 연령. 판정 못 하면 ''.
+
+    - 이 책 데이터의 is_adult_only=true 또는 age_limit=19 → 18세 이용가
+    - 페이지 공지(notices) 제목 "15세 이용가 안내" / "12세 이용가 안내" → 15세 / 12세
+    - 그 밖에는 '' (판정 못 함). 같은 작품도 판(웹소설 · 웹툰 · e북)마다 공지가 있기도 없기도 해서
+      공지가 없다고 전체연령가로 단정할 수 없다. 빈 값이면 새 작품은 검수 대기로 가고,
+      기존 작품은 BE import 가 덮어쓰지 않는다
+    """
+    if not src or not book_id:
+        return ''
+    book = re.search(r'"id"\s*:\s*"%s"[^{}]*?"is_adult_only"\s*:\s*(true|false)' % re.escape(book_id), src)
+    if not book:
+        return ''
+    limit = re.search(r'"age_limit"\s*:\s*"?(\d+)"?', book.group(0))
+    if book.group(1) == 'true' or (limit and int(limit.group(1)) >= 19):
+        return '18세 이용가'
+    notices = re.search(r'"notices"\s*:\s*\[(.*?)\]', src, re.S)
+    titles = ' '.join(re.findall(r'"title"\s*:\s*"([^"]*)"', notices.group(1))) if notices else ''
+    for n in ('15', '12'):
+        if f'{n}세 이용가' in titles or f'{n}세이용가' in titles:
+            return f'{n}세 이용가'
+    return ''

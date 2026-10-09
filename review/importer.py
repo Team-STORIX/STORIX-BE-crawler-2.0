@@ -8,10 +8,9 @@ BE: POST /api/v1/admin/works/import (ADMIN)
   응답 result: [{stagingId, result: CREATED|UPDATED|UNCHANGED|FAILED, worksId, error}]
   다른 import 가 돌고 있으면 409 (요청 전체 거절). 이때는 남은 청크도 보내지 않고 멈춘다
 """
-import json
 import urllib.error
-import urllib.request
 
+from review.backend import BackendSession
 from review.store import StagingStore
 
 IMPORT_PATH = '/api/v1/admin/works/import'
@@ -43,25 +42,12 @@ def to_request_item(staging_id: int, normalized: dict) -> dict:
 
 
 class BackendClient:
-    def __init__(self, base_url: str, token: str, timeout: float = 60.0):
-        self._url = base_url.rstrip('/') + IMPORT_PATH
-        self._token = token
+    def __init__(self, session: BackendSession, timeout: float = 60.0):
+        self._session = session
         self._timeout = timeout
 
     def import_works(self, items: list[dict]) -> list[dict]:
-        req = urllib.request.Request(
-            self._url,
-            data=json.dumps({'items': items}, ensure_ascii=False).encode('utf-8'),
-            method='POST',
-            headers={
-                'Authorization': f'Bearer {self._token}',
-                'Content-Type': 'application/json',
-                'Accept': 'application/json',
-            },
-        )
-        with urllib.request.urlopen(req, timeout=self._timeout) as resp:
-            body = json.loads(resp.read().decode('utf-8'))
-        return body.get('result', body)
+        return self._session.request('POST', IMPORT_PATH, {'items': items}, timeout=self._timeout)
 
 
 def run_import(store: StagingStore, client: BackendClient, limit: int = 500) -> dict:

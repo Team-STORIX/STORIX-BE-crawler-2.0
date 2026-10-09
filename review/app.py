@@ -5,7 +5,8 @@
 
 환경변수
     STORIX_API_BASE_URL   BE 주소 (enum 카탈로그 · import API)
-    STORIX_ADMIN_TOKEN    BE ADMIN 액세스 토큰
+    STORIX_ADMIN_EMAIL    BE ADMIN 계정. 기동 시 로그인하고 만료되면 다시 로그인한다
+    STORIX_ADMIN_PASSWORD
     REVIEW_CATALOG_FILE   BE 를 못 붙을 때 카탈로그 응답을 저장한 JSON 파일 (선택)
     REVIEW_API_TOKEN      설정하면 X-Review-Token 헤더가 맞아야 호출된다 (선택)
     STAGING_DATABASE_NAME staging DB 이름 (기본 storix_staging)
@@ -17,14 +18,15 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from review import service
+from review.backend import BackendAuthError, BackendSession
 from review.catalog import EnumCatalog, fetch_catalog, load_catalog_file
 from review.importer import BackendClient, run_import
 from review.rules import NEEDS_REVIEW
 from review.store import StagingStore, connect, ensure_schema
 
 API_TOKEN = os.getenv('REVIEW_API_TOKEN', '')
-BE_BASE_URL = os.getenv('STORIX_API_BASE_URL', '')
-BE_TOKEN = os.getenv('STORIX_ADMIN_TOKEN', '')
+BACKEND = BackendSession.from_env()
+BACKEND_MISSING = 'STORIX_API_BASE_URL / STORIX_ADMIN_EMAIL / STORIX_ADMIN_PASSWORD 미설정'
 
 _state: dict = {}
 
@@ -33,9 +35,9 @@ def load_catalog() -> EnumCatalog:
     path = os.getenv('REVIEW_CATALOG_FILE')
     if path:
         return load_catalog_file(path)
-    if not BE_BASE_URL or not BE_TOKEN:
-        raise RuntimeError('STORIX_API_BASE_URL / STORIX_ADMIN_TOKEN 또는 REVIEW_CATALOG_FILE 이 필요합니다')
-    return fetch_catalog(BE_BASE_URL, BE_TOKEN)
+    if BACKEND is None:
+        raise RuntimeError(f'{BACKEND_MISSING} (또는 REVIEW_CATALOG_FILE)')
+    return fetch_catalog(BACKEND)
 
 
 @asynccontextmanager
@@ -150,9 +152,12 @@ def reject(staging_id: int, req: RejectRequest, store: StagingStore = Depends(_s
 @app.post('/import', dependencies=[Depends(_auth)])
 def import_to_backend(limit: int = Query(500, ge=1, le=5000), store: StagingStore = Depends(_store)):
     """AUTO_PASS · APPROVED 를 BE import API 로 승격. 보류된 런은 빠진다."""
-    if not BE_BASE_URL or not BE_TOKEN:
-        raise HTTPException(status_code=503, detail='STORIX_API_BASE_URL / STORIX_ADMIN_TOKEN 미설정')
-    return run_import(store, BackendClient(BE_BASE_URL, BE_TOKEN), limit)
+    if BACKEND is None:
+        raise HTTPException(status_code=503, detail=BACKEND_MISSING)
+    try:
+        return run_import(store, BackendClient(BACKEND), limit)
+    except BackendAuthError as e:
+        raise HTTPException(status_code=502, detail=str(e))
 
 
 @app.get('/stats', dependencies=[Depends(_auth)])

@@ -258,7 +258,8 @@ def cmd_stage(args):
     import json
     import os
 
-    from review.app import BE_BASE_URL, BE_TOKEN, load_catalog
+    from review.app import BACKEND, BACKEND_MISSING, load_catalog
+    from review.backend import BackendAuthError
     from review.store import StagingStore, connect, ensure_schema
 
     sub = getattr(args, 'stage_command', None)
@@ -274,7 +275,11 @@ def cmd_stage(args):
             from review.service import load_run, read_jsonl
             if args.catalog_file:
                 os.environ['REVIEW_CATALOG_FILE'] = args.catalog_file
-            catalog = load_catalog()
+            try:
+                catalog = load_catalog()
+            except BackendAuthError as e:
+                print(f'❌ {e}')
+                sys.exit(1)
             path = Path(args.input)
             files = sorted(path.glob('*.jsonl')) if path.is_dir() else [path]
             files = [f for f in files if f.name != 'manual_review_queue.jsonl']
@@ -288,11 +293,14 @@ def cmd_stage(args):
                     print('⛔ 런 보류 — 분포 이상. 확인 후 POST /runs/{run_id}/release 로 풀어야 import 됩니다')
         elif sub == 'import':
             from review.importer import BackendClient, run_import
-            if not BE_BASE_URL or not BE_TOKEN:
-                print('❌ STORIX_API_BASE_URL / STORIX_ADMIN_TOKEN 이 필요합니다')
+            if BACKEND is None:
+                print(f'❌ {BACKEND_MISSING}')
                 sys.exit(1)
-            print(json.dumps(run_import(store, BackendClient(BE_BASE_URL, BE_TOKEN), args.limit),
-                             ensure_ascii=False))
+            try:
+                print(json.dumps(run_import(store, BackendClient(BACKEND), args.limit), ensure_ascii=False))
+            except BackendAuthError as e:
+                print(f'❌ {e}')
+                sys.exit(1)
         else:
             print(json.dumps(store.stats(), ensure_ascii=False, indent=2))
     finally:

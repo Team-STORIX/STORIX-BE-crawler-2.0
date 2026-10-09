@@ -9,7 +9,6 @@ BE 를 못 붙는 로컬 환경에서는 그 응답을 저장한 JSON 파일을 
 import API 는 name 으로 받는다.
 """
 import json
-import urllib.request
 from pathlib import Path
 
 CATALOG_PATH = '/api/v1/admin/works/enum-catalog'
@@ -64,15 +63,9 @@ def _norm(s: str) -> str:
     return ''.join(s.split())
 
 
-def fetch_catalog(base_url: str, token: str, timeout: float = 10.0) -> EnumCatalog:
-    req = urllib.request.Request(
-        base_url.rstrip('/') + CATALOG_PATH,
-        headers={'Authorization': f'Bearer {token}', 'Accept': 'application/json'},
-    )
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        body = json.loads(resp.read().decode('utf-8'))
-    # STORIX 응답은 CustomResponse 로 감싸져 온다
-    return EnumCatalog(body.get('result', body))
+def fetch_catalog(session) -> EnumCatalog:
+    """session: review.backend.BackendSession (CustomResponse.result 를 풀어서 돌려준다)"""
+    return EnumCatalog(session.request('GET', CATALOG_PATH, timeout=10.0))
 
 
 def load_catalog_file(path: str | Path) -> EnumCatalog:

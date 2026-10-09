@@ -331,3 +331,104 @@ def test_held_run_is_not_importable_until_released(store):
 
     assert store.release_run(result['run_id'], 'tester') is True
     assert len(store.importable()) == 20
+
+
+# ---------------------------------------------------------------- BE 세션 (로그인 · 재로그인)
+
+class _FakeBackend:
+    """로컬 HTTP 서버. 토큰을 n 번째 발급마다 바꾸고, expire() 하면 기존 토큰을 401 로 만든다."""
+
+    def __init__(self):
+        import http.server
+        import json
+        import threading
+
+        fake = self
+        self.logins = 0
+        self.valid_token = None
+        self.import_status = 200
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def log_message(self, *args):
+                pass
+
+            def _reply(self, code, body):
+                data = json.dumps(body).encode()
+                self.send_response(code)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Content-Length', str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+
+            def _authorized(self):
+                return self.headers.get('Authorization') == f'Bearer {fake.valid_token}'
+
+            def do_POST(self):
+                body = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
+                if self.path == '/api/v1/auth/admin/login':
+                    if body != {'email': 'admin@storix.kr', 'password': 'pw'}:
+                        return self._reply(401, {'isSuccess': False})
+                    fake.logins += 1
+                    fake.valid_token = f'token-{fake.logins}'
+                    return self._reply(200, {'isSuccess': True, 'result': {'accessToken': fake.valid_token}})
+                if not self._authorized():
+                    return self._reply(401, {'isSuccess': False})
+                if fake.import_status != 200:
+                    return self._reply(fake.import_status, {'isSuccess': False, 'code': 'WORKS_ERROR_007'})
+                result = [{'stagingId': it['stagingId'], 'result': 'CREATED', 'worksId': 1} for it in body['items']]
+                return self._reply(200, {'isSuccess': True, 'result': result})
+
+            def do_GET(self):
+                if not self._authorized():
+                    return self._reply(401, {'isSuccess': False})
+                return self._reply(200, {'isSuccess': True, 'result': CATALOG.raw})
+
+        self.server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+        self.url = f'http://127.0.0.1:{self.server.server_address[1]}'
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+
+    def expire(self):
+        self.valid_token = 'rotated'
+
+
+@pytest.fixture
+def backend():
+    fake = _FakeBackend()
+    yield fake
+    fake.server.shutdown()
+
+
+def test_session_logs_in_and_fetches_catalog(backend):
+    from review.backend import BackendSession
+    from review.catalog import fetch_catalog
+    session = BackendSession(backend.url, 'admin@storix.kr', 'pw')
+    assert fetch_catalog(session).resolve('genre', '무협') == 'HISTORICAL'
+    assert backend.logins == 1
+
+
+def test_session_relogs_in_once_when_token_expires(backend):
+    from review.backend import BackendSession
+    from review.importer import BackendClient
+    client = BackendClient(BackendSession(backend.url, 'admin@storix.kr', 'pw'))
+    client.import_works([{'stagingId': 1}])
+    backend.expire()
+    assert client.import_works([{'stagingId': 2}])[0]['result'] == 'CREATED'
+    assert backend.logins == 2
+
+
+def test_session_bad_credentials_stop_import(backend):
+    from review.backend import BackendAuthError, BackendSession
+    from review.importer import BackendClient
+    client = BackendClient(BackendSession(backend.url, 'admin@storix.kr', 'wrong'))
+    with pytest.raises(BackendAuthError):
+        run_import(FakeStore(_rows(2)), client)
+
+
+def test_session_passes_409_through_to_import(backend):
+    from review.backend import BackendSession
+    from review.importer import BackendClient
+    backend.import_status = 409
+    store = FakeStore(_rows(2))
+    summary = run_import(store, BackendClient(BackendSession(backend.url, 'admin@storix.kr', 'pw')))
+    assert summary['locked'] is True
+    assert store.failed == {}

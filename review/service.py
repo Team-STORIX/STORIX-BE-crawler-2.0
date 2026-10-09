@@ -42,8 +42,16 @@ def load_run(store: StagingStore, catalog: EnumCatalog, items: list[dict],
 
 
 def approve(store: StagingStore, catalog: EnumCatalog, staging_id: int,
-            overrides: dict, reviewer: str) -> dict:
-    """사람이 값을 고쳐 승인한다. 고친 값으로 Layer 1 을 다시 돌려 통과해야 APPROVED."""
+            overrides: dict, reviewer: str,
+            target_works_id: int | None = None, create_new: bool = False) -> dict:
+    """사람이 값을 고쳐 승인한다. 고친 값으로 Layer 1 을 다시 돌려 통과해야 APPROVED.
+
+    BE 가 중복 의심(SUSPECTED_DUPLICATE)으로 돌려보낸 건은 사람이 고른다
+      target_works_id: 그 기존 작품에 붙인다 (BE 판정 생략)
+      create_new:      다른 작품이 맞으니 새로 만든다
+    """
+    if target_works_id and create_new:
+        raise ReviewError('target_works_id 와 create_new 는 함께 쓸 수 없음')
     row = store.get(staging_id)
     if not row:
         raise ReviewError('staging 항목 없음')
@@ -59,8 +67,13 @@ def approve(store: StagingStore, catalog: EnumCatalog, staging_id: int,
         for f in ENUM_FIELDS
         if f in overrides and catalog.resolve(ENUM_FIELDS[f][0], row['raw'].get(f)) != verdict.normalized[f]
     ]
-    store.save_review(staging_id, APPROVED, verdict.normalized, [], reviewer, decisions)
-    return {'id': staging_id, 'status': APPROVED, 'normalized': verdict.normalized}
+    normalized = dict(verdict.normalized)
+    if target_works_id:
+        normalized['_target_works_id'] = int(target_works_id)
+    if create_new:
+        normalized['_create_new'] = True
+    store.save_review(staging_id, APPROVED, normalized, [], reviewer, decisions)
+    return {'id': staging_id, 'status': APPROVED, 'normalized': normalized}
 
 
 def reject(store: StagingStore, staging_id: int, reviewer: str, reason: str) -> dict:

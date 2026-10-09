@@ -82,6 +82,45 @@ def test_catalog_unwraps_custom_response(tmp_path):
     assert load_catalog_file(path).resolve('genre', '로판') == 'ROFAN'
 
 
+# ---------------------------------------------------------------- 작가명 정규화
+
+@pytest.mark.parametrize('raw,expected', [
+    # 카카오: 역할 라벨이 붙은 형식
+    ({'artist_name': '구름고래비누 ∙ 글 / 희서 ∙ 그림'},
+     {'artist_name': '구름고래비누, 희서', 'author': '구름고래비누', 'illustrator': '희서', 'original_author': ''}),
+    ({'artist_name': '스튜디오 이너스 ∙ 글/그림 / 홍정훈 ∙ 원작'},
+     {'artist_name': '홍정훈, 스튜디오 이너스', 'author': '스튜디오 이너스', 'illustrator': '스튜디오 이너스',
+      'original_author': '홍정훈'}),
+    # prod 에서 중복이 생기던 경우: 역할 필드에 여러 이름
+    ({'artist_name': '윤영일, MAJOR, 윤영일', 'author': '윤영일, MAJOR', 'illustrator': '윤영일'},
+     {'artist_name': '윤영일, MAJOR', 'author': '윤영일, MAJOR', 'illustrator': '윤영일', 'original_author': ''}),
+    ({'artist_name': '', 'author': 'daybook, 새우초밥', 'illustrator': '새우초밥', 'original_author': 'daybook'},
+     {'artist_name': 'daybook, 새우초밥', 'author': 'daybook, 새우초밥', 'illustrator': '새우초밥',
+      'original_author': 'daybook'}),
+    # 네이버 웹툰: 'a, b' + 역할 필드
+    ({'artist_name': '슬리피-C, 싱숑', 'author': '싱숑', 'illustrator': '슬리피-C'},
+     {'artist_name': '싱숑, 슬리피-C', 'author': '싱숑', 'illustrator': '슬리피-C', 'original_author': ''}),
+    # 시리즈 · 웹소설: 작가 한 칸, 출판사 표기는 이름의 일부로 둔다
+    ({'artist_name': '묵향동후/진강문학성'},
+     {'artist_name': '묵향동후/진강문학성', 'author': '묵향동후/진강문학성', 'illustrator': '', 'original_author': ''}),
+    ({'artist_name': ''}, {'artist_name': '', 'author': '', 'illustrator': '', 'original_author': ''}),
+    # 역할 칸 안에 라벨이 붙어 온 경우, 이름 속 가운뎃점
+    ({'artist_name': '플루토스, 스푼', 'author': '플루토스', 'illustrator': '작화 스푼'},
+     {'artist_name': '플루토스, 스푼', 'author': '플루토스', 'illustrator': '스푼', 'original_author': ''}),
+    ({'artist_name': '단구름·불랄리, 해민', 'author': '단구름·불랄리', 'illustrator': '해민'},
+     {'artist_name': '단구름·불랄리, 해민', 'author': '단구름·불랄리', 'illustrator': '해민', 'original_author': ''}),
+])
+def test_normalize_artists(raw, expected):
+    from review.artists import normalize_artists
+    assert normalize_artists(raw) == expected
+
+
+def test_layer1_sends_normalized_artist_name():
+    v = validate_item(item(artist_name='구름고래비누 ∙ 글 / 희서 ∙ 그림', author='', illustrator=''), CATALOG)
+    assert v.status == AUTO_PASS
+    assert v.normalized['artist_name'] == '구름고래비누, 희서'
+
+
 # ---------------------------------------------------------------- Layer 1
 
 def test_clean_item_auto_passes_with_enum_names():
@@ -96,7 +135,11 @@ def test_clean_item_auto_passes_with_enum_names():
 
 @pytest.mark.parametrize('field', ['works_name', 'artist_name', 'source_url'])
 def test_missing_identity_is_rejected(field):
-    v = validate_item(item(**{field: '  '}), CATALOG)
+    # 작가명은 원작 · 글 · 그림 칸에서도 채우므로, 작가 관련 칸이 전부 비어야 누락이다
+    blank = {field: '  '}
+    if field == 'artist_name':
+        blank.update(author='', illustrator='', original_author='')
+    v = validate_item(item(**blank), CATALOG)
     assert v.status == REJECTED
     assert {'field': field, 'code': 'MISSING', 'value': None, 'severity': REJECTED} in v.violations
 
@@ -263,7 +306,7 @@ def test_import_marks_per_item_results_and_chunks(tmp_path):
     assert 'BE 응답에 결과 없음' in store.failed[4]
 
     logged = (tmp_path / 'stage_import.log').read_text(encoding='utf-8')
-    assert 'stagingId=1 CREATED worksId=1001 "전지적 독자 시점" / "슬리피-C, 싱숑"' in logged
+    assert 'stagingId=1 CREATED worksId=1001 "전지적 독자 시점" / "싱숑, 슬리피-C"' in logged
     assert 'stagingId=3 FAILED error=genre 변환 실패' in logged
 
 

@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 
 from review.artists import normalize_artists
 from review.catalog import EnumCatalog
+from review.landing import canonical_landing_url
 
 AUTO_PASS = 'AUTO_PASS'
 NEEDS_REVIEW = 'NEEDS_REVIEW'
@@ -77,6 +78,8 @@ def validate_item(item: dict, catalog: EnumCatalog) -> Verdict:
     normalized: dict = {f: _clean(item.get(f)) for f in TEXT_FIELDS}
     # 작가명은 크롤러마다 형식이 달라 한 형식('a, b')으로 맞춘다 (역할 라벨 제거, 이름 단위 중복 제거)
     normalized.update(normalize_artists(item))
+    # 작품 링크는 플랫폼별 대표 주소로 맞춘다 (BE 에 landingUrl 로 저장되고, staging 중복 판정 키로도 쓴다)
+    normalized['source_url'] = canonical_landing_url(normalized['source_url'])
     normalized['hashtags'] = [t.strip() for t in item.get('hashtags') or [] if isinstance(t, str) and t.strip()]
     violations: list[dict] = []
 

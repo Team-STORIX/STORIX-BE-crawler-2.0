@@ -7,6 +7,7 @@ LLM 을 쓰지 않는다. 기계적으로 판정되는 건 여기서 끝낸다.
   NEEDS_REVIEW  작품은 특정되는데 Works 에 넣을 값이 비거나 enum 에 안 맞는다 → Layer 2 / 사람
   AUTO_PASS     전부 통과. normalized 를 그대로 import 할 수 있다
 """
+import re
 from collections import Counter
 from dataclasses import dataclass, field
 
@@ -41,6 +42,9 @@ ENUM_FIELDS = {
     'works_type': ('worksType', NEEDS_REVIEW),
 }
 
+# 정식 계약 전 작품 (네이버 웹툰 도전만화·베스트도전, 네이버 웹소설 베스트리그·챌린지리그). 받지 않는다
+PRE_CONTRACT_URL = re.compile(r'comic\.naver\.com/(?:challenge|bestChallenge)/|novel\.naver\.com/(?:best|challenge)/')
+
 TEXT_FIELDS = (
     'works_name', 'artist_name', 'author', 'illustrator', 'original_author',
     'description', 'thumbnail_url', 'source_url',
@@ -74,6 +78,8 @@ def validate_item(item: dict, catalog: EnumCatalog) -> Verdict:
     url = normalized['source_url']
     if url and not url.startswith(('http://', 'https://')):
         violations.append(_violation('source_url', 'INVALID_URL', url, REJECTED))
+    if PRE_CONTRACT_URL.search(url):
+        violations.append(_violation('source_url', 'PRE_CONTRACT_WORK', url, REJECTED))
 
     for f, (kind, severity) in ENUM_FIELDS.items():
         raw = _clean(item.get(f))

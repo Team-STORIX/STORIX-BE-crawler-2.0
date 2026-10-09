@@ -111,10 +111,10 @@ def test_unknown_platform_is_rejected():
     'https://novel.naver.com/best/list?novelId=1206587',
     'https://m.novel.naver.com/challenge/list?novelId=1',
 ])
-def test_amateur_works_are_rejected(url):
+def test_pre_contract_works_are_rejected(url):
     v = validate_item(item(source_url=url), CATALOG)
     assert v.status == REJECTED
-    assert any(x['code'] == 'AMATEUR_WORK' for x in v.violations)
+    assert any(x['code'] == 'PRE_CONTRACT_WORK' for x in v.violations)
 
 
 def test_official_naver_urls_pass():

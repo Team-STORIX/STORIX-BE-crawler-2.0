@@ -43,7 +43,7 @@ ENUM_FIELDS = {
 }
 
 # 정식 계약 전 작품 (네이버 웹툰 도전만화·베스트도전, 네이버 웹소설 베스트리그·챌린지리그). 받지 않는다
-AMATEUR_URL = re.compile(r'comic\.naver\.com/(?:challenge|bestChallenge)/|novel\.naver\.com/(?:best|challenge)/')
+PRE_CONTRACT_URL = re.compile(r'comic\.naver\.com/(?:challenge|bestChallenge)/|novel\.naver\.com/(?:best|challenge)/')
 
 TEXT_FIELDS = (
     'works_name', 'artist_name', 'author', 'illustrator', 'original_author',
@@ -78,8 +78,8 @@ def validate_item(item: dict, catalog: EnumCatalog) -> Verdict:
     url = normalized['source_url']
     if url and not url.startswith(('http://', 'https://')):
         violations.append(_violation('source_url', 'INVALID_URL', url, REJECTED))
-    if AMATEUR_URL.search(url):
-        violations.append(_violation('source_url', 'AMATEUR_WORK', url, REJECTED))
+    if PRE_CONTRACT_URL.search(url):
+        violations.append(_violation('source_url', 'PRE_CONTRACT_WORK', url, REJECTED))
 
     for f, (kind, severity) in ENUM_FIELDS.items():
         raw = _clean(item.get(f))

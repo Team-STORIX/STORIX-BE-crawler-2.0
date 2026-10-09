@@ -13,11 +13,11 @@ from .base_crawler import BaseCrawler, SessionExpiredError
 from config import NAVER_COOKIE_FILE, NAVER_ID, NAVER_PW
 
 # 도전만화·베스트도전 URL. 정식 계약 전 작품이라 수집하지 않는다.
-_AMATEUR_PATHS = ('/challenge/', '/bestChallenge/')
+_PRE_CONTRACT_PATHS = ('/challenge/', '/bestChallenge/')
 
 
-def is_amateur_url(url: str) -> bool:
-    return any(p in (url or '') for p in _AMATEUR_PATHS)
+def is_pre_contract_url(url: str) -> bool:
+    return any(p in (url or '') for p in _PRE_CONTRACT_PATHS)
 
 
 class NaverCrawler(BaseCrawler):
@@ -192,7 +192,7 @@ class NaverCrawler(BaseCrawler):
 
         for el in candidates:
             href = el.get_attribute('href') or ''
-            if 'titleId=' not in href or 'comment' in href or is_amateur_url(href):
+            if 'titleId=' not in href or 'comment' in href or is_pre_contract_url(href):
                 continue
             text = (el.get_attribute('title') or el.text or '').replace('[독점]', '').replace('휴재', '').strip()
             if not text:
@@ -290,7 +290,7 @@ class NaverCrawler(BaseCrawler):
                 return None
 
             # 도전만화·베스트도전은 정식 계약 전 작품이라 수집하지 않는다
-            if is_amateur_url(self.driver.current_url):
+            if is_pre_contract_url(self.driver.current_url):
                 self._log.info("도전만화·베스트도전 작품이라 건너뜀: %s", self.driver.current_url)
                 return None
 

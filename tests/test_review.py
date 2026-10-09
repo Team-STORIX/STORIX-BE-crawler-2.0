@@ -100,9 +100,17 @@ def test_catalog_unwraps_custom_response(tmp_path):
     # 네이버 웹툰: 'a, b' + 역할 필드
     ({'artist_name': '슬리피-C, 싱숑', 'author': '싱숑', 'illustrator': '슬리피-C'},
      {'artist_name': '싱숑, 슬리피-C', 'author': '싱숑', 'illustrator': '슬리피-C', 'original_author': ''}),
-    # 시리즈 · 웹소설: 작가 한 칸, 출판사 표기는 이름의 일부로 둔다
+    # '작가/출판사' 는 출판사를 떼고, '작가/작가' 는 두 사람으로 나눈다
     ({'artist_name': '묵향동후/진강문학성'},
-     {'artist_name': '묵향동후/진강문학성', 'author': '묵향동후/진강문학성', 'illustrator': '', 'original_author': ''}),
+     {'artist_name': '묵향동후', 'author': '묵향동후', 'illustrator': '', 'original_author': ''}),
+    ({'artist_name': '묵향동후/진강문학성, 백몽사, STARember', 'author': '백몽사', 'illustrator': 'STARember',
+      'original_author': '묵향동후/진강문학성'},
+     {'artist_name': '묵향동후, 백몽사, STARember', 'author': '백몽사', 'illustrator': 'STARember',
+      'original_author': '묵향동후'}),
+    ({'artist_name': '고문종/이태욱'},
+     {'artist_name': '고문종, 이태욱', 'author': '고문종', 'illustrator': '', 'original_author': ''}),
+    ({'artist_name': '', 'original_author': '某作者/BILIBILI COMICS', 'author': '홍길동'},
+     {'artist_name': '某作者, 홍길동', 'author': '홍길동', 'illustrator': '', 'original_author': '某作者'}),
     ({'artist_name': ''}, {'artist_name': '', 'author': '', 'illustrator': '', 'original_author': ''}),
     # 역할 칸 안에 라벨이 붙어 온 경우, 이름 속 가운뎃점
     ({'artist_name': '플루토스, 스푼', 'author': '플루토스', 'illustrator': '작화 스푼'},

@@ -354,15 +354,14 @@ exe를 더블클릭 → 뜨는 크롬 창에서 로그인(2차인증 포함) →
 
 ---
 
-### 배포 (CI/CD)
+### CI
 
-`develop`/`main` 푸시 시 GitHub Actions가 자동으로 빌드·배포합니다.
+PR(`develop`/`main` 대상)과 `develop`/`main` 푸시 시 GitHub Actions(`.github/workflows/ci.yml`)가 돕니다.
 
-1. **CI** (`.github/workflows/ci.yml`): ECR에 이미지 빌드/푸시 — 태그 `{dev|prod}-{sha}`, `{dev|prod}-latest`
-2. **CD** (`.github/workflows/cd.yml`): CI 성공 시 SSM으로 EC2에 접속해 `docker-compose.prod.yml` 기준 `pull` + `up -d` (scheduler, session-api)
+- **Test**: Python 3.11, MySQL 8.0 서비스 컨테이너로 `pytest` 실행 (+ 전체 모듈 컴파일 확인)
+- **Docker build**: 이미지가 빌드되는지만 확인 (푸시·배포 없음)
 
-필요한 레포 시크릿: `APP_DEPLOY_ROLE_ARN`, `ECR_REGISTRY`, `PROD_INSTANCE_ID`, `DEV_INSTANCE_ID`
-서버 전제: `/home/ubuntu/storix-crawler/`에 `docker-compose.prod.yml`과 `.env` 배치, ECR에 `storix-crawler` 리포지토리 생성
+배포 워크플로우는 없습니다. 크롤링은 로컬(또는 `docker compose`)에서 수동 실행합니다.
 
 ---
 
@@ -428,11 +427,9 @@ works_platform: { works_id: 1, platform: "NAVER_WEBTOON" }
 ├── requirements.txt
 ├── Dockerfile
 ├── docker-compose.yml              # 로컬용 (db / crawl / batch / scheduler / api 프로필)
-├── docker-compose.prod.yml         # EC2 배포용 (CD 워크플로우가 사용)
 ├── .env.example                    # 환경변수 템플릿
 ├── .github/workflows/
-│   ├── ci.yml                      # ECR 이미지 빌드·푸시
-│   └── cd.yml                      # SSM 으로 EC2 에 pull + up -d
+│   └── ci.yml                      # PR 검사 (pytest, docker build)
 │
 ├── sessions/                       # 쿠키 파일 저장소 (.gitignore 처리됨)
 │   ├── naver_cookies.pkl

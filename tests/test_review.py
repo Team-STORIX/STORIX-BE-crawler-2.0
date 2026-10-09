@@ -105,6 +105,24 @@ def test_unknown_platform_is_rejected():
     assert validate_item(item(platform='BOMTOON2'), CATALOG).status == REJECTED
 
 
+@pytest.mark.parametrize('url', [
+    'https://comic.naver.com/challenge/list?titleId=1',
+    'https://comic.naver.com/bestChallenge/list?titleId=1',
+    'https://novel.naver.com/best/list?novelId=1206587',
+    'https://m.novel.naver.com/challenge/list?novelId=1',
+])
+def test_amateur_works_are_rejected(url):
+    v = validate_item(item(source_url=url), CATALOG)
+    assert v.status == REJECTED
+    assert any(x['code'] == 'AMATEUR_WORK' for x in v.violations)
+
+
+def test_official_naver_urls_pass():
+    for url in ('https://comic.naver.com/webtoon/list?titleId=747269',
+                'https://novel.naver.com/webnovel/list?novelId=1'):
+        assert validate_item(item(source_url=url), CATALOG).status == AUTO_PASS
+
+
 def test_invalid_url_is_rejected():
     assert validate_item(item(source_url='comic.naver.com/x'), CATALOG).status == REJECTED
 

@@ -14,17 +14,16 @@ class NaverNovelCrawler(NaverCrawler):
     """novel.naver.com 웹소설 크롤러. 로그인은 NaverCrawler와 동일한 쿠키 재사용."""
 
 
-    # 검색결과 카드의 리그 구분 (href 경로) → (우선순위, 표기). 낮은 순위가 우선.
-    # 정식 웹소설을 항상 우선하고, 정식이 없을 때만 베스트리그·챌린지리그로 폴백한다.
-    _LEAGUE_RANK = {'/webnovel/list': 0, '/best/list': 1, '/challenge/list': 2}
-    _LEAGUE_NAME = {'/webnovel/list': '정식', '/best/list': '베스트리그', '/challenge/list': '챌린지리그'}
+    # 정식 웹소설만 수집한다. 베스트리그·챌린지리그는 정식 계약 전 작품이라 제외
+    _OFFICIAL_PATH = '/webnovel/list'
+    _LEAGUE_PATHS = ('/best/list', '/challenge/list')
 
     def search_url_by_title(self, title: str) -> str | None:
         """제목으로 네이버 웹소설(novel.naver.com) URL 검색.
 
         검색결과 영역(.component_section)만 스코프해 우측 랭킹 사이드바(.league_wrap)를
-        배제한다. 리그 우선순위(정식 > 베스트리그 > 챌린지리그) → 매치품질(정확 > 부분 >
-        유사) 순으로 가장 좋은 후보를 고른다. 어느 리그에도 매치가 없으면 None.
+        배제한다. 정식 웹소설 결과만 보고 매치품질(정확 > 부분 > 유사) 순으로 고른다.
+        정식에 매치가 없으면 None (베스트리그·챌린지리그에만 있어도 None).
         """
         import urllib.parse
 
@@ -40,14 +39,17 @@ class NaverNovelCrawler(NaverCrawler):
             By.CSS_SELECTOR, ".component_section a[href*='novelId=']"
         )
 
-        # 후보 선택 키: (리그순위, 품질, -유사도) — 튜플이 작을수록 우선.
+        # 후보 선택 키: (품질, -유사도) — 튜플이 작을수록 우선.
         # 품질 0=정확, 1=부분, 2=유사(≥임계값).
         best_key = None
-        best = None  # (href, text, league_path, quality, ratio)
+        best = None  # (href, text, quality, ratio)
+        league_only = False
         for a in anchors:
             href = a.get_attribute('href') or ''
-            league = next((p for p in self._LEAGUE_RANK if p in href), None)
-            if league is None:
+            if any(p in href for p in self._LEAGUE_PATHS):
+                league_only = True
+                continue
+            if self._OFFICIAL_PATH not in href:
                 continue
 
             try:
@@ -58,14 +60,9 @@ class NaverNovelCrawler(NaverCrawler):
                 continue
             norm_text = self._norm_title(text)
 
-            # 부분일치(substring)는 정식 웹소설에만 허용한다. 베스트/챌린지리그엔 원작
-            # 제목을 포함하는 2차창작·팬픽이 많아, substring 을 허용하면 오탐이 된다.
-            # (예: '전지적 독자 시점' → '[전지적 독자 시점/전독시 팬픽] 피투성이')
-            # 아마추어 리그는 완전일치 + 유사도(길이 민감)만 인정한다.
-            is_official = league == '/webnovel/list'
             if norm_text == norm_title:
                 quality, ratio = 0, 1.0
-            elif is_official and (norm_title in norm_text or norm_text in norm_title):
+            elif norm_title in norm_text or norm_text in norm_title:
                 quality, ratio = 1, 0.0
             else:
                 ratio = self._title_ratio(norm_title, norm_text)
@@ -73,19 +70,21 @@ class NaverNovelCrawler(NaverCrawler):
                     continue
                 quality = 2
 
-            key = (self._LEAGUE_RANK[league], quality, -ratio)
+            key = (quality, -ratio)
             if best_key is None or key < best_key:
                 best_key = key
-                best = (href, text, league, quality, ratio)
+                best = (href, text, quality, ratio)
 
         if best:
-            href, text, league, quality, ratio = best
-            league_name = self._LEAGUE_NAME[league]
+            href, text, quality, ratio = best
             kind = {0: '정확', 1: '부분'}.get(quality, f'유사 {ratio:.0%}')
-            print(f"   ↳ 검색 결과 ({league_name}·{kind}): {href} [{text}]")
+            print(f"   ↳ 검색 결과 (정식·{kind}): {href} [{text}]")
             return href
 
-        print(f"   ⚠️  '{title}' 네이버 웹소설 검색 결과 없음 — 스킵")
+        if league_only:
+            print(f"   ⚠️  '{title}' 정식 웹소설 없음 (베스트리그·챌린지리그만 있음) — 스킵")
+        else:
+            print(f"   ⚠️  '{title}' 네이버 웹소설 검색 결과 없음 — 스킵")
         return None
 
     def get_genre_urls(self, genre_url: str) -> list[str]:
@@ -135,6 +134,11 @@ class NaverNovelCrawler(NaverCrawler):
 
             if "nid.naver.com" in self.driver.current_url:
                 raise SessionExpiredError(f"네이버 로그인 리다이렉트 감지: {url}")
+
+            # 베스트리그·챌린지리그는 정식 계약 전 작품이라 수집하지 않는다
+            if any(p in self.driver.current_url for p in self._LEAGUE_PATHS):
+                self._log.info("베스트리그·챌린지리그 작품이라 건너뜀: %s", self.driver.current_url)
+                return None
 
             wait = WebDriverWait(self.driver, 15)
             try:

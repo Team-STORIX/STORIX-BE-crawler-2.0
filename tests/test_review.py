@@ -141,6 +141,23 @@ def test_fixable_problems_need_review(field, value, code):
     assert [x['code'] for x in v.violations if x['field'] == field] == [code]
 
 
+@pytest.mark.parametrize('thumb,code', [
+    ('https://novel-phinf.pstatic.net/20241028_218/novel_1730084356225HKTsb_JPEG/320%2B320.jpg?type=n200_200_2', 'SQUARE_THUMBNAIL'),
+    ('https://novel-phinf.pstatic.net/20221231_160/novel_1672413195271lc0oo_PNG/romance_320_12.png?type=n200_200_2', 'DEFAULT_COVER'),
+    ('https://novel-phinf.pstatic.net/20221231_221/novel_1672412971465QYrfP_PNG/romance_12.png?type=f180_248_2', 'DEFAULT_COVER'),
+])
+def test_non_cover_thumbnails_need_review(thumb, code):
+    v = validate_item(item(thumbnail_url=thumb), CATALOG)
+    assert v.status == NEEDS_REVIEW
+    assert [x['code'] for x in v.violations] == [code]
+
+
+def test_vertical_novel_cover_passes():
+    thumb = ('https://novel-phinf.pstatic.net/20241028_186/novel_1730084361108qBch6_JPEG/'
+             'EB82ABEC9CA0EC96B4ED9484EBA08CEB939C_ED919CECA780_650_no.jpg?type=f200_276_2')
+    assert validate_item(item(thumbnail_url=thumb), CATALOG).status == AUTO_PASS
+
+
 def test_length_limits_follow_works_columns():
     v = validate_item(item(author='가' * 101, thumbnail_url='https://x/' + 'a' * 500), CATALOG)
     assert v.status == NEEDS_REVIEW

@@ -240,14 +240,24 @@ class NaverNovelCrawler(NaverCrawler):
                     except Exception:
                         pass
 
-            # 썸네일
+            # 썸네일: 화면에 보이는 세로 표지(type=f200_276_2)를 쓴다.
+            # og:image 는 작가가 따로 올리는 공유용 정사각형 이미지(320x320, type=n200_200_2)라 표지가 아니다
             thumb = ""
-            try:
-                thumb = self.driver.find_element(
-                    By.CSS_SELECTOR, "meta[property='og:image']"
-                ).get_attribute("content") or ""
-            except Exception:
-                pass
+            for sel in [".section_area_info a.thumbnail img", "a.thumbnail img"]:
+                try:
+                    thumb = self.driver.find_element(By.CSS_SELECTOR, sel).get_attribute("src") or ""
+                    if thumb:
+                        break
+                except Exception:
+                    pass
+            if not thumb:
+                try:
+                    thumb = self.driver.find_element(
+                        By.CSS_SELECTOR, "meta[property='og:image']"
+                    ).get_attribute("content") or ""
+                    self._log.warning("세로 표지를 못 찾아 og:image(정사각형)로 대체: %s", url)
+                except Exception:
+                    pass
 
             # 연령
             age = "전체연령가"

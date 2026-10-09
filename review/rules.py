@@ -45,6 +45,12 @@ ENUM_FIELDS = {
 # 정식 계약 전 작품 (네이버 웹툰 도전만화·베스트도전, 네이버 웹소설 베스트리그·챌린지리그). 받지 않는다
 PRE_CONTRACT_URL = re.compile(r'comic\.naver\.com/(?:challenge|bestChallenge)/|novel\.naver\.com/(?:best|challenge)/')
 
+# 표지가 아닌 썸네일. 비율이 다른 작품과 안 맞거나 작품을 알아볼 수 없어 사람이 확인한다
+#  - 네이버 웹소설 og:image 정사각형(type=n200_200): 작가가 따로 올리는 공유용 이미지
+#  - 네이버 웹소설 장르 기본 표지(romance_320_12.png 등): 작가가 표지를 안 올린 작품
+SQUARE_THUMBNAIL = re.compile(r'novel-phinf\.pstatic\.net/.+[?&]type=n\d+_\d+')
+DEFAULT_COVER = re.compile(r'novel-phinf\.pstatic\.net/20221231_\d+/novel_\w+_PNG/[a-z]+_(?:320_)?\d+\.png')
+
 TEXT_FIELDS = (
     'works_name', 'artist_name', 'author', 'illustrator', 'original_author',
     'description', 'thumbnail_url', 'source_url',
@@ -93,6 +99,12 @@ def validate_item(item: dict, catalog: EnumCatalog) -> Verdict:
     for f in NOT_NULL_FIELDS:
         if not normalized[f]:
             violations.append(_violation(f, 'MISSING', None, NEEDS_REVIEW))
+
+    thumb = normalized['thumbnail_url']
+    if DEFAULT_COVER.search(thumb):
+        violations.append(_violation('thumbnail_url', 'DEFAULT_COVER', thumb, NEEDS_REVIEW))
+    elif SQUARE_THUMBNAIL.search(thumb):
+        violations.append(_violation('thumbnail_url', 'SQUARE_THUMBNAIL', thumb, NEEDS_REVIEW))
 
     for f, limit in MAX_LENGTH.items():
         if len(normalized[f]) > limit:

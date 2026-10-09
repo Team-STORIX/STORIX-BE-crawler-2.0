@@ -11,6 +11,18 @@ from review.catalog import EnumCatalog
 from review.importer import run_import, to_request_item
 from review.rules import AUTO_PASS, NEEDS_REVIEW, REJECTED, check_run, validate_item
 
+@pytest.fixture(autouse=True)
+def _import_log_to_tmp(tmp_path, monkeypatch):
+    """import 로그 파일을 레포 output/ 대신 테스트 임시 폴더에 쓴다."""
+    import logging
+    from review import importer
+    monkeypatch.setattr(importer, 'LOG_FILE', tmp_path / 'stage_import.log')
+    for h in [h for h in importer.log.handlers if isinstance(h, logging.FileHandler)]:
+        importer.log.removeHandler(h)
+        h.close()
+    yield
+
+
 CATALOG = EnumCatalog({
     'platform': {'storedAs': 'name', 'values': [
         {'name': 'NAVER_WEBTOON', 'dbValue': '네이버 웹툰'}, {'name': 'RIDIBOOKS', 'dbValue': '리디북스'}]},
@@ -192,7 +204,7 @@ def test_request_item_uses_be_field_names():
     assert req['landingUrl'] == 'https://comic.naver.com/webtoon/list?titleId=747269'
 
 
-def test_import_marks_per_item_results_and_chunks():
+def test_import_marks_per_item_results_and_chunks(tmp_path):
     store = FakeStore(_rows(150))
 
     def respond(items):
@@ -208,10 +220,16 @@ def test_import_marks_per_item_results_and_chunks():
     summary = run_import(store, client)
 
     assert [len(c) for c in client.calls] == [100, 50]
-    assert summary == {'requested': 150, 'imported': 148, 'failed': 2, 'locked': False}
+    assert {k: summary[k] for k in ('requested', 'imported', 'failed', 'locked')} == \
+        {'requested': 150, 'imported': 148, 'failed': 2, 'locked': False}
+    assert summary['results'] == {'CREATED': 148, 'FAILED': 1, 'NO_RESULT': 1}
     assert store.imported[1] == 1001
     assert store.failed[3] == 'genre 변환 실패'
     assert 'BE 응답에 결과 없음' in store.failed[4]
+
+    logged = (tmp_path / 'stage_import.log').read_text(encoding='utf-8')
+    assert 'stagingId=1 CREATED worksId=1001 "전지적 독자 시점" / "슬리피-C, 싱숑"' in logged
+    assert 'stagingId=3 FAILED error=genre 변환 실패' in logged
 
 
 def test_import_backend_down_fails_chunk_without_raising():
@@ -222,7 +240,8 @@ def test_import_backend_down_fails_chunk_without_raising():
         raise urllib.error.URLError('connection refused')
 
     summary = run_import(store, FakeClient(down))
-    assert summary == {'requested': 3, 'imported': 0, 'failed': 3, 'locked': False}
+    assert {k: summary[k] for k in ('requested', 'imported', 'failed', 'locked')} == \
+        {'requested': 3, 'imported': 0, 'failed': 3, 'locked': False}
     assert set(store.failed) == {1, 2, 3}
 
 
@@ -235,7 +254,8 @@ def test_import_stops_without_marking_when_another_import_holds_lock():
 
     client = FakeClient(locked)
     summary = run_import(store, client)
-    assert summary == {'requested': 150, 'imported': 0, 'failed': 0, 'locked': True}
+    assert {k: summary[k] for k in ('requested', 'imported', 'failed', 'locked')} == \
+        {'requested': 150, 'imported': 0, 'failed': 0, 'locked': True}
     assert len(client.calls) == 1
     assert store.failed == {}
 

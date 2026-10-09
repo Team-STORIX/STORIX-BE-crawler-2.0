@@ -121,6 +121,32 @@ def test_layer1_sends_normalized_artist_name():
     assert v.normalized['artist_name'] == '구름고래비누, 희서'
 
 
+# ---------------------------------------------------------------- 작품 링크 정규화
+
+@pytest.mark.parametrize('raw,expected', [
+    ('https://comic.naver.com/webtoon/list?titleId=747269&week=wed&tab=genre',
+     'https://comic.naver.com/webtoon/list?titleId=747269'),
+    ('https://comic.naver.com/webtoon/detail?titleId=747269&no=5', 'https://comic.naver.com/webtoon/list?titleId=747269'),
+    ('https://novel.naver.com/webnovel/list?novelId=1165165', 'https://novel.naver.com/webnovel/list?novelId=1165165'),
+    ('https://series.naver.com/novel/detail.series?productNo=14490883&isWebtoonAgreePopUp=true',
+     'https://series.naver.com/novel/detail.series?productNo=14490883'),
+    ('https://series.naver.com/comic/detail.series?productNo=123', 'https://series.naver.com/comic/detail.series?productNo=123'),
+    ('https://page.kakao.com/content/57990049?tab_type=about', 'https://page.kakao.com/content/57990049'),
+    ('https://ridibooks.com/books/3822002074?_rdt_sid=search&_rdt_idx=0', 'https://ridibooks.com/books/3822002074'),
+    ('https://example.com/x?y=1', 'https://example.com/x?y=1'),
+    ('', ''),
+])
+def test_canonical_landing_url(raw, expected):
+    from review.landing import canonical_landing_url
+    assert canonical_landing_url(raw) == expected
+
+
+def test_layer1_sends_canonical_link():
+    v = validate_item(item(source_url='https://ridibooks.com/books/3822002074?_rdt_sid=search'), CATALOG)
+    assert v.normalized['source_url'] == 'https://ridibooks.com/books/3822002074'
+    assert to_request_item(1, v.normalized)['landingUrl'] == 'https://ridibooks.com/books/3822002074'
+
+
 # ---------------------------------------------------------------- Layer 1
 
 def test_clean_item_auto_passes_with_enum_names():

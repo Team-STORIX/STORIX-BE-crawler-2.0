@@ -11,6 +11,7 @@ import re
 from collections import Counter
 from dataclasses import dataclass, field
 
+from review.artists import normalize_artists
 from review.catalog import EnumCatalog
 
 AUTO_PASS = 'AUTO_PASS'
@@ -74,6 +75,8 @@ def _violation(field_name: str, code: str, value, severity: str) -> dict:
 
 def validate_item(item: dict, catalog: EnumCatalog) -> Verdict:
     normalized: dict = {f: _clean(item.get(f)) for f in TEXT_FIELDS}
+    # 작가명은 크롤러마다 형식이 달라 한 형식('a, b')으로 맞춘다 (역할 라벨 제거, 이름 단위 중복 제거)
+    normalized.update(normalize_artists(item))
     normalized['hashtags'] = [t.strip() for t in item.get('hashtags') or [] if isinstance(t, str) and t.strip()]
     violations: list[dict] = []
 

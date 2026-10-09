@@ -189,6 +189,7 @@ def test_request_item_uses_be_field_names():
     assert req['genre'] == 'FANTASY'
     assert req['originalAuthor'] is None
     assert req['hashtags'] == ['회귀', '먼치킨']
+    assert req['landingUrl'] == 'https://comic.naver.com/webtoon/list?titleId=747269'
 
 
 def test_import_marks_per_item_results_and_chunks():
@@ -207,7 +208,7 @@ def test_import_marks_per_item_results_and_chunks():
     summary = run_import(store, client)
 
     assert [len(c) for c in client.calls] == [100, 50]
-    assert summary == {'requested': 150, 'imported': 148, 'failed': 2}
+    assert summary == {'requested': 150, 'imported': 148, 'failed': 2, 'locked': False}
     assert store.imported[1] == 1001
     assert store.failed[3] == 'genre 변환 실패'
     assert 'BE 응답에 결과 없음' in store.failed[4]
@@ -221,8 +222,22 @@ def test_import_backend_down_fails_chunk_without_raising():
         raise urllib.error.URLError('connection refused')
 
     summary = run_import(store, FakeClient(down))
-    assert summary == {'requested': 3, 'imported': 0, 'failed': 3}
+    assert summary == {'requested': 3, 'imported': 0, 'failed': 3, 'locked': False}
     assert set(store.failed) == {1, 2, 3}
+
+
+def test_import_stops_without_marking_when_another_import_holds_lock():
+    import urllib.error
+    store = FakeStore(_rows(150))
+
+    def locked(_items):
+        raise urllib.error.HTTPError('u', 409, 'WORKS_ERROR_007', {}, None)
+
+    client = FakeClient(locked)
+    summary = run_import(store, client)
+    assert summary == {'requested': 150, 'imported': 0, 'failed': 0, 'locked': True}
+    assert len(client.calls) == 1
+    assert store.failed == {}
 
 
 # ---------------------------------------------------------------- store (MySQL)

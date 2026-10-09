@@ -259,15 +259,12 @@ class NaverNovelCrawler(NaverCrawler):
                 except Exception:
                     pass
 
-            # 연령
-            age = "전체연령가"
+            # 연령: 네이버 웹소설 페이지에는 연령 표기가 없고 19세 작품만 성인 표시가 붙는다.
+            # 그래서 19세만 판정하고 나머지는 ''(판정 못 함)로 둔다. 정식 작품은 시리즈에도 있어 거기서 실제 연령을 받는다
+            age = ""
             src = self.driver.page_source
             if any(x in src for x in ["19세 이용가", "청소년 이용불가", "성인 인증"]):
                 age = "18세 이용가"
-            elif "15세 이용가" in src:
-                age = "15세 이용가"
-            elif "12세 이용가" in src:
-                age = "12세 이용가"
 
             return {
                 "platform": "NAVER_NOVEL",

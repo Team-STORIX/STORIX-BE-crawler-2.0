@@ -253,6 +253,52 @@ def _cmd_review(input_path: str):
     print(f'\n총 {total}건의 수동 검수 항목이 있습니다.')
 
 
+def cmd_stage(args):
+    """검수 파이프라인. JSONL → works_staging(Layer 1 · 1.5) → BE import API."""
+    import json
+    import os
+
+    from review.app import BE_BASE_URL, BE_TOKEN, load_catalog
+    from review.store import StagingStore, connect, ensure_schema
+
+    sub = getattr(args, 'stage_command', None)
+    if sub not in ('load', 'import', 'stats'):
+        print('❌ stage 서브 명령이 없습니다. (load | import | stats)')
+        sys.exit(1)
+
+    ensure_schema()
+    conn = connect()
+    try:
+        store = StagingStore(conn)
+        if sub == 'load':
+            from review.service import load_run, read_jsonl
+            if args.catalog_file:
+                os.environ['REVIEW_CATALOG_FILE'] = args.catalog_file
+            catalog = load_catalog()
+            path = Path(args.input)
+            files = sorted(path.glob('*.jsonl')) if path.is_dir() else [path]
+            files = [f for f in files if f.name != 'manual_review_queue.jsonl']
+            if not files:
+                print(f'❌ JSONL 파일이 없습니다: {path}')
+                sys.exit(1)
+            for f in files:
+                result = load_run(store, catalog, read_jsonl(f), args.source, str(f))
+                print(f'📥 {f.name}: {json.dumps(result, ensure_ascii=False)}')
+                if result['held']:
+                    print('⛔ 런 보류 — 분포 이상. 확인 후 POST /runs/{run_id}/release 로 풀어야 import 됩니다')
+        elif sub == 'import':
+            from review.importer import BackendClient, run_import
+            if not BE_BASE_URL or not BE_TOKEN:
+                print('❌ STORIX_API_BASE_URL / STORIX_ADMIN_TOKEN 이 필요합니다')
+                sys.exit(1)
+            print(json.dumps(run_import(store, BackendClient(BE_BASE_URL, BE_TOKEN), args.limit),
+                             ensure_ascii=False))
+        else:
+            print(json.dumps(store.stats(), ensure_ascii=False, indent=2))
+    finally:
+        conn.close()
+
+
 def main():
     parser = argparse.ArgumentParser(prog='cli.py', description='STORIX-BE-Crawler 2.0')
     subparsers = parser.add_subparsers(dest='command')
@@ -293,6 +339,21 @@ def main():
     fix_p = batch_sub.add_parser('fix', help='검수 큐 대화형 수정')
     fix_p.add_argument('--input', required=False, help='manual_review_queue.jsonl 경로 (생략 시 당일 폴더 자동 감지)')
 
+    stage_p = subparsers.add_parser('stage', help='검수 파이프라인 (works_staging → BE import API)')
+    stage_sub = stage_p.add_subparsers(dest='stage_command')
+
+    stage_load_p = stage_sub.add_parser('load', help='JSONL 을 staging 에 적재하고 Layer 1 · 1.5 판정')
+    stage_load_p.add_argument('--input', required=True, help='JSONL 파일 또는 디렉토리')
+    stage_load_p.add_argument('--source', required=True,
+                              help='직전 런과 건수를 비교할 단위 (예: naver_webtoon_initial)')
+    stage_load_p.add_argument('--catalog-file', dest='catalog_file',
+                              help='BE 대신 저장해 둔 enum 카탈로그 JSON 사용')
+
+    stage_import_p = stage_sub.add_parser('import', help='AUTO_PASS · APPROVED 를 BE 로 승격')
+    stage_import_p.add_argument('--limit', type=int, default=500)
+
+    stage_sub.add_parser('stats', help='상태별 건수 · 자동화율')
+
     args = parser.parse_args()
 
     if args.command == 'login':
@@ -301,6 +362,8 @@ def main():
         cmd_crawl(args)
     elif args.command == 'batch':
         cmd_batch(args)
+    elif args.command == 'stage':
+        cmd_stage(args)
     else:
         parser.print_help()
         sys.exit(1)

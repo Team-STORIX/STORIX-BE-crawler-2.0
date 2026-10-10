@@ -732,6 +732,9 @@ def test_suspected_duplicate_goes_back_to_review_and_can_be_attached(store):
     ('갬블링 1945', '갬블링 1945'),
     ('12월', '12월'),
     ('1권', '1권'),  # 전부 지워지면 원래 이름을 둔다
+    # 판매 형태 라벨은 떼고 판본 표기는 남긴다
+    ('마도조사 [19세 완전판][단행본]', '마도조사 [19세 완전판]'),
+    ('군림천하[단행본]', '군림천하'),
 ])
 def test_volume_suffix_removed_from_works_name(name, expected):
     assert validate_item(item(works_name=name), CATALOG).normalized['works_name'] == expected
@@ -771,3 +774,30 @@ def test_create_with_empty_value_goes_back_to_review():
     assert store.needs_value == {2: 'ageClassification 값이 비어 있습니다'}
     assert store.failed == {3: 'DB 오류'}  # 다른 실패는 다음 import 때 재시도
     assert summary['needs_value'] == 1
+
+
+def test_create_rejected_for_empty_value_is_retried_after_other_rows():
+    # 네이버 웹소설 행(연령 없음)이 먼저 가서 생성 거절 → 뒤의 시리즈 행이 같은 작품을 만든 뒤 재전송하면 붙는다
+    store = FakeStore(_rows(2))
+    calls = []
+
+    def respond(items):
+        calls.append([i['stagingId'] for i in items])
+        if len(calls) == 1:
+            return [{'stagingId': 1, 'result': 'FAILED', 'error': 'ageClassification 값이 비어 있습니다'},
+                    {'stagingId': 2, 'result': 'CREATED', 'worksId': 50}]
+        return [{'stagingId': 1, 'result': 'UPDATED', 'worksId': 50}]
+
+    summary = run_import(store, FakeClient(respond))
+    assert calls == [[1, 2], [1]]
+    assert store.imported == {2: 50, 1: 50}
+    assert store.needs_value == {}
+    assert summary['results'] == {'CREATED': 1, 'UPDATED': 1}
+
+
+def test_still_empty_after_retry_goes_to_review():
+    store = FakeStore(_rows(1))
+    summary = run_import(store, FakeClient(lambda items: [
+        {'stagingId': 1, 'result': 'FAILED', 'error': 'genre 값이 비어 있습니다'}]))
+    assert store.needs_value == {1: 'genre 값이 비어 있습니다'}
+    assert summary['needs_value'] == 1 and summary['results'] == {'FAILED': 1}

@@ -264,6 +264,14 @@ class BaseCrawler:
             "source": """Object.defineProperty(navigator, 'webdriver', { get: () => undefined })"""
         })
     
+    def show_images_for_login(self) -> None:
+        """사람이 직접 로그인해야 할 때 이미지를 켠 브라우저로 다시 띄운다. 보안문자 그림이 보여야 한다 (#7 이미지 차단)."""
+        if not self.block_images:
+            return
+        self.block_images = False
+        self.close_driver()
+        self.start_driver()
+
     def close_driver(self):
         if self.driver:
             self.driver.quit()

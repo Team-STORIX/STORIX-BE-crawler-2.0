@@ -142,6 +142,7 @@ class KakaoCrawler(BaseCrawler):
                 "KAKAO_ID/KAKAO_PW 환경변수를 설정하거나 sessions/kakao_cookies.pkl을 생성하세요."
             )
 
+        self.show_images_for_login()  # 보안문자 · 성인 인증 화면이 보여야 한다
         self.driver.get(KAKAO_LOGIN_URL)
         time.sleep(3)
         if self._wait_for_manual_login():

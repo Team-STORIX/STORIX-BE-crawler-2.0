@@ -182,6 +182,7 @@ class NaverCrawler(BaseCrawler):
                 "NAVER_ID/NAVER_PW 환경변수를 설정하거나 sessions/naver_cookies.pkl을 생성하세요."
             )
 
+        self.show_images_for_login()
         self.driver.get("https://nid.naver.com/nidlogin.login")
         time.sleep(2)
         if self._wait_for_manual_login():

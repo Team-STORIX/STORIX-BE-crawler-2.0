@@ -30,8 +30,8 @@ BOMTOON_META_TAGS = re.compile(
 # 캐릭터 커플링('도해x단조')이 섞여 있다. 짧은 단어형만 남긴다
 _EXTRA_KEYWORD = re.compile(r'^[가-힣A-Za-z0-9/]{1,8}$')
 _PAIRING = re.compile(r'[가-힣0-9][xX×][가-힣0-9]')
-# CARTOON 은 봄툰의 만화(출판 만화) 분류다. 크롤러 작품 유형은 웹툰 · 웹소설 둘이라 웹툰으로 본다
-_TYPES = {'COMIC': '웹툰', 'CARTOON': '웹툰', 'NOVEL': '웹소설'}
+# COMIC 은 봄툰 웹툰, CARTOON 은 출판 만화 분류다 (#64)
+_TYPES = {'COMIC': '웹툰', 'CARTOON': '만화', 'NOVEL': '웹소설'}
 
 
 def _keep_tag(tag: dict) -> bool:

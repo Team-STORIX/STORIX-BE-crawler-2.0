@@ -10,7 +10,7 @@ import config  # noqa: F401  (stdout/stderr UTF-8 재설정 + .env 로드)
 # 이 타입은 DB 의 works_type 이 아니라 '어느 플랫폼에서 검색할지' 고르는 필터로만 쓰인다
 # (search_titles._PLATFORM_TYPES). 적재되는 works_type 은 크롤러가 상세페이지에서 다시 판정한다.
 # '전체' 는 웹툰 · 웹소설을 각각 찾아 있는 판을 다 수집한다. 옛 '단행본' 섹션은 경고 후 웹소설로 읽는다
-_TYPE_HEADERS = {'웹툰': '웹툰', '웹소설': '웹소설', '전체': '전체'}
+_TYPE_HEADERS = {'웹툰': '웹툰', '웹소설': '웹소설', '만화': '만화', '전체': '전체'}
 _DEPRECATED_HEADERS = {'단행본': '웹소설'}
 
 

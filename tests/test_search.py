@@ -52,6 +52,7 @@ def test_kakao_search_card():
         ('넷카마 펀치!!! [완결]', '웹소설')
     assert parse_kakao_search_card('작품, 넷카마 펀치!!!, 기다무, 15세 연령 제한, 웹툰, BL') == ('넷카마 펀치!!!', '웹툰')
     assert parse_kakao_search_card('작품, 넷카마 펀치!!! [단행본] [완결], 웹소설')[1] == '단행본'
+    assert parse_kakao_search_card('작품, 원피스, 전체이용가, 만화, 소년')[1] == '만화'  # 출판 만화 (#64)
 
 
 @pytest.mark.parametrize('card,hint', [
@@ -59,6 +60,7 @@ def test_kakao_search_card():
     ('마도조사\n광풍취고당 외 1명B-Lab(비랩코믹스)BL 웹툰\n총 259화', '웹툰'),
     ('넷카마 펀치!!!\n키마님딥블렌드현대물\n총 138화', None),  # 웹소설 카드엔 장르만 있다 → 상세에서 판정
     ('환생왕\n작가\n총 300화\n소개글에 웹툰이라는 말이 있어도', None),
+    ('먼작귀(먼가 작고 귀여운 녀석)\n나가노대원씨아이만화 e북\n총 5권', '만화'),  # 출판 만화 (#64)
 ])
 def test_ridi_type_hint(card, hint):
     assert ridi_type_hint(card) == hint
@@ -166,3 +168,25 @@ def test_titles_file_sections(tmp_path, capsys):
 def test_ridi_revised_prefix_matches_title():
     # 리디 e북 '개정판 | 블랙 스완' 은 검색어 '블랙 스완' 과 정확히 일치로 본다 (2026-10-10 검색 결과 없음으로 빠졌음)
     assert BaseCrawler.title_match('블랙 스완', '개정판 | 블랙 스완') == (0, 1.0)
+
+
+@pytest.mark.parametrize('cats,expected', [
+    (['BL 웹툰', 'BL 웹툰'], ('BL', '웹툰')),
+    (['만화 e북', '코믹'], ('', '만화')),            # 출판 만화 (#64)
+    (['BL 만화 e북', 'BL 만화'], ('BL', '만화')),
+    (['판타지 웹소설', '현대 판타지'], ('판타지', '웹소설')),
+])
+def test_ridi_comic_ebook_is_comic(cats, expected):
+    from modules.crawler.ridibooks_crawler import ridi_genre_and_type
+    assert ridi_genre_and_type(cats) == expected
+
+
+def test_comic_section_does_not_take_webtoon():
+    from crawler.modes.search_titles import SECTION_TYPES
+    assert '만화' not in SECTION_TYPES['웹툰'] and SECTION_TYPES['만화'] == {'만화'}
+
+
+def test_comic_candidates_include_ebook_cards():
+    from modules.crawler.base_crawler import pick_candidates
+    cands = [{'url': 'a', 'type_hint': '웹툰'}, {'url': 'b', 'type_hint': '단행본'}, {'url': 'c', 'type_hint': '만화'}]
+    assert [c['url'] for c in pick_candidates(cands, '만화')] == ['c', 'b']

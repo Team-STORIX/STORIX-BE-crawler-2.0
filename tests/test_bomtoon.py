@@ -38,7 +38,7 @@ def test_parse_bomtoon_contents():
 def test_non_adult_age_is_left_empty_and_novel_type():
     r = parse_bomtoon_contents({**DATA, 'isAdult': False, 'type': 'NOVEL'}, 'u')
     assert (r['age_classification'], r['works_type']) == ('', '웹소설')
-    assert parse_bomtoon_contents({**DATA, 'type': 'CARTOON'}, 'u')['works_type'] == '웹툰'  # 봄툰 만화 분류
+    assert parse_bomtoon_contents({**DATA, 'type': 'CARTOON'}, 'u')['works_type'] == '만화'  # 출판 만화 (#64)
 
 
 @pytest.mark.parametrize('tag', ['2/12/22일', '4일/14일/24일', '토요연재', '열흘연재', '오직봄툰', '봄툰공모전_당선웹툰'])

@@ -112,9 +112,23 @@ def job_update_fields_kakao():
 
 
 def _import_file(path: Path):
+    """수집 결과를 검수 staging 에 적재한다(Layer 1 · 1.5 판정). BE 로는 보내지 않는다.
+
+    서비스 DB 에 직접 넣던 batch import 는 없앴다(#5). BE 반영은 사람이 결과를 보고
+    `python cli.py stage import --run-id <런>` 으로 한다. 대상 환경은 STORIX_ENV.
+    """
     if not path.exists():
-        log.warning('[import] 적재할 파일 없음: %s', path)
+        log.warning('[stage] 적재할 파일 없음: %s', path)
         return
 
-    from batch.importer import run_import
-    run_import(str(path))
+    from review.app import load_catalog
+    from review.service import load_run, read_jsonl
+    from review.store import StagingStore, connect, ensure_schema
+
+    ensure_schema()
+    conn = connect()
+    try:
+        result = load_run(StagingStore(conn), load_catalog(), read_jsonl(path), f'scheduler_{path.stem}', str(path))
+        log.info('[stage] %s → %s', path.name, result)
+    finally:
+        conn.close()

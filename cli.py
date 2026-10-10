@@ -212,54 +212,6 @@ def cmd_crawl(args):
         sys.exit(1)
 
 
-def cmd_batch(args):
-    sub = getattr(args, 'batch_command', None)
-    if sub == 'import':
-        from batch.importer import run_import
-        watch = getattr(args, 'watch', False)
-        verbose = getattr(args, 'verbose', False)
-        run_import(args.input, watch=watch, verbose=verbose)
-    elif sub == 'review':
-        _cmd_review(args.input)
-    elif sub == 'fix':
-        from batch.reviewer import run_review_fix
-        input_path = getattr(args, 'input', None)
-        run_review_fix(input_path)
-    else:
-        print('❌ batch 서브 명령이 없습니다. (import | review | fix)')
-        sys.exit(1)
-
-
-def _cmd_review(input_path: str):
-    import json
-    from pathlib import Path
-
-    path = Path(input_path)
-    if not path.exists():
-        print(f'❌ 파일을 찾을 수 없습니다: {path}')
-        sys.exit(1)
-
-    total = 0
-    with open(path, encoding='utf-8') as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                entry = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            total += 1
-            record = entry.get('record', {})
-            reasons = entry.get('reason', [])
-            queued_at = entry.get('queued_at', '')
-            print(f'[{total}] {queued_at} | {record.get("works_name", "(제목없음)")}')
-            for r in reasons:
-                print(f'     ↳ {r}')
-
-    print(f'\n총 {total}건의 수동 검수 항목이 있습니다.')
-
-
 def cmd_stage(args):
     """검수 파이프라인. JSONL → works_staging(Layer 1 · 1.5) → BE import API."""
     import json
@@ -370,20 +322,6 @@ def main():
     login_p.add_argument('--platform', required=True,
                          help='naver_webtoon | kakao_page | ridibooks | all')
 
-    batch_p = subparsers.add_parser('batch', help='JSONL → DB 적재')
-    batch_sub = batch_p.add_subparsers(dest='batch_command')
-
-    import_p = batch_sub.add_parser('import', help='JSONL 파일 DB 적재')
-    import_p.add_argument('--input', required=False, help='적재할 디렉토리 또는 파일 경로 (생략 시 당일 폴더 자동 감지)')
-    import_p.add_argument('--watch', action='store_true', help='output 폴더 감시 모드')
-    import_p.add_argument('--verbose', action='store_true', help='검수큐 행의 검증 오류를 실시간 출력')
-
-    review_p = batch_sub.add_parser('review', help='수동 검수 큐 조회')
-    review_p.add_argument('--input', required=True, help='manual_review_queue.jsonl 경로')
-
-    fix_p = batch_sub.add_parser('fix', help='검수 큐 대화형 수정')
-    fix_p.add_argument('--input', required=False, help='manual_review_queue.jsonl 경로 (생략 시 당일 폴더 자동 감지)')
-
     stage_p = subparsers.add_parser('stage', help='검수 파이프라인 (works_staging → BE import API)')
     stage_sub = stage_p.add_subparsers(dest='stage_command')
 
@@ -411,8 +349,6 @@ def main():
         cmd_login(args)
     elif args.command == 'crawl':
         cmd_crawl(args)
-    elif args.command == 'batch':
-        cmd_batch(args)
     elif args.command == 'stage':
         cmd_stage(args)
     else:

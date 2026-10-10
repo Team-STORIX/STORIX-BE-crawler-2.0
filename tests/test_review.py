@@ -236,9 +236,13 @@ def test_non_cover_thumbnails_need_review(thumb, code):
     assert [x['code'] for x in v.violations] == [code]
 
 
-def test_age_gate_cover_is_cleared_and_needs_review():
+@pytest.mark.parametrize('thumb', [
     # 리디 성인 작품을 인증 안 된 화면에서 읽으면 표지 대신 가림 이미지가 나온다 (2026-10 E2E)
-    thumb = 'https://static.ridicdn.net/books-backend/p/21d66d/books/dist/images/book_cover/cover_adult.png'
+    'https://static.ridicdn.net/books-backend/p/21d66d/books/dist/images/book_cover/cover_adult.png',
+    # 카카오페이지 성인 작품을 로그인 없이 열면 og:image 가 사이트 공용 이미지다
+    'https://page.kakaocdn.net/pageweb/shared/ogImage.png',
+])
+def test_age_gate_cover_is_cleared_and_needs_review(thumb):
     v = validate_item(item(thumbnail_url=thumb), CATALOG)
     assert v.status == NEEDS_REVIEW
     assert [x['code'] for x in v.violations] == ['AGE_GATE_COVER']

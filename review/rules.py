@@ -58,7 +58,9 @@ NOT_A_TITLE = {'줄거리', '작품소개', '작품 소개', '소개', '키워�
 SQUARE_THUMBNAIL = re.compile(r'novel-phinf\.pstatic\.net/.+[?&]type=n\d+_\d+')
 # 19금 가림 이미지. 성인 인증이 안 된 화면에서 표지 대신 나온다. 표지로 쓰면 안 되므로 비우고 사람이 본다
 #  - 리디 static.ridicdn.net/…/book_cover/cover_adult.png (크롤러는 책 ID 로 실제 표지를 다시 받는다)
-AGE_GATE_COVER = re.compile(r'book_cover/cover_adult|cover_adult\.|adult_cover|thumb_adult|/adult/(?:cover|thumb)')
+#  - 카카오페이지 로그인 · 성인 인증이 풀린 화면의 og:image (사이트 공용 공유 이미지)
+AGE_GATE_COVER = re.compile(r'book_cover/cover_adult|cover_adult\.|adult_cover|thumb_adult|/adult/(?:cover|thumb)'
+                            r'|page\.kakaocdn\.net/pageweb/shared/ogImage')
 DEFAULT_COVER = re.compile(r'novel-phinf\.pstatic\.net/20221231_\d+/novel_\w+_PNG/[a-z]+_(?:320_)?\d+\.png')
 
 TEXT_FIELDS = (

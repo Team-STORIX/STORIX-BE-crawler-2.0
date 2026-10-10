@@ -264,7 +264,8 @@ class BaseCrawler:
 
     def _check_blocked(self, url: str) -> None:
         try:
-            head = f"{self.driver.title} {self.driver.execute_script('return document.body ? document.body.innerText.slice(0, 300) : \"\"')}"
+            body = self.driver.execute_script("return document.body ? document.body.innerText.slice(0, 300) : ''")
+            head = f'{self.driver.title} {body or ""}'
         except Exception:
             return
         if any(m in head for m in _BLOCK_MARKERS):

@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 
 from review.artists import normalize_artists
 from review.catalog import EnumCatalog
+from review.hashtags import clean_hashtags
 from review.landing import canonical_landing_url
 
 AUTO_PASS = 'AUTO_PASS'
@@ -122,7 +123,6 @@ def validate_item(item: dict, catalog: EnumCatalog) -> Verdict:
     normalized['works_name'] = strip_volume_suffix(normalized['works_name'])
     # 작품 링크는 플랫폼별 대표 주소로 맞춘다 (BE 에 landingUrl 로 저장되고, staging 중복 판정 키로도 쓴다)
     normalized['source_url'] = canonical_landing_url(normalized['source_url'])
-    normalized['hashtags'] = [t.strip() for t in item.get('hashtags') or [] if isinstance(t, str) and t.strip()]
     violations: list[dict] = []
 
     for f in IDENTITY_FIELDS:
@@ -147,6 +147,9 @@ def validate_item(item: dict, catalog: EnumCatalog) -> Verdict:
             violations.append(_violation(f, 'MISSING', None, INFO if f in OPTIONAL_ON_UPDATE else severity))
         elif name is None:
             violations.append(_violation(f, 'UNKNOWN_ENUM', raw, severity))
+
+    # 장르와 같은 태그 · 플랫폼 태그 · 표기만 다른 중복을 뺀다 (장르가 정해진 뒤에 한다)
+    normalized['hashtags'] = clean_hashtags(item.get('hashtags'), normalized['genre'], catalog)
 
     for f in NOT_NULL_FIELDS:
         if not normalized[f]:

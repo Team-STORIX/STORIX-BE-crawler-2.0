@@ -735,6 +735,9 @@ def test_suspected_duplicate_goes_back_to_review_and_can_be_attached(store):
     # 판매 형태 라벨은 떼고 판본 표기는 남긴다
     ('마도조사 [19세 완전판][단행본]', '마도조사 [19세 완전판]'),
     ('군림천하[단행본]', '군림천하'),
+    # 리디 e북 '개정판 | ' 접두어는 판매 표기 (개정판만 팔고 있음)
+    ('개정판 | 블랙 스완', '블랙 스완'),
+    ('마도조사 [개정판]', '마도조사 [개정판]'),
 ])
 def test_volume_suffix_removed_from_works_name(name, expected):
     assert validate_item(item(works_name=name), CATALOG).normalized['works_name'] == expected

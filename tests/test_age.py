@@ -81,3 +81,9 @@ def test_ridi_keywords_fallback_to_buttons():
     src = '<span>#<!-- -->헤테로공</span><span>#<!-- -->연재완결</span><span>#<!-- -->연하공</span>'
     assert parse_ridi_keywords(src) == ['헤테로공', '연하공']
     assert parse_ridi_keywords('') == []
+
+
+def test_ridi_discount_keyword_is_not_hashtag():
+    from modules.crawler.ridibooks_crawler import RIDI_META_KEYWORDS
+    assert RIDI_META_KEYWORDS.match('10%할인') and RIDI_META_KEYWORDS.match('2만원초과')
+    assert not RIDI_META_KEYWORDS.match('다정공')

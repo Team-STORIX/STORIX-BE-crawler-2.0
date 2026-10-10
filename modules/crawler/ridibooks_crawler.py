@@ -1,3 +1,5 @@
+import html
+import json
 import re
 import time
 import pickle
@@ -519,7 +521,9 @@ class RidibooksCrawler(BaseCrawler):
             # 연령 등급: 페이지에 내려오는 책 데이터(is_adult_only · age_limit)와 공지("15세 이용가 안내")로 판정.
             # meta 'books:rating:value' 는 별점(4.8)이라 연령이 아니다 — 이걸 읽어서 15세가 전부 전체연령가로 들어갔다
             m = re.search(r'/books/(\d+)', self.driver.current_url)
-            age = parse_ridi_age(self.driver.page_source, m.group(1) if m else '')
+            src = self.driver.page_source
+            age = parse_ridi_age(src, m.group(1) if m else '')
+            hashtags = parse_ridi_keywords(src)
             if not age:
                 self._log.warning("리디 연령을 판정하지 못함(검수 대기로): %s", url)
 
@@ -583,7 +587,7 @@ class RidibooksCrawler(BaseCrawler):
                 "age_classification": age,
                 "description": desc,
                 "genre": genre,
-                "hashtags": [],
+                "hashtags": hashtags,
                 "thumbnail_url": thumb,
                 "works_type": works_type,
                 "source_url": url,
@@ -645,3 +649,33 @@ def ridi_real_cover(thumb: str, book_url: str) -> str:
         return thumb
     m = re.search(r'/books/(\d+)', book_url or '')
     return f'https://img.ridicdn.net/cover/{m.group(1)}/xxlarge' if m else ''
+
+
+# 리디가 키워드 목록에 같이 넣는 통계 · 가격 · 권수 · 판매 · 연재 상태 태그. 작품 내용이 아니라 해시태그로 쓰지 않는다
+#   별점1000개이상 · 리뷰500개이상 · 평점4점이상 · 1만원~2만원 · 10000~15000원 · 5권이상 · 기다리면무료 · 연재완결
+RIDI_META_KEYWORDS = re.compile(
+    r'^(?:(?:별점|리뷰|평점)\d+.*|.*\d+\s*[만천]?\s*원(?:이상|이하|미만)?|\d+\s*권(?:이상|이하|미만)?|\d+\s*~\s*\d+\s*권'
+    r'|연재(?:완결|중)?|완결|ebook|전자책|만웹대여제|단행본|기다리면\s*무료|무료|대여|소장)$')
+
+
+def parse_ridi_keywords(src: str) -> list[str]:
+    """리디 상세 페이지 HTML → '이 작품의 키워드' 목록.
+
+    페이지 데이터의 cell__BookDetailHomeKeywordTab.tabInfos[].name 을 쓴다. 메타 태그 keywords 는
+    ebook · 전자책 · 별점1000개이상 · 작가명 · 출판사가 섞여 있어 쓰지 않는다.
+    못 찾으면 화면의 키워드 버튼('#헤테로공')에서 읽는다.
+    """
+    if not src:
+        return []
+    m = re.search(r'"cell__BookDetailHomeKeywordTab"\s*:\s*\{.*?"tabInfos"\s*:\s*\[(.*?)\]', src, re.S)
+    if m:
+        names = re.findall(r'"name"\s*:\s*"((?:[^"\\]|\\.)*)"', m.group(1))
+        names = [json.loads(f'"{n}"') for n in names]
+    else:
+        names = [html.unescape(n) for n in re.findall(r'<span>#<!-- -->([^<]+)</span>', src)]
+    seen, out = set(), []
+    for n in (x.strip() for x in names):
+        if n and n not in seen and not RIDI_META_KEYWORDS.match(n):
+            seen.add(n)
+            out.append(n)
+    return out

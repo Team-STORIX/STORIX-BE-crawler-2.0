@@ -47,6 +47,18 @@ ENUM_FIELDS = {
 # 정식 계약 전 작품 (네이버 웹툰 도전만화·베스트도전, 네이버 웹소설 베스트리그·챌린지리그). 받지 않는다
 PRE_CONTRACT_URL = re.compile(r'comic\.naver\.com/(?:challenge|bestChallenge)/|novel\.naver\.com/(?:best|challenge)/')
 
+# 작품명 끝의 권수 표기. 권 단위 묶음 상품 이름이라 작품명에서 뗀다 (2026-10-10 사용자 결정)
+#   '테이밍(The Taming) 2권' · '… 3~5권' · '… (1~3권)'
+# '권' 이 없는 숫자 범위는 떼지 않는다. 네이버 웹툰은 '사이드킥 2~3' · '하이브 1~2' 처럼 시즌을 범위로 쓰고,
+# 떼면 시즌 1('사이드킥')과 같은 작품으로 붙는다. 시즌 · 부도 BE 가 다른 작품으로 보므로 그대로 둔다
+_VOLUME_SUFFIX = re.compile(r'\s*(?:\d+\s*[~\-]\s*\d+\s*권|\d+\s*권|[(\[]\s*\d+(?:\s*[~\-]\s*\d+)?\s*권\s*[)\]])\s*$')
+
+
+def strip_volume_suffix(name: str) -> str:
+    stripped = _VOLUME_SUFFIX.sub('', name or '').strip()
+    return stripped or (name or '')
+
+
 # 작품명 자리에 들어오면 잘못 읽은 것: 상세 페이지의 섹션 제목 · 사이트 이름
 # (2026-10 카카오 화면 개편 때 작품명이 전부 "줄거리"로 수집됨)
 NOT_A_TITLE = {'줄거리', '작품소개', '작품 소개', '소개', '키워드', '상세정보', '작품정보', '작품 정보', '동일작',
@@ -88,6 +100,7 @@ def validate_item(item: dict, catalog: EnumCatalog) -> Verdict:
     normalized: dict = {f: _clean(item.get(f)) for f in TEXT_FIELDS}
     # 작가명은 크롤러마다 형식이 달라 한 형식('a, b')으로 맞춘다 (역할 라벨 제거, 이름 단위 중복 제거)
     normalized.update(normalize_artists(item))
+    normalized['works_name'] = strip_volume_suffix(normalized['works_name'])
     # 작품 링크는 플랫폼별 대표 주소로 맞춘다 (BE 에 landingUrl 로 저장되고, staging 중복 판정 키로도 쓴다)
     normalized['source_url'] = canonical_landing_url(normalized['source_url'])
     normalized['hashtags'] = [t.strip() for t in item.get('hashtags') or [] if isinstance(t, str) and t.strip()]

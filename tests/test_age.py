@@ -60,3 +60,23 @@ def test_ridi_adult_cover_replaced_with_real_cover():
         'https://img.ridicdn.net/cover/777063298/xxlarge'
     real = 'https://img.ridicdn.net/cover/4928002744/xxlarge#1'
     assert ridi_real_cover(real, 'https://ridibooks.com/books/4928000826') == real
+
+
+def test_ridi_keywords_from_keyword_tab():
+    from modules.crawler.ridibooks_crawler import parse_ridi_keywords
+    src = ('<meta name="keywords" content="ebook,전자책,BL 웹툰,헤테로공,공벤"/>'
+           '"cell__BookDetailHomeKeywordTab":{"title":"이 작품의 키워드","genre":"bl","setId":17,"tabInfos":['
+           '{"tagId":3054,"name":"연재완결"},{"tagId":3817,"name":"헤테로공"},{"tagId":2457,"name":"연하공"},'
+           '{"tagId":1,"name":"개그/코믹BL"},{"tagId":2,"name":"별점1000개이상"},{"tagId":3,"name":"리뷰500개이상"},'
+           '{"tagId":4,"name":"평점4점이상"},{"tagId":5,"name":"소설원작"},{"tagId":6,"name":"연하공"},'
+           '{"tagId":7,"name":"1만원~2만원"},{"tagId":8,"name":"10000~15000원"},{"tagId":9,"name":"5권이상"},'
+           '{"tagId":10,"name":"기다리면무료"},{"tagId":11,"name":"연재"},{"tagId":12,"name":"고수위"}]}')
+    # 통계 · 상태 태그와 중복은 빼고, 메타 태그의 작가명 · 출판사는 쓰지 않는다
+    assert parse_ridi_keywords(src) == ['헤테로공', '연하공', '개그/코믹BL', '소설원작', '고수위']
+
+
+def test_ridi_keywords_fallback_to_buttons():
+    from modules.crawler.ridibooks_crawler import parse_ridi_keywords
+    src = '<span>#<!-- -->헤테로공</span><span>#<!-- -->연재완결</span><span>#<!-- -->연하공</span>'
+    assert parse_ridi_keywords(src) == ['헤테로공', '연하공']
+    assert parse_ridi_keywords('') == []

@@ -4,12 +4,11 @@
     uvicorn review.app:app --host 127.0.0.1 --port 8200
 
 환경변수
-    STORIX_API_BASE_URL   BE 주소 (enum 카탈로그 · import API)
-    STORIX_ADMIN_EMAIL    BE ADMIN 계정. 기동 시 로그인하고 만료되면 다시 로그인한다
-    STORIX_ADMIN_PASSWORD
+    STORIX_ENV            BE 대상 dev | prod (기본 dev). 주소 · 키 · staging DB 가 따라 바뀐다
+    STORIX_{DEV,PROD}_INTERNAL_API_KEY  BE 내부 API 키 (X-Internal-Api-Key 헤더)
     REVIEW_CATALOG_FILE   BE 를 못 붙을 때 카탈로그 응답을 저장한 JSON 파일 (선택)
     REVIEW_API_TOKEN      설정하면 X-Review-Token 헤더가 맞아야 호출된다 (선택)
-    STAGING_DATABASE_NAME staging DB 이름 (기본 storix_staging)
+    STAGING_DATABASE_NAME staging DB 이름 (기본 storix_staging_{env})
 """
 import os
 from contextlib import asynccontextmanager
@@ -17,6 +16,7 @@ from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from pydantic import BaseModel, Field
 
+from review import env as storix_env
 from review import service
 from review.backend import BackendAuthError, BackendSession
 from review.catalog import EnumCatalog, fetch_catalog, load_catalog_file
@@ -26,7 +26,7 @@ from review.store import StagingStore, connect, ensure_schema
 
 API_TOKEN = os.getenv('REVIEW_API_TOKEN', '')
 BACKEND = BackendSession.from_env()
-BACKEND_MISSING = 'STORIX_API_BASE_URL / STORIX_ADMIN_EMAIL / STORIX_ADMIN_PASSWORD 미설정'
+BACKEND_MISSING = f'STORIX_{storix_env.target().upper()}_INTERNAL_API_KEY 미설정 (STORIX_ENV={storix_env.target()})'
 
 _state: dict = {}
 

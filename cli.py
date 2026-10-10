@@ -258,6 +258,16 @@ def cmd_stage(args):
     import json
     import os
 
+    # 대상 환경은 review 모듈을 불러오기 전에 정한다 (BE 주소 · 키 · staging DB 가 모듈 로드 때 정해진다)
+    if getattr(args, 'env', None):
+        os.environ['STORIX_ENV'] = args.env
+    from review import env as storix_env
+    try:
+        target = storix_env.target()
+    except ValueError as e:
+        print(f'❌ {e}')
+        sys.exit(1)
+
     from review.app import BACKEND, BACKEND_MISSING, load_catalog
     from review.backend import BackendAuthError
     from review.store import StagingStore, connect, ensure_schema
@@ -267,6 +277,8 @@ def cmd_stage(args):
         print('❌ stage 서브 명령이 없습니다. (load | import | stats)')
         sys.exit(1)
 
+    from review.store import STAGING_DATABASE
+    print(f'🎯 대상 {target.upper()} — BE {storix_env.api_base_url(target)} / staging DB {STAGING_DATABASE}')
     ensure_schema()
     conn = connect()
     try:
@@ -303,7 +315,7 @@ def cmd_stage(args):
             if not total:
                 print('보낼 작품이 없습니다.')
                 return
-            print(f'BE({BACKEND.base_url}) 로 보낼 작품 {min(total, args.limit)}건 (최대 {args.limit}건)')
+            print(f'[{target.upper()}] BE({BACKEND.base_url}) 로 보낼 작품 {min(total, args.limit)}건 (최대 {args.limit}건)')
             for r in summary:
                 print(f"  - {r['run_id']}  {r['source']:<24} {r['n']:>5}건  {r['source_file'] or ''}")
             if not args.yes:
@@ -368,19 +380,23 @@ def main():
     stage_p = subparsers.add_parser('stage', help='검수 파이프라인 (works_staging → BE import API)')
     stage_sub = stage_p.add_subparsers(dest='stage_command')
 
-    stage_load_p = stage_sub.add_parser('load', help='JSONL 을 staging 에 적재하고 Layer 1 · 1.5 판정')
+    # 모든 stage 명령에 붙는다. 생략하면 STORIX_ENV(기본 dev)
+    env_p = argparse.ArgumentParser(add_help=False)
+    env_p.add_argument('--env', choices=('dev', 'prod'), help='BE 대상 환경 (기본 STORIX_ENV, 없으면 dev)')
+
+    stage_load_p = stage_sub.add_parser('load', parents=[env_p], help='JSONL 을 staging 에 적재하고 Layer 1 · 1.5 판정')
     stage_load_p.add_argument('--input', required=True, help='JSONL 파일 또는 디렉토리')
     stage_load_p.add_argument('--source', required=True,
                               help='직전 런과 건수를 비교할 단위 (예: naver_webtoon_initial)')
     stage_load_p.add_argument('--catalog-file', dest='catalog_file',
                               help='BE 대신 저장해 둔 enum 카탈로그 JSON 사용')
 
-    stage_import_p = stage_sub.add_parser('import', help='AUTO_PASS · APPROVED 를 BE 로 승격')
+    stage_import_p = stage_sub.add_parser('import', parents=[env_p], help='AUTO_PASS · APPROVED 를 BE 로 승격')
     stage_import_p.add_argument('--limit', type=int, default=500)
     stage_import_p.add_argument('--run-id', dest='run_id', help='이 런만 보낸다 (생략하면 보류 안 된 전체 런)')
     stage_import_p.add_argument('--yes', action='store_true', help='확인 없이 진행 (건수를 이미 확인한 경우)')
 
-    stage_sub.add_parser('stats', help='상태별 건수 · 자동화율')
+    stage_sub.add_parser('stats', parents=[env_p], help='상태별 건수 · 자동화율')
 
     args = parser.parse_args()
 

@@ -1,6 +1,6 @@
 """works_staging 저장소.
 
-서비스 DB 와 같은 MySQL 인스턴스지만 DB 를 분리한다(STAGING_DATABASE_NAME, 기본 storix_staging).
+서비스 DB 와 같은 MySQL 인스턴스지만 DB 를 분리한다(STAGING_DATABASE_NAME, 기본 storix_staging_{STORIX_ENV}).
 BE 의 ddl-auto / Flyway baseline 과 섞이지 않게 하려는 것이다.
 """
 import json
@@ -12,6 +12,7 @@ from pathlib import Path
 import mysql.connector
 
 from config import MYSQL_CONFIG
+from review import env as storix_env
 from review.rules import AUTO_PASS, NEEDS_REVIEW, REJECTED, Verdict
 
 APPROVED = 'APPROVED'
@@ -19,7 +20,8 @@ IMPORTED = 'IMPORTED'
 SKIPPED = 'SKIPPED'   # BE 가 만들지 않기로 한 건 (단행본인데 같은 웹소설이 이미 있음). 다시 보내지 않는다
 IMPORTABLE = (AUTO_PASS, APPROVED)
 
-STAGING_DATABASE = os.getenv('STAGING_DATABASE_NAME', 'storix_staging')
+# import 상태가 환경마다 달라 dev / prod 를 다른 DB 에 쌓는다 (review/env.py)
+STAGING_DATABASE = storix_env.staging_database(storix_env.target())
 SCHEMA_FILE = Path(__file__).with_name('schema.sql')
 
 RAW_COLUMNS = (

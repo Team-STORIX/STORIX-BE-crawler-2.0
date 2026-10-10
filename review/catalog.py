@@ -1,7 +1,7 @@
 """BE enum 카탈로그.
 
 enum 목록은 BE 가 소유한다. 파이썬에 복사해 두면 BE enum 이 바뀔 때 어긋난다.
-기동 시 BE 의 GET /api/v1/admin/works/enum-catalog 를 받아 메모리에 들고 있는다.
+기동 시 BE 의 GET /internal/v1/works/enum-catalog 를 받아 메모리에 들고 있는다.
 BE 를 못 붙는 로컬 환경에서는 그 응답을 저장한 JSON 파일을 읽는다(--catalog-file).
 
 저장 형태가 enum 마다 다르다 — Platform 은 name(NAVER_WEBTOON), 나머지 셋은 한글 dbValue.
@@ -11,7 +11,7 @@ import API 는 name 으로 받는다.
 import json
 from pathlib import Path
 
-CATALOG_PATH = '/api/v1/admin/works/enum-catalog'
+CATALOG_PATH = '/internal/v1/works/enum-catalog'
 
 # 카탈로그 키 → staging 필드
 KINDS = {

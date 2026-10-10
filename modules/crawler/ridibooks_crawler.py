@@ -55,11 +55,14 @@ def _ridi_is_general_lit(cat_texts: list[str]) -> bool:
 def ridi_genre_and_type(cat_texts: list[str], section: str = '') -> tuple[str, str]:
     """카테고리 텍스트 → (대표 장르, works_type).
     예) ["판타지 웹소설", "현대 판타지"] → (판타지, 웹소설) / ["BL 웹툰", "BL 웹툰"] → (BL, 웹툰)
-    장르는 매칭이 없으면 빈 값. 유형은 만화/웹툰 > 소설/노벨/e북 > og:section > 기본 웹툰."""
+    장르는 매칭이 없으면 빈 값. 유형은 웹툰 > 만화 > 소설/노벨/e북 > og:section > 기본 웹툰.
+    '만화 e북' 카테고리(출판 만화)는 만화다 (#64)."""
     cat_blob = ' '.join(cat_texts)
     genre = next((canonical for kw, canonical in _RIDI_GENRE_KEYWORDS if kw in cat_blob), '')
-    if any(k in cat_blob for k in ('웹툰', '만화')):
+    if '웹툰' in cat_blob:
         return genre, '웹툰'
+    if '만화' in cat_blob:
+        return genre, '만화'
     if any(k in cat_blob for k in ('웹소설', '소설', '노벨', 'e북')):
         return genre, '웹소설'
     if '소설' in section:
@@ -632,13 +635,15 @@ def parse_ridi_age(src: str, book_id: str) -> str:
 
 def ridi_type_hint(card_text: str) -> str | None:
     """검색 결과 카드 글자 → 유형 힌트. '[e북] 마도조사 | … 해외 소설' · '마도조사 | … BL 웹툰' 형식.
-    e북은 단행본, 웹툰 · 만화는 웹툰, 소설은 웹소설. 판단이 안 서면 None (상세에서 다시 판정)."""
+    e북은 단행본, 웹툰은 웹툰, 만화는 만화, 소설은 웹소설. 판단이 안 서면 None (상세에서 다시 판정)."""
     t = card_text or ''
     if '[e북]' in t:
         return '단행본'
     head = ' '.join(t.split('\n')[:3])  # 제목 · 작가/출판사/카테고리 · 권수 줄만 본다 (소개글 제외)
-    if '웹툰' in head or '만화' in head:
+    if '웹툰' in head:
         return '웹툰'
+    if '만화' in head:
+        return '만화'
     if '소설' in head:
         return '웹소설'
     return None

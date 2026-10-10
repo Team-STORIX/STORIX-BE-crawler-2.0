@@ -374,7 +374,8 @@ class KakaoCrawler(BaseCrawler):
                             else: age = ""
                         elif label == "분류":
                             if "웹소설" in value or "소설" in value: works_type = "웹소설"
-                            else: works_type = "웹툰"  # 웹툰, 만화 모두 웹툰으로 통일
+                            elif "만화" in value and "웹툰" not in value: works_type = "만화"  # 출판 만화 (#64)
+                            else: works_type = "웹툰"
                             clean_genre = value.replace("웹소설", "").replace("소설", "").replace("웹툰", "").replace("만화", "").strip()
                             if clean_genre: genre = clean_genre
                     except Exception: continue
@@ -477,6 +478,6 @@ def parse_kakao_search_card(text: str) -> tuple[str, str | None]:
     if '[단행본]' in name:
         return name, '단행본'
     for p in parts[2:]:
-        if p in ('웹툰', '웹소설'):
+        if p in ('웹툰', '웹소설', '만화'):
             return name, p
     return name, None

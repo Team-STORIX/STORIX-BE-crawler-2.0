@@ -17,7 +17,8 @@ LOGIN_URL = SITE + '/login'
 _WORK = re.compile(r'mrblue\.com/(webtoon|comic|novel)/([A-Za-z0-9_]+)')
 # 세로 표지 480x694. detail_original.jpg 는 가로 배너(1600x520), thumb_sq.jpg 는 174x174 라 쓰지 않는다
 COVER = 'https://img.mrblue.com/prod_img/comics/{pid}/cover_w480.jpg'
-_TYPES = {'webtoon': '웹툰', 'comic': '웹툰', 'novel': '웹소설'}
+# /comic/ 은 출판 만화 섹션이다 (#64)
+_TYPES = {'webtoon': '웹툰', 'comic': '만화', 'novel': '웹소설'}
 
 _TITLE = re.compile(r'<p class="title">(.*?)</p>', re.S)
 _GENRE = re.compile(r'<div class="info">\s*<span><a href="/(?:webtoon|comic|novel)/genre/[^"]*">([^<]+)</a></span>')

@@ -78,6 +78,8 @@ def pick_candidates(candidates: list[dict], works_type: str | None) -> list[dict
     extra = [c for c in candidates if works_type == '웹소설' and c['type_hint'] == '단행본']
     if works_type == '단행본':
         extra = [c for c in candidates if c['type_hint'] in ('웹소설', '웹툰')]
+    if works_type == '만화':
+        extra = [c for c in candidates if c['type_hint'] == '단행본']  # 리디 만화 e북 카드는 [e북] 으로 나온다
     return same + unknown + extra
 
 

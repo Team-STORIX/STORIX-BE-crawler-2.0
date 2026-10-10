@@ -48,19 +48,20 @@ _ALL_TARGETS = ['naver_webtoon', 'naver_novel', 'naver_series', 'kakao_page', 'r
 
 # 플랫폼이 취급하는 작품 유형. 여기 없는 유형의 작품은 해당 플랫폼에서 검색하지 않는다.
 # (유형 None = 인라인 입력 → 유형 무관하게 전 플랫폼 검색)
-# 적재되는 works_type 은 크롤러가 상세에서 웹툰/웹소설로 판정한다.
+# 적재되는 works_type 은 크롤러가 상세에서 웹툰 · 웹소설 · 만화(출판 만화)로 판정한다.
 _PLATFORM_TYPES = {
     'naver_webtoon': {'웹툰'},
     'naver_novel': {'웹소설'},
     'naver_series': {'웹툰', '웹소설'},
-    'kakao_page': {'웹툰', '웹소설'},
-    'ridibooks': {'웹툰', '웹소설'},
-    'bomtoon': {'웹툰', '웹소설'},
+    'kakao_page': {'웹툰', '웹소설', '만화'},
+    'ridibooks': {'웹툰', '웹소설', '만화'},
+    'bomtoon': {'웹툰', '웹소설', '만화'},
 }
 
 # 목록 파일 섹션 → 찾을 유형. '전체' 는 웹툰 · 웹소설을 각각 찾아 있는 판을 다 수집한다
 # (단행본 섹션은 없앴다 — 웹소설 연재판이 없으면 e북을 대신 고르는 규칙이 있다. cli._TYPE_HEADERS)
-SECTION_TYPES = {'웹툰': {'웹툰'}, '웹소설': {'웹소설'}, '전체': {'웹툰', '웹소설'}}
+# 만화(출판 만화)는 웹툰과 다른 작품이라 ## 웹툰 에서 받지 않는다. ## 만화 로 따로 찾는다 (#64)
+SECTION_TYPES = {'웹툰': {'웹툰'}, '웹소설': {'웹소설'}, '만화': {'만화'}, '전체': {'웹툰', '웹소설'}}
 
 # titles.txt 에서 인정하는 섹션 (cli._TYPE_HEADERS 의 값)
 _VALID_TYPES = set(SECTION_TYPES)
@@ -195,7 +196,7 @@ def _crawl_for_type(crawler, candidates: list[dict], ttype: str | None, crawled:
     원하는 유형과 다르면 다음 후보를 연다. 단행본 · 유형 미지정은 상세 유형을 따지지 않는다.
     판본은 BE 가 다른 작품으로 판정하므로 본편과 따로 담는다. 외전은 후보 단계에서 이미 빠져 있다.
     """
-    want = ttype if ttype in ('웹툰', '웹소설') else None
+    want = ttype if ttype in ('웹툰', '웹소설', '만화') else None
     picked = pick_candidates(candidates, ttype)
     if not is_edition(query):
         mains = [c for c in picked if not is_edition(c['text'])]

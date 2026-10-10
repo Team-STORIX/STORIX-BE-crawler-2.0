@@ -9,7 +9,7 @@ from selenium.common.exceptions import InvalidSessionIdException
 from urllib3.exceptions import ReadTimeoutError as _DriverTimeoutError
 
 from .naver_crawler import NaverCrawler
-from .base_crawler import SessionExpiredError
+from .base_crawler import SessionExpiredError, pick_candidates
 
 
 class NaverSeriesCrawler(NaverCrawler):
@@ -32,64 +32,35 @@ class NaverSeriesCrawler(NaverCrawler):
         t = re.sub(r'\s*\(총[^)]*\)', '', t)      # (총 …화/…) 제거
         return t.strip()
 
-    def search_url_by_title(self, title: str) -> str | None:
-        """제목으로 네이버 시리즈 상세 URL 검색. 웹소설(/novel/)을 우선 반환."""
+    def search_candidates(self, title: str) -> list[dict]:
+        """네이버 시리즈 검색 결과 → 후보 목록 (일치도 순). 주소의 /novel/ · /comic/ 으로 유형을 안다."""
         self.driver.get(self._SEARCH_URL.format(urllib.parse.quote(title)))
         time.sleep(2)
-
-        norm_title = self._norm_title(title)
-
+        raw = []
         # 제목 링크만 선택 (class 예: 'N=a:nov.title' / 'N=a:com.title'). 이미지 링크는 제외.
-        links = self.driver.find_elements(
-            By.CSS_SELECTOR, "a[href*='detail.series'][class*='title']"
-        )
-
-        exact_novel = exact_comic = partial_novel = partial_comic = None
-        fuzzy_novel = fuzzy_comic = None
-        fuzzy_novel_score = fuzzy_comic_score = 0.0
-        for a in links:
+        for a in self.driver.find_elements(By.CSS_SELECTOR, "a[href*='detail.series'][class*='title']"):
             href = a.get_attribute('href') or ''
             if 'detail.series' not in href:
                 continue
             text = self._clean_title((a.get_attribute('title') or a.text or '').strip())
-            if not text:
-                continue
-            is_novel = '/novel/' in href
-            norm_text = self._norm_title(text)
+            if text:
+                raw.append((href, text, '웹소설' if '/novel/' in href else '웹툰' if '/comic/' in href else None))
+        return self.rank_candidates(title, raw)
 
-            if norm_text == norm_title:
-                if is_novel and not exact_novel:
-                    exact_novel = (href, text)
-                elif not is_novel and not exact_comic:
-                    exact_comic = (href, text)
-            elif norm_title in norm_text or norm_text in norm_title:
-                if is_novel and not partial_novel:
-                    partial_novel = (href, text)
-                elif not is_novel and not partial_comic:
-                    partial_comic = (href, text)
-            else:
-                ratio = self._title_ratio(norm_title, norm_text)
-                if ratio >= self.TITLE_FUZZY_THRESHOLD:
-                    if is_novel and ratio > fuzzy_novel_score:
-                        fuzzy_novel_score, fuzzy_novel = ratio, (href, text)
-                    elif not is_novel and ratio > fuzzy_comic_score:
-                        fuzzy_comic_score, fuzzy_comic = ratio, (href, text)
-
-        hit = (exact_novel or exact_comic or partial_novel or partial_comic
-               or fuzzy_novel or fuzzy_comic)
-        if hit:
-            if hit in (exact_novel, exact_comic):
-                kind = '정확'
-            elif hit in (partial_novel, partial_comic):
-                kind = '부분'
-            else:
-                score = fuzzy_novel_score if hit is fuzzy_novel else fuzzy_comic_score
-                kind = f'유사 {score:.0%}'
-            print(f"   ↳ 검색 결과 ({kind}): {hit[0]} [{hit[1]}]")
-            return hit[0]
-
-        print(f"   ⚠️  '{title}' 네이버 시리즈 검색 결과 없음 — 스킵")
-        return None
+    def search_url_by_title(self, title: str, works_type: str | None = None) -> str | None:
+        """제목으로 네이버 시리즈 상세 URL 검색. 원하는 유형이 없으면 웹소설(/novel/)을 우선한다."""
+        candidates = self.search_candidates(title)
+        if works_type is None:
+            # 기존 동작 유지: 같은 일치 단계(정확 · 부분 · 유사)면 웹소설 먼저
+            stage = {'정확': 0, '부분': 1}
+            candidates = sorted(candidates, key=lambda c: (stage.get(c['kind'], 2), c['type_hint'] != '웹소설'))
+        picked = pick_candidates(candidates, works_type)
+        if not picked:
+            print(f"   ⚠️  '{title}' 네이버 시리즈 검색 결과 없음 — 스킵")
+            return None
+        c = picked[0]
+        print(f"   ↳ 검색 결과 ({c['kind']}): {c['url']} [{c['text']}]")
+        return c['url']
 
     def _parse_info(self, lines: list[str]) -> dict:
         """`.end_info` 텍스트 라인에서 작가/그림/원작/연령을 추출한다.

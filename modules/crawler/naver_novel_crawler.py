@@ -62,7 +62,8 @@ class NaverNovelCrawler(NaverCrawler):
 
             if norm_text == norm_title:
                 quality, ratio = 0, 1.0
-            elif norm_title in norm_text or norm_text in norm_title:
+            # 부분 일치는 앞부분 일치만 (BaseCrawler.title_match 와 같은 기준)
+            elif norm_text.startswith(norm_title) or norm_title.startswith(norm_text):
                 quality, ratio = 1, 0.0
             else:
                 ratio = self._title_ratio(norm_title, norm_text)

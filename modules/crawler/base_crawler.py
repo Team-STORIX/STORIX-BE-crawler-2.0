@@ -28,6 +28,10 @@ SIDE_STORY_WORDS = ('외전', '특별편', '번외')
 EDITION_WORDS = ('완전판', '개정판')
 
 
+# 앞부분 일치에서 뒤에 이어져도 되는 부제 · 판본 표기의 시작 글자
+SUBTITLE_SEPARATORS = '-–—:~(（[<〈《'
+
+
 def is_edition(text: str) -> bool:
     return any(w in (text or '') for w in EDITION_WORDS)
 
@@ -83,17 +87,42 @@ class BaseCrawler:
         ('레지나레나' → '레지나레나 - 용서받지 못한 그대에게')는 잡고, 앞에 다른 말이 붙은
         다른 작품('헌터는 조용히 살고 싶다' → '은퇴한 C급 헌터는 조용히 살고 싶다')은 거른다.
         """
-        q, t = cls._norm_title(strip_title_labels(query)), cls._norm_title(strip_title_labels(text))
+        q_raw, t_raw = strip_title_labels(query), strip_title_labels(text)
+        q, t = cls._norm_title(q_raw), cls._norm_title(t_raw)
         if not q or not t:
             return None
         if q == t:
             return 0, 1.0
         if t.startswith(q) or q.startswith(t):
+            # 뒤에 붙은 부분이 부제 · 판본 표기일 때만 같은 작품 계열로 본다.
+            # '상수리나무 아래 4컷 만화' 처럼 다른 말이 이어지면 다른 작품이다
+            short, long_ = (q_raw, t_raw) if len(q) <= len(t) else (t_raw, q_raw)
+            rest = cls._rest_after_prefix(short, long_).lstrip()
+            if rest and rest[0] not in SUBTITLE_SEPARATORS:
+                return None
             return 1, min(len(q), len(t)) / max(len(q), len(t))
         ratio = cls._title_ratio(q, t)
         if ratio >= cls.TITLE_FUZZY_THRESHOLD:
             return 2, ratio
         return None
+
+    @classmethod
+    def _rest_after_prefix(cls, short: str, long_: str) -> str:
+        """long_ 에서 short 와 정규화 기준으로 겹치는 앞부분을 뺀 나머지 (원문 그대로)."""
+        want = cls._norm_title(short)
+        i = 0
+        for pos, ch in enumerate(long_):
+            n = cls._norm_title(ch)
+            if not n:
+                continue
+            if i >= len(want):
+                return long_[pos:]
+            if want[i:i + len(n)] != n:
+                return long_[pos:]
+            i += len(n)
+            if i >= len(want):
+                return long_[pos + 1:]
+        return ''
 
     @classmethod
     def rank_candidates(cls, query: str, raw: list[tuple[str, str, str | None]]) -> list[dict]:

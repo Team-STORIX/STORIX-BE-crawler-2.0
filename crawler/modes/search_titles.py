@@ -19,6 +19,7 @@ from modules.crawler.naver_novel_crawler import NaverNovelCrawler
 from modules.crawler.naver_series_crawler import NaverSeriesCrawler
 from modules.crawler.kakao_crawler import KakaoCrawler
 from modules.crawler.ridibooks_crawler import RidibooksCrawler
+from modules.crawler.bomtoon_crawler import BomtoonCrawler
 from crawler.output.jsonl_writer import JSONLWriter
 from crawler.parallel import run_platforms
 
@@ -31,7 +32,8 @@ _DRIVER_ERRORS = (
     WebDriverException,
 )
 
-SUPPORTED_PLATFORMS = ['naver_webtoon', 'naver_novel', 'naver_series', 'kakao_page', 'ridibooks', 'all']
+# bomtoon 은 성인 인증 세션이 필요해 all 에 넣지 않는다 (--platform bomtoon 으로 따로 돌린다)
+SUPPORTED_PLATFORMS = ['naver_webtoon', 'naver_novel', 'naver_series', 'kakao_page', 'ridibooks', 'bomtoon', 'all']
 
 _CRAWLER_MAP = {
     'naver_webtoon': (NaverCrawler, '네이버 웹툰'),
@@ -39,6 +41,7 @@ _CRAWLER_MAP = {
     'naver_series': (NaverSeriesCrawler, '네이버 시리즈'),
     'kakao_page': (KakaoCrawler, '카카오'),
     'ridibooks': (RidibooksCrawler, '리디북스'),
+    'bomtoon': (BomtoonCrawler, '봄툰'),
 }
 
 _ALL_TARGETS = ['naver_webtoon', 'naver_novel', 'naver_series', 'kakao_page', 'ridibooks']
@@ -52,6 +55,7 @@ _PLATFORM_TYPES = {
     'naver_series': {'웹툰', '웹소설'},
     'kakao_page': {'웹툰', '웹소설'},
     'ridibooks': {'웹툰', '웹소설'},
+    'bomtoon': {'웹툰', '웹소설'},
 }
 
 # 목록 파일 섹션 → 찾을 유형. '전체' 는 웹툰 · 웹소설을 각각 찾아 있는 판을 다 수집한다

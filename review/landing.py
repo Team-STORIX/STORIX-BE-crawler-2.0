@@ -18,6 +18,8 @@ _RULES = (
      'https://page.kakao.com/content/{}', 'KAKAO_PAGE'),
     (re.compile(r'ridibooks\.com/books/(\d+)'),
      'https://ridibooks.com/books/{}', 'RIDIBOOKS'),
+    (re.compile(r'bomtoon\.com/detail/([^/?#\s]+)'),
+     'https://www.bomtoon.com/detail/{}', 'BOMTOON'),
 )
 
 

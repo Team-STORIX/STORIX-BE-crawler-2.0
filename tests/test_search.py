@@ -161,3 +161,8 @@ def test_titles_file_sections(tmp_path, capsys):
     f.write_text('## 웹툰\n천관사복\n## 전체\n넷카마 펀치!!!\n## 단행본\n군림천하\n', encoding='utf-8')
     assert _parse_titles_file(f) == [('천관사복', '웹툰'), ('넷카마 펀치!!!', '전체'), ('군림천하', '웹소설')]
     assert '단행본' in capsys.readouterr().out  # 없어진 섹션은 경고한다
+
+
+def test_ridi_revised_prefix_matches_title():
+    # 리디 e북 '개정판 | 블랙 스완' 은 검색어 '블랙 스완' 과 정확히 일치로 본다 (2026-10-10 검색 결과 없음으로 빠졌음)
+    assert BaseCrawler.title_match('블랙 스완', '개정판 | 블랙 스완') == (0, 1.0)

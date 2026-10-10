@@ -8,7 +8,9 @@ import config  # noqa: F401  (stdout/stderr UTF-8 재설정 + .env 로드)
 # 섹션 헤더 텍스트 → 작품 타입
 # 이 타입은 DB 의 works_type 이 아니라 '어느 플랫폼에서 검색할지' 고르는 필터로만 쓰인다
 # (search_titles._PLATFORM_TYPES). 적재되는 works_type 은 크롤러가 상세페이지에서 다시 판정한다.
-_TYPE_HEADERS = {'웹툰': '웹툰', '웹소설': '웹소설', '단행본': '단행본'}
+# '전체' 는 웹툰 · 웹소설을 각각 찾아 있는 판을 다 수집한다. 옛 '단행본' 섹션은 경고 후 웹소설로 읽는다
+_TYPE_HEADERS = {'웹툰': '웹툰', '웹소설': '웹소설', '전체': '전체'}
+_DEPRECATED_HEADERS = {'단행본': '웹소설'}
 
 
 def _load_titles(args) -> list[tuple[str, str | None]]:
@@ -47,7 +49,7 @@ def _parse_titles_file(path: Path) -> list[tuple[str, str | None]]:
         내가 키운 S급들
         ## 웹소설
         마법학교 마법사로 살아가는 법
-        ## 단행본          ← 연재처가 없는 단행본/e북 (시리즈·카카오·리디만 검색)
+        ## 전체            ← 웹툰판 · 웹소설판을 각각 찾아 있는 판을 다 수집
         패밀리 레스토랑 가자
 
     '#' 주석 줄과 빈 줄은 무시. 헤더 없이 나온 제목은 스킵한다.
@@ -67,6 +69,11 @@ def _parse_titles_file(path: Path) -> list[tuple[str, str | None]]:
         if line.startswith('##'):
             header = line.lstrip('#').strip()
             current_type = _TYPE_HEADERS.get(header)
+            if header in _DEPRECATED_HEADERS:
+                current_type = _DEPRECATED_HEADERS[header]
+                print(f'⚠️  "## {header}" 섹션은 없어졌습니다 — 웹소설로 찾습니다 '
+                      f'(웹소설 연재판이 없으면 e북을 대신 고릅니다). 웹툰판도 필요하면 "## 전체" 를 쓰세요')
+                continue
             if current_type is None:
                 print(f'⚠️  알 수 없는 섹션 헤더 무시: "{line}" '
                       f'({" | ".join(_TYPE_HEADERS)} 만 지원)')

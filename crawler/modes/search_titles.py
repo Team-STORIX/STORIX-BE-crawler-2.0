@@ -38,20 +38,23 @@ _CRAWLER_MAP = {
 
 _ALL_TARGETS = ['naver_webtoon', 'naver_novel', 'naver_series', 'kakao_page', 'ridibooks']
 
-# 플랫폼이 취급하는 작품 타입. 여기 없는 타입의 작품은 해당 플랫폼에서 검색하지 않는다.
-# (타입 None = 인라인 입력 → 타입 무관하게 전 플랫폼 검색)
-# '단행본'은 연재 사이트(comic/novel.naver.com)엔 없고 e북·단행본을 파는 곳에만 있으므로
-# 시리즈·카카오·리디만 검색한다. 적재되는 works_type 은 크롤러가 상세에서 웹툰/웹소설로 판정한다.
+# 플랫폼이 취급하는 작품 유형. 여기 없는 유형의 작품은 해당 플랫폼에서 검색하지 않는다.
+# (유형 None = 인라인 입력 → 유형 무관하게 전 플랫폼 검색)
+# 적재되는 works_type 은 크롤러가 상세에서 웹툰/웹소설로 판정한다.
 _PLATFORM_TYPES = {
     'naver_webtoon': {'웹툰'},
     'naver_novel': {'웹소설'},
-    'naver_series': {'웹툰', '웹소설', '단행본'},
-    'kakao_page': {'웹툰', '웹소설', '단행본'},
-    'ridibooks': {'웹툰', '웹소설', '단행본'},
+    'naver_series': {'웹툰', '웹소설'},
+    'kakao_page': {'웹툰', '웹소설'},
+    'ridibooks': {'웹툰', '웹소설'},
 }
 
-# titles.txt 에서 인정하는 섹션 타입 (cli._TYPE_HEADERS 와 같은 값)
-_VALID_TYPES = {t for types in _PLATFORM_TYPES.values() for t in types}
+# 목록 파일 섹션 → 찾을 유형. '전체' 는 웹툰 · 웹소설을 각각 찾아 있는 판을 다 수집한다
+# (단행본 섹션은 없앴다 — 웹소설 연재판이 없으면 e북을 대신 고르는 규칙이 있다. cli._TYPE_HEADERS)
+SECTION_TYPES = {'웹툰': {'웹툰'}, '웹소설': {'웹소설'}, '전체': {'웹툰', '웹소설'}}
+
+# titles.txt 에서 인정하는 섹션 (cli._TYPE_HEADERS 의 값)
+_VALID_TYPES = set(SECTION_TYPES)
 
 
 def run_search_titles(
@@ -77,7 +80,7 @@ def run_search_titles(
         # 대신 그 제목이 어느 섹션에서 왔는지 모아 둬, 파일 정리는 섹션별로 따로 한다.
         wanted: dict[str, set[str | None]] = {}
         for t, ttype in titles:
-            if ttype is None or ttype in accepted:
+            if ttype is None or SECTION_TYPES.get(ttype, set()) & accepted:
                 wanted.setdefault(t, set()).add(ttype)
         if not wanted:
             label = _CRAWLER_MAP[p][1]
@@ -115,6 +118,7 @@ def _remove_found_from_file(titles_file: str, found: set[tuple[str, str | None]]
         if stripped.startswith('##'):
             header = stripped.lstrip('#').strip()
             # 모르는 헤더 아래 제목은 애초에 크롤되지 않아 found 에 없다 → None 으로 둬도 안전
+            header = '웹소설' if header == '단행본' else header  # 옛 단행본 섹션은 웹소설로 읽었다
             current_type = header if header in _VALID_TYPES else None
             remaining.append(ln)
             continue
@@ -145,14 +149,25 @@ def _found_slots(
     """검색 성공한 제목이 titles.txt 의 어느 섹션을 채운 것인지 판정.
 
     같은 제목이 ## 웹툰 / ## 웹소설 에 각각 있을 때, 상세에서 판정된 works_type 이
-    요청 타입 중 하나면 그 섹션만 채운 것으로 본다. 판정이 안 되면(단행본 섹션 등)
-    요청한 타입 전부를 채운 것으로 둔다.
+    요청 섹션 중 하나면 그 섹션만 채운 것으로 본다. ## 전체 는 어느 판이든 하나 찾으면 채운 것이다.
+    판정이 안 되면 요청한 섹션 전부를 채운 것으로 둔다.
     """
     t = title.strip()
     works_type = (record.get('works_type') or '').strip()
+    slots = set()
     if works_type and works_type in types:
-        return {(t, works_type)}
-    return {(t, ty) for ty in types}
+        slots.add((t, works_type))
+    if '전체' in types and works_type in SECTION_TYPES['전체']:
+        slots.add((t, '전체'))
+    return slots or {(t, ty) for ty in types}
+
+
+def _crawl_types(sections: set[str | None], platform: str) -> list[str | None]:
+    """목록 섹션 → 이 플랫폼에서 찾을 유형 (전체 → 웹툰 · 웹소설). 플랫폼이 안 다루는 유형은 뺀다."""
+    types: set[str | None] = {None} if None in sections else set()
+    for section in sections - {None}:
+        types |= SECTION_TYPES[section] & _PLATFORM_TYPES[platform]
+    return sorted(types, key=lambda t: t or '')
 
 
 # 원하는 유형의 작품을 찾기까지 상세를 열어 볼 후보 수
@@ -243,7 +258,7 @@ def _search_and_write(
 
                     crawled: dict[str, dict | None] = {}  # 같은 후보를 유형마다 다시 열지 않는다
                     written: set[str] = set()  # 다른 유형 섹션에서 이미 저장한 같은 작품은 다시 안 쓴다
-                    for ttype in sorted(types, key=lambda t: t or ''):
+                    for ttype in _crawl_types(types, platform):
                         results = _crawl_for_type(crawler, candidates, ttype, crawled, title)
                         if not results:
                             skip_count += 1

@@ -331,6 +331,23 @@ PR(`develop`/`main` 대상)과 `develop`/`main` 푸시 시 GitHub Actions(`.gith
 
 ## DB 스키마
 
+### staging DB (검수 파이프라인)
+
+크롤러가 쓰는 staging DB(`storix_staging_{env}`) 구조는 `review/models.py` 에 엔티티로 정의하고, 변경은 Alembic 리비전(`review/migrations/versions`)으로 남깁니다. BE 의 JPA 엔티티 + Flyway 와 같은 방식입니다.
+
+```bash
+# 1) review/models.py 의 모델을 고친다
+# 2) 리비전 생성 → 생성된 파일을 검토해 커밋 (자동 생성은 컬럼 이름 변경 · 데이터 이전을 모른다)
+STORIX_ENV=dev alembic revision --autogenerate -m "works_source 에 memo 추가"
+# 3) 적용: stage 명령 · 검수 서버 · 스케줄러가 시작할 때 자동(alembic upgrade head). 직접 하려면
+STORIX_ENV=dev alembic upgrade head
+STORIX_ENV=prod alembic current        # 지금 리비전 확인
+```
+
+- 접속 정보는 `review/env.py` · `config.py` 를 따릅니다 (`alembic.ini` 에 주소를 적지 않음)
+- 모델을 고치고 리비전을 안 만들면 테스트(`tests/test_migrations.py`)가 실패합니다 (BE 의 `ddl-auto=validate` 역할)
+- Alembic 도입 전에 만든 DB 는 처음 실행 때 있는 테이블을 보고 기준 리비전을 자동으로 찍습니다 (`works_source` 있으면 `0002`, 없으면 `0001`)
+
 ### works_platform 중간 테이블
 
 동일 작품(`works_name + artist_name` 기준)이 여러 플랫폼에서 발견될 경우, `works` 행은 하나로 유지하고 `works_platform` 테이블에 플랫폼을 추가합니다.
@@ -390,7 +407,8 @@ works_platform: { works_id: 1, platform: "NAVER_WEBTOON" }
 │
 ├── review/                         # 검수 파이프라인 (크롤러는 서비스 DB 에 직접 쓰지 않음)
 │   ├── env.py                      # BE 대상 dev · prod (주소 · 내부 API 키 · staging DB)
-│   ├── schema.sql · store.py       # staging DB (staging_run · works_staging · review_decision · works_source)
+│   ├── models.py · store.py        # staging DB 구조(엔티티) · 쿼리 (staging_run · works_staging · review_decision · works_source)
+│   ├── migrations/versions/        # 구조 변경 이력 (Alembic 리비전)
 │   ├── catalog.py                  # BE enum 카탈로그 (장르 · 연령 · 유형 · 플랫폼)
 │   ├── rules.py                    # Layer 1 규칙 검사 · Layer 1.5 런 이상 차단
 │   ├── artists.py · landing.py     # 작가명 · 작품 링크 정규화

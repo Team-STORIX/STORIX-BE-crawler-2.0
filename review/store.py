@@ -24,7 +24,7 @@ IMPORTABLE = (AUTO_PASS, APPROVED)
 
 # import 상태가 환경마다 달라 dev / prod 를 다른 DB 에 쌓는다 (review/env.py)
 STAGING_DATABASE = storix_env.staging_database(storix_env.target())
-SCHEMA_FILE = Path(__file__).with_name('schema.sql')
+ALEMBIC_INI = Path(__file__).resolve().parents[1] / 'alembic.ini'
 
 # 수집 이력 (works_source) 상태. 나머지는 crawler/report.py 상태 코드를 그대로 쓴다
 SOURCE_SUCCESS = 'SUCCESS'
@@ -52,25 +52,49 @@ def connect():
     return mysql.connector.connect(**cfg)
 
 
+def staging_url():
+    """staging DB 접속 주소 (Alembic · SQLAlchemy 용). 쿼리는 connect() 의 mysql-connector 연결로 한다."""
+    from sqlalchemy import URL
+    return URL.create('mysql+mysqlconnector', username=MYSQL_CONFIG['user'], password=MYSQL_CONFIG['password'] or None,
+                      host=MYSQL_CONFIG['host'], port=MYSQL_CONFIG['port'], database=STAGING_DATABASE,
+                      query={'charset': 'utf8mb4'})
+
+
+# Alembic 도입 전(#52)에 schema.sql 로 만든 DB 의 기준 리비전. 있는 테이블로 판단한다
+_BASELINES = (('works_source', '0002'), ('staging_run', '0001'))
+
+
 def ensure_schema() -> None:
-    """staging DB 와 테이블을 만든다. 전부 IF NOT EXISTS 라 매번 불러도 된다."""
+    """staging DB 를 만들고 테이블 구조를 최신 리비전으로 올린다 (alembic upgrade head). 매번 불러도 된다.
+    Alembic 도입 전에 만든 DB 는 있는 테이블을 보고 기준 리비전을 먼저 찍는다 (alembic stamp)."""
     server_cfg = {k: v for k, v in MYSQL_CONFIG.items() if k != 'database'}
     conn = mysql.connector.connect(**server_cfg)
     try:
         cur = conn.cursor()
         cur.execute(f'CREATE DATABASE IF NOT EXISTS `{STAGING_DATABASE}` '
                     'CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci')
-        cur.execute(f'USE `{STAGING_DATABASE}`')
-        for stmt in _statements(SCHEMA_FILE.read_text(encoding='utf-8')):
-            cur.execute(stmt)
         conn.commit()
     finally:
         conn.close()
 
+    from alembic import command
+    from alembic.config import Config
+    from sqlalchemy import create_engine, inspect
 
-def _statements(sql: str) -> list[str]:
-    lines = [line for line in sql.splitlines() if not line.strip().startswith('--')]
-    return [s.strip() for s in '\n'.join(lines).split(';') if s.strip()]
+    cfg = Config(str(ALEMBIC_INI))
+    cfg.attributes['configure_logger'] = False
+    engine = create_engine(staging_url())
+    try:
+        with engine.begin() as sa_conn:
+            cfg.attributes['connection'] = sa_conn
+            tables = set(inspect(sa_conn).get_table_names())
+            if 'alembic_version' not in tables:
+                baseline = next((rev for table, rev in _BASELINES if table in tables), None)
+                if baseline:
+                    command.stamp(cfg, baseline)
+            command.upgrade(cfg, 'head')
+    finally:
+        engine.dispose()
 
 
 def _dumps(value) -> str | None:

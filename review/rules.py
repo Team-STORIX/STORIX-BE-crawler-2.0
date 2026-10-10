@@ -37,12 +37,26 @@ MAX_LENGTH = {
 
 # enum 필드: (카탈로그 kind, 못 맞추면 판정)
 # platform 은 크롤러 코드가 상수로 넣는 값이라 안 맞으면 크롤러 버그다
+# 비어도 import 를 막지 않는 값. 기존 작품에 붙으면 BE 가 빈 값을 무시하고(연령은 올리기만),
+# 새로 만들어야 하면 BE 가 FAILED("… 값이 비어 있습니다")를 돌려줘 그때 검수 대기로 돌린다 (importer)
+# 리디 웹툰은 연령 공지가 거의 없고 네이버 웹소설은 19세만 표시하며, 시리즈 독자층 분류는 장르가 아니다
+OPTIONAL_ON_UPDATE = {'genre', 'age_classification'}
+INFO = 'INFO'  # 기록만 하고 판정에는 영향 없음
+
 ENUM_FIELDS = {
     'platform': ('platform', REJECTED),
     'genre': ('genre', NEEDS_REVIEW),
     'age_classification': ('ageClassification', NEEDS_REVIEW),
     'works_type': ('worksType', NEEDS_REVIEW),
 }
+
+# 플랫폼 장르 표기 → BE 카탈로그 장르. 카탈로그 이름 · 값과 다르게 쓰는 플랫폼 표기만 둔다
+GENRE_ALIASES = {
+    '무협/사극': '무협',  # 네이버 웹툰 (2026-10 장르 이름 변경)
+}
+# 장르가 아니라 독자층 분류(네이버 시리즈 웹툰). 장르로 쓰지 않고 비운다 — 빈 장르는 BE 가 덮어쓰지 않아
+# 같은 작품의 네이버 웹툰 · 카카오 · 리디 장르가 유지된다. '순정' 을 로맨스로 매핑하면 로판 작품이 로맨스가 된다
+NOT_A_GENRE = {'순정', '소년', '소녀', '청년'}
 
 # 정식 계약 전 작품 (네이버 웹툰 도전만화·베스트도전, 네이버 웹소설 베스트리그·챌린지리그). 받지 않는다
 PRE_CONTRACT_URL = re.compile(r'comic\.naver\.com/(?:challenge|bestChallenge)/|novel\.naver\.com/(?:best|challenge)/')
@@ -120,10 +134,12 @@ def validate_item(item: dict, catalog: EnumCatalog) -> Verdict:
 
     for f, (kind, severity) in ENUM_FIELDS.items():
         raw = _clean(item.get(f))
+        if f == 'genre':
+            raw = '' if raw in NOT_A_GENRE else GENRE_ALIASES.get(raw, raw)
         name = catalog.resolve(kind, raw)
         normalized[f] = name
         if not raw:
-            violations.append(_violation(f, 'MISSING', None, severity))
+            violations.append(_violation(f, 'MISSING', None, INFO if f in OPTIONAL_ON_UPDATE else severity))
         elif name is None:
             violations.append(_violation(f, 'UNKNOWN_ENUM', raw, severity))
 
@@ -147,7 +163,7 @@ def validate_item(item: dict, catalog: EnumCatalog) -> Verdict:
 
     if any(v['severity'] == REJECTED for v in violations):
         status = REJECTED
-    elif violations:
+    elif any(v['severity'] == NEEDS_REVIEW for v in violations):
         status = NEEDS_REVIEW
     else:
         status = AUTO_PASS

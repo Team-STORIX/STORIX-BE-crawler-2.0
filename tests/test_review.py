@@ -212,9 +212,7 @@ def test_invalid_url_is_rejected():
 
 
 @pytest.mark.parametrize('field,value,code', [
-    ('genre', '무협/사극', 'UNKNOWN_ENUM'),
-    ('genre', '', 'MISSING'),
-    ('age_classification', '', 'MISSING'),
+    ('genre', '사극물', 'UNKNOWN_ENUM'),
     ('works_type', '만화책', 'UNKNOWN_ENUM'),
     ('description', '', 'MISSING'),
     ('thumbnail_url', '', 'MISSING'),
@@ -300,7 +298,7 @@ def test_breaker_flags_count_swing():
 class FakeStore:
     def __init__(self, rows):
         self.rows = rows
-        self.imported, self.failed, self.suspected, self.skipped = {}, {}, {}, {}
+        self.imported, self.failed, self.suspected, self.skipped, self.needs_value = {}, {}, {}, {}, {}
 
     def importable(self, limit, run_id=None):
         return self.rows[:limit]
@@ -316,6 +314,9 @@ class FakeStore:
 
     def mark_skipped(self, sid, candidates):
         self.skipped[sid] = candidates
+
+    def mark_create_needs_value(self, sid, error):
+        self.needs_value[sid] = error
 
 
 class FakeClient:
@@ -462,7 +463,7 @@ def test_store_load_review_import_flow(store):
 
     items = [
         item(source_url='https://x/1'),
-        item(source_url='https://x/2', genre='무협/사극'),
+        item(source_url='https://x/2', genre='사극물'),
         item(source_url='https://x/3', works_name=''),
     ]
     result = service.load_run(store, CATALOG, items, 'naver_test')
@@ -482,7 +483,7 @@ def test_store_load_review_import_flow(store):
 
     cur = store._cursor()
     cur.execute('SELECT field, raw_value, decided_value FROM review_decision')
-    assert cur.fetchall() == [{'field': 'genre', 'raw_value': '무협/사극', 'decided_value': 'HISTORICAL'}]
+    assert cur.fetchall() == [{'field': 'genre', 'raw_value': '사극물', 'decided_value': 'HISTORICAL'}]
 
     assert {r['id'] for r in store.importable()} == {sid, store.queue(AUTO_PASS)[0]['id']}
 
@@ -496,7 +497,7 @@ def test_store_load_review_import_flow(store):
 def test_store_recrawl_keeps_human_decision_when_raw_unchanged(store):
     from review import service
 
-    raw = item(source_url='https://x/9', genre='무협/사극')
+    raw = item(source_url='https://x/9', genre='사극물')
     service.load_run(store, CATALOG, [raw], 'naver_test')
     sid = store.queue(NEEDS_REVIEW)[0]['id']
     service.approve(store, CATALOG, sid, {'genre': 'HISTORICAL'}, 'tester')
@@ -734,3 +735,39 @@ def test_suspected_duplicate_goes_back_to_review_and_can_be_attached(store):
 ])
 def test_volume_suffix_removed_from_works_name(name, expected):
     assert validate_item(item(works_name=name), CATALOG).normalized['works_name'] == expected
+
+
+def test_genre_alias_maps_to_catalog():
+    v = validate_item(item(genre='무협/사극'), CATALOG)
+    assert v.normalized['genre'] == 'HISTORICAL'
+    assert not [x for x in v.violations if x['field'] == 'genre']
+
+
+@pytest.mark.parametrize('raw', ['순정', '소년'])
+def test_audience_category_is_not_a_genre(raw):
+    # 네이버 시리즈 웹툰의 독자층 분류. 로맨스 등으로 매핑하지 않고 비운다
+    v = validate_item(item(genre=raw), CATALOG)
+    assert v.normalized['genre'] is None
+    assert [x['code'] for x in v.violations if x['field'] == 'genre'] == ['MISSING']
+    assert v.status == AUTO_PASS  # 빈 장르는 막지 않는다 (새 작품이면 BE 가 FAILED 로 알려줌)
+
+
+@pytest.mark.parametrize('field', ['genre', 'age_classification'])
+def test_missing_genre_or_age_does_not_block_import(field):
+    v = validate_item(item(**{field: ''}), CATALOG)
+    assert v.status == AUTO_PASS
+    assert [(x['code'], x['severity']) for x in v.violations] == [('MISSING', 'INFO')]
+
+
+def test_create_with_empty_value_goes_back_to_review():
+    # 새 작품을 만들어야 하는데 연령이 비면 BE 가 FAILED 로 돌려준다 → 재시도하지 않고 검수 대기
+    store = FakeStore(_rows(3))
+    client = FakeClient(lambda items: [
+        {'stagingId': 1, 'result': 'UPDATED', 'worksId': 10},
+        {'stagingId': 2, 'result': 'FAILED', 'error': 'ageClassification 값이 비어 있습니다'},
+        {'stagingId': 3, 'result': 'FAILED', 'error': 'DB 오류'},
+    ])
+    summary = run_import(store, client)
+    assert store.needs_value == {2: 'ageClassification 값이 비어 있습니다'}
+    assert store.failed == {3: 'DB 오류'}  # 다른 실패는 다음 import 때 재시도
+    assert summary['needs_value'] == 1

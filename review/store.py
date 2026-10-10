@@ -245,6 +245,11 @@ class StagingStore:
         self._append_violation(staging_id, NEEDS_REVIEW, {
             'field': None, 'code': 'SUSPECTED_DUPLICATE', 'value': candidates, 'severity': NEEDS_REVIEW})
 
+    def mark_create_needs_value(self, staging_id: int, error: str) -> None:
+        """기존 작품이 없어 새로 만들어야 하는데 연령 · 장르 등이 비어 BE 가 만들지 않았다 → 검수 대기."""
+        self._append_violation(staging_id, NEEDS_REVIEW, {
+            'field': None, 'code': 'CREATE_NEEDS_VALUE', 'value': error, 'severity': NEEDS_REVIEW})
+
     def mark_skipped(self, staging_id: int, candidates: list[int]) -> None:
         self._append_violation(staging_id, SKIPPED, {
             'field': None, 'code': 'SKIPPED_EXISTING_WEBNOVEL', 'value': candidates, 'severity': SKIPPED})

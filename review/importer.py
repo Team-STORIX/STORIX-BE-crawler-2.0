@@ -14,6 +14,7 @@ BE: POST /internal/v1/works/import (X-Internal-Api-Key)
   다른 import 가 돌고 있으면 409 (요청 전체 거절). 이때는 남은 청크도 보내지 않고 멈춘다
 """
 import logging
+import re
 import urllib.error
 
 from config import OUTPUT_DIR
@@ -38,6 +39,10 @@ def _ensure_file_log() -> None:
 def _label(row: dict) -> str:
     n = row.get('normalized') or {}
     return f'"{n.get("works_name") or ""}" / "{n.get("artist_name") or ""}"'
+
+# BE 가 새 작품 생성에 필요한 값(연령 · 장르 · 소개 · 표지)이 비었을 때 주는 error.
+# 기존 작품에 붙을 땐 빈 값을 무시하므로, 이 FAILED 는 '새로 만들어야 하는데 값이 없음' 이다
+CREATE_NEEDS_VALUE = re.compile(r'(?:ageClassification|genre|description|thumbnailUrl) 값이 비어 있습니다')
 
 IMPORT_PATH = '/internal/v1/works/import'
 CHUNK_SIZE = 100
@@ -131,6 +136,11 @@ def run_import(store: StagingStore, client: BackendClient, limit: int = 500, run
                 store.mark_skipped(r['id'], candidates)
                 summary['skipped'] += 1
                 log.info('stagingId=%s %s candidates=%s %s', r['id'], result, candidates, _label(r))
+            elif result == 'FAILED' and CREATE_NEEDS_VALUE.search((res or {}).get('error') or ''):
+                # 새 작품을 만들어야 하는데 빈 값(연령 · 장르 등)이 있어 BE 가 만들지 않았다 → 사람이 채운다
+                store.mark_create_needs_value(r['id'], res['error'])
+                summary['needs_value'] = summary.get('needs_value', 0) + 1
+                log.info('stagingId=%s %s → 검수 대기 error=%s %s', r['id'], result, res['error'], _label(r))
             else:
                 error = (res or {}).get('error') or 'BE 응답에 결과 없음'
                 store.mark_import_failed(r['id'], error)

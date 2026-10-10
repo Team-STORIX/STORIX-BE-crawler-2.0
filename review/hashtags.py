@@ -4,7 +4,7 @@
 |---|---|---|
 | 작품 장르와 같은 장르 태그 | 뺀다 (장르 필드에 이미 있음) | 무협 작품의 "무협/사극", 판타지 작품의 "판타지" |
 | BE 장르 목록에 따로 있는 장르의 표기 | 작품 장르와 다르면 원래 표기 그대로 남긴다 | 판타지 작품의 "현대판타지"(= 현판) |
-| 장르명으로 끝나는 세부 장르 표기 | 그 장르명으로 합친다 → 작품 장르와 같으면 빠진다 | "오컬트판타지" → 판타지 |
+| 장르명으로 끝나는 세부 장르 표기 | 합치지 않고 그대로 남긴다 | 판타지 작품의 "오컬트판타지" · "학원로맨스" |
 | 플랫폼 이벤트 · 프로모션 · 분류 태그 | 뺀다 | "2025 지상최대공모전", "독자PICK", "소설원작" |
 
 띄어쓰기 · 대소문자만 다른 태그는 처음 나온 것 하나만 남기고, 순서는 원본 순서를 지킨다.
@@ -18,11 +18,7 @@ GENRE_TAG_ALIASES = {
     '현대판타지': '현판',
     '로맨스판타지': '로판',
     '무협/사극': '무협',  # 네이버 웹툰 장르 태그
-    '판무': '무협',
 }
-
-# 장르명으로 끝나지만 세부 장르가 아닌 말
-NOT_SUB_GENRE = {'브로맨스', '리액션'}
 
 # 작품 내용이 아니라 플랫폼이 붙이는 태그 (2026-10-10 네이버 웹툰 연재작 400개 · 수집 결과 80작품 태그 분포에서 추림)
 NOISE_TAGS = {
@@ -43,24 +39,18 @@ def _key(tag: str) -> str:
     return ''.join(tag.split()).casefold()
 
 
-def _genre_of(tag: str, genres: dict[str, str]) -> tuple[str | None, bool]:
-    """태그 → (BE 장르 dbValue, 세부 장르인지). 장르 표기가 아니면 (None, False).
-    genres: 정규화 키 → dbValue."""
+def _genre_of(tag: str, genres: dict[str, str]) -> str | None:
+    """장르 표기 태그 → BE 장르 dbValue. 장르 표기가 아니면 None. genres: 정규화 키 → dbValue.
+    장르명 그대로 · 별칭 · '○○물' 만 장르로 본다. 세부 장르('오컬트판타지')는 장르로 합치지 않는다."""
     k = _key(tag)
     if k in genres:
-        return genres[k], False
+        return genres[k]
     alias = GENRE_TAG_ALIASES.get(''.join(tag.split()))
     if alias:
-        return alias, False
+        return alias
     if k.endswith('물') and k[:-1] in genres:  # 판타지물 · 무협물 · 개그물
-        return genres[k[:-1]], False
-    # 장르명으로 끝나는 세부 표기. 긴 장르명부터 본다 ('로맨스릴러' 는 스릴러)
-    if k in NOT_SUB_GENRE:
-        return None, False
-    for g in sorted(genres, key=len, reverse=True):
-        if k.endswith(g) and len(k) > len(g):
-            return genres[g], True
-    return None, False
+        return genres[k[:-1]]
+    return None
 
 
 def clean_hashtags(tags: list, genre_name: str | None, catalog: EnumCatalog) -> list[str]:
@@ -78,12 +68,8 @@ def clean_hashtags(tags: list, genre_name: str | None, catalog: EnumCatalog) -> 
         tag = raw.strip().lstrip('#').strip()
         if not tag or _key(tag) in NOISE_TAGS or NOISE_PATTERN.match(''.join(tag.split())):
             continue
-        genre, sub = _genre_of(tag, genres)
-        if genre:
-            if genre == work_genre:
-                continue
-            if sub:
-                tag = genre
+        if work_genre and _genre_of(tag, genres) == work_genre:
+            continue
         if _key(tag) in seen:
             continue
         seen.add(_key(tag))

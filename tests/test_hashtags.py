@@ -23,8 +23,8 @@ def clean(tags, genre):
 
 def test_sinbi_apartment_example():
     # 이슈 #27 예: 신비아파트(판타지)
-    tags = ['애니메이션', '현대판타지', '오컬트판타지', '이능력', '우정', '공포', '괴담']
-    assert clean(tags, 'FANTASY') == ['애니메이션', '현대판타지', '이능력', '우정', '공포', '괴담']
+    tags = ['애니메이션', '현대판타지', '오컬트판타지', '판타지', '이능력', '우정', '공포', '괴담']
+    assert clean(tags, 'FANTASY') == ['애니메이션', '현대판타지', '오컬트판타지', '이능력', '우정', '공포', '괴담']
 
 
 def test_same_genre_tag_is_removed():
@@ -38,24 +38,18 @@ def test_same_genre_tag_is_removed():
     ('현대판타지', 'FANTASY', ['현대판타지']),  # 현판은 따로 있는 장르 → 표기 그대로
     ('로맨스판타지', 'FANTASY', ['로맨스판타지']),
     ('액션', 'FANTASY', ['액션']),               # 다른 장르 태그는 남긴다
-    ('오컬트판타지', 'MODERN_FANTASY', ['판타지']),  # 세부 표기 → 장르명으로 합침
-    ('학원로맨스', 'FANTASY', ['로맨스']),
-    ('성장드라마', 'DRAMA', []),
+    ('오컬트판타지', 'FANTASY', ['오컬트판타지']),  # 세부 장르는 합치지 않는다
+    ('학원로맨스', 'ROMANCE', ['학원로맨스']),
+    ('성장드라마', 'DRAMA', ['성장드라마']),
     ('판타지물', 'FANTASY', []),
-    ('정통무협', 'HISTORICAL', []),
-    ('로맨스릴러', 'THRILLER', []),
-    ('브로맨스', 'ROMANCE', ['브로맨스']),       # 장르명으로 끝나도 세부 장르가 아님
+    ('무협물', 'HISTORICAL', []),
 ])
 def test_genre_tags(tag, genre, expected):
     assert clean([tag], genre) == expected
 
 
-def test_sub_genres_merge_into_one():
-    assert clean(['학원로맨스', '청춘로맨스', '회귀'], 'FANTASY') == ['로맨스', '회귀']
-
-
 def test_no_work_genre_keeps_genre_tags():
-    assert clean(['판타지', '오컬트판타지'], None) == ['판타지']
+    assert clean(['판타지', '오컬트판타지'], None) == ['판타지', '오컬트판타지']
 
 
 @pytest.mark.parametrize('tag', [
@@ -79,4 +73,4 @@ def test_validate_item_cleans_hashtags():
         'source_url': 'https://comic.naver.com/webtoon/list?titleId=1',
         'hashtags': ['오컬트판타지', '판타지', '공포', '2025 지상최대공모전'],
     }, CATALOG)
-    assert v.normalized['hashtags'] == ['공포']
+    assert v.normalized['hashtags'] == ['오컬트판타지', '공포']

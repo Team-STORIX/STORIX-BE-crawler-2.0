@@ -3,16 +3,18 @@
 서비스 DB 와 같은 MySQL 인스턴스지만 DB 를 분리한다(STAGING_DATABASE_NAME, 기본 storix_staging_{STORIX_ENV}).
 BE 의 ddl-auto / Flyway baseline 과 섞이지 않게 하려는 것이다.
 """
+import hashlib
 import json
 import os
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 import mysql.connector
 
 from config import MYSQL_CONFIG
 from review import env as storix_env
+from review.landing import canonical_landing_url, platform_work_key
 from review.rules import AUTO_PASS, NEEDS_REVIEW, REJECTED, Verdict
 
 APPROVED = 'APPROVED'
@@ -23,6 +25,21 @@ IMPORTABLE = (AUTO_PASS, APPROVED)
 # import 상태가 환경마다 달라 dev / prod 를 다른 DB 에 쌓는다 (review/env.py)
 STAGING_DATABASE = storix_env.staging_database(storix_env.target())
 SCHEMA_FILE = Path(__file__).with_name('schema.sql')
+
+# 수집 이력 (works_source) 상태. 나머지는 crawler/report.py 상태 코드를 그대로 쓴다
+SOURCE_SUCCESS = 'SUCCESS'
+SOURCE_RELINKED = 'RELINKED'   # 링크 복구로 새 링크를 찾았다. 새 링크는 다음 적재 때 따로 한 행이 된다
+# 링크가 이만큼 연달아 깨지면 검수 대기로 돌려 사람이 본다
+MAX_SOURCE_FAILS = 3
+# 수집 내용 비교에서 빼는 값. 수집할 때마다 바뀌지만 작품 정보가 아니다
+VOLATILE_KEYS = ('crawled_at', 'mode', 'schema_version')
+
+
+def content_fingerprint(item: dict) -> str:
+    """수집 내용 해시 (제목 · 작가 · 연령 · 장르 · 소개 · 썸네일 · 해시태그 등). 수집 시각 · 모드는 뺀다."""
+    body = {k: v for k, v in item.items() if k not in VOLATILE_KEYS}
+    return hashlib.sha256(json.dumps(body, ensure_ascii=False, sort_keys=True).encode('utf-8')).hexdigest()
+
 
 RAW_COLUMNS = (
     'platform', 'works_name', 'artist_name', 'author', 'illustrator', 'original_author',
@@ -109,13 +126,17 @@ class StagingStore:
             source_url = f'missing:{run_id}:{uuid.uuid4().hex}'
 
         raw_json = _dumps(item)
+        fingerprint = content_fingerprint(item)
+        if verdict.status != REJECTED:  # 작품을 특정 못 한 행은 이력에 남기지 않는다
+            self._record_source_success(cur, item, verdict.normalized, fingerprint)
         cur.execute('SELECT id, raw FROM works_staging WHERE source_url = %s', (source_url,))
         existing = cur.fetchone()
 
-        # raw 가 그대로면 판정·import 상태를 건드리지 않는다.
-        # 재크롤링할 때마다 사람 판정이 날아가거나 같은 작품을 또 import 하지 않게
-        if existing and json.loads(existing['raw']) == item:
-            cur.execute('UPDATE works_staging SET run_id = %s WHERE id = %s', (run_id, existing['id']))
+        # 수집 내용이 그대로면(수집 시각만 다름) 판정·import 상태를 건드리지 않는다.
+        # 재크롤링할 때마다 사람 판정이 날아가거나 같은 작품을 BE 로 또 보내지 않게 (#28 변경 감지)
+        if existing and content_fingerprint(json.loads(existing['raw'])) == fingerprint:
+            cur.execute('UPDATE works_staging SET run_id = %s, raw = %s WHERE id = %s',
+                        (run_id, raw_json, existing['id']))
             return
 
         raw_values = [_raw_text(item.get(c)) for c in RAW_COLUMNS]
@@ -139,6 +160,104 @@ class StagingStore:
                 f'VALUES (%s, {marks}, %s, %s, %s, %s, %s, %s)',
                 (*values, source_url),
             )
+
+    # ------------------------------------------------------------------ works_source (#28)
+
+    def _record_source_success(self, cur, item: dict, normalized: dict, fingerprint: str) -> None:
+        """수집에 성공한 작품의 이력을 갱신한다. 제목은 검색어 목록에 더한다 (제목이 바뀌어도 옛 제목으로 찾게)."""
+        url = normalized.get('source_url') or ''
+        key = platform_work_key(url)
+        if not key:
+            return
+        title = (normalized.get('works_name') or '')[:255]
+        cur.execute('SELECT id, search_keywords FROM works_source WHERE platform = %s AND platform_work_id = %s', key)
+        row = cur.fetchone()
+        keywords = json.loads(row['search_keywords']) if row and row['search_keywords'] else []
+        if title and title not in keywords:
+            keywords.append(title)
+        values = (url, title or None, (normalized.get('artist_name') or '')[:255] or None,
+                  (item.get('works_type') or '').strip() or None,  # 웹툰 · 웹소설 (검색 후보 고를 때 그대로 씀)
+                  _dumps(keywords), fingerprint)
+        if row:
+            cur.execute(
+                'UPDATE works_source SET source_url = %s, title_snapshot = %s, artist_snapshot = %s, works_type = %s, '
+                'search_keywords = %s, fingerprint_hash = %s, last_crawled_at = UTC_TIMESTAMP(), last_success_at = UTC_TIMESTAMP(), '
+                'crawl_status = %s, crawl_fail_count = 0, last_error = NULL, relinked_to = NULL WHERE id = %s',
+                (*values, SOURCE_SUCCESS, row['id']))
+        else:
+            cur.execute(
+                'INSERT INTO works_source (source_url, title_snapshot, artist_snapshot, works_type, search_keywords, '
+                'fingerprint_hash, platform, platform_work_id, last_crawled_at, last_success_at, crawl_status) '
+                'VALUES (%s, %s, %s, %s, %s, %s, %s, %s, UTC_TIMESTAMP(), UTC_TIMESTAMP(), %s)',
+                (*values, *key, SOURCE_SUCCESS))
+
+    def record_source_failure(self, url: str, status: str, error: str = '', at: datetime | None = None) -> int | None:
+        """수집 실패를 이력에 남기고 연속 실패 횟수를 돌려준다. 이력에 없던 링크도 행을 만든다.
+        at 이 마지막 수집 시각보다 이르면 이미 반영한 실패라 세지 않는다 (같은 리포트를 다시 읽어도 한 번만).
+        MAX_SOURCE_FAILS 번 이상 실패하면 그 링크의 staging 행을 검수 대기로 돌린다."""
+        url = canonical_landing_url(url)
+        key = platform_work_key(url)
+        if not key:
+            return None
+        # 이력 시각은 UTC (리포트 시각이 UTC)
+        at = (at or datetime.now(timezone.utc)).astimezone(timezone.utc).replace(tzinfo=None)
+        cur = self._cursor()
+        cur.execute('SELECT id, last_crawled_at, crawl_fail_count FROM works_source '
+                    'WHERE platform = %s AND platform_work_id = %s', key)
+        row = cur.fetchone()
+        if row and row['last_crawled_at'] and row['last_crawled_at'] >= at.replace(microsecond=0):
+            return row['crawl_fail_count']
+        if row:
+            cur.execute('UPDATE works_source SET last_crawled_at = %s, crawl_status = %s, '
+                        'crawl_fail_count = crawl_fail_count + 1, last_error = %s WHERE id = %s',
+                        (at, status, error[:2000] or None, row['id']))
+            fails = row['crawl_fail_count'] + 1
+        else:
+            cur.execute('INSERT INTO works_source (platform, platform_work_id, source_url, last_crawled_at, '
+                        'crawl_status, crawl_fail_count, last_error) VALUES (%s, %s, %s, %s, %s, 1, %s)',
+                        (*key, url, at, status, error[:2000] or None))
+            fails = 1
+        self._conn.commit()
+        if fails >= MAX_SOURCE_FAILS:
+            self._link_broken_to_review(url, status, fails)
+        return fails
+
+    def _link_broken_to_review(self, url: str, status: str, fails: int) -> None:
+        cur = self._cursor()
+        cur.execute('SELECT id, status FROM works_staging WHERE source_url = %s', (url,))
+        row = cur.fetchone()
+        if row and row['status'] not in (NEEDS_REVIEW, REJECTED):
+            self._append_violation(row['id'], NEEDS_REVIEW, {
+                'field': 'source_url', 'code': 'LINK_BROKEN', 'value': f'{status} {fails}회', 'severity': NEEDS_REVIEW})
+
+    def mark_source_relinked(self, url: str, new_url: str) -> None:
+        key = platform_work_key(canonical_landing_url(url))
+        if not key:
+            return
+        cur = self._cursor()
+        cur.execute('UPDATE works_source SET crawl_status = %s, relinked_to = %s, last_crawled_at = UTC_TIMESTAMP() '
+                    'WHERE platform = %s AND platform_work_id = %s', (SOURCE_RELINKED, new_url, *key))
+        self._conn.commit()
+
+    def broken_sources(self, platform: str | None = None, limit: int = 100) -> list[dict]:
+        """링크 복구 대상: 마지막 수집이 실패한 작품. 실패가 적은(최근 깨진) 것부터."""
+        where, params = 'crawl_status NOT IN (%s, %s)', [SOURCE_SUCCESS, SOURCE_RELINKED]
+        if platform:
+            where += ' AND platform = %s'
+            params.append(platform)
+        cur = self._cursor()
+        cur.execute(f'SELECT * FROM works_source WHERE {where} ORDER BY crawl_fail_count, id LIMIT %s',
+                    (*params, limit))
+        return [_loads(r, 'search_keywords') for r in cur.fetchall()]
+
+    def get_source(self, url: str) -> dict | None:
+        key = platform_work_key(canonical_landing_url(url))
+        if not key:
+            return None
+        cur = self._cursor()
+        cur.execute('SELECT * FROM works_source WHERE platform = %s AND platform_work_id = %s', key)
+        row = cur.fetchone()
+        return _loads(row, 'search_keywords') if row else None
 
     def list_runs(self, limit: int = 20) -> list[dict]:
         cur = self._cursor()
@@ -229,6 +348,10 @@ class StagingStore:
         cur = self._cursor()
         cur.execute('UPDATE works_staging SET status = %s, imported_works_id = %s, import_error = NULL '
                     'WHERE id = %s', (IMPORTED, works_id, staging_id))
+        if works_id:
+            # 수집 이력에 BE 작품을 연결한다
+            cur.execute('UPDATE works_source ws JOIN works_staging s ON s.source_url = ws.source_url '
+                        'SET ws.works_id = %s WHERE s.id = %s', (works_id, staging_id))
         self._conn.commit()
 
     def _append_violation(self, staging_id: int, status: str, violation: dict) -> None:

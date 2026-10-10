@@ -142,6 +142,18 @@ python cli.py stage import --env dev --run-id <런>
 
 - 연령 · 장르가 비어도 막지 않습니다. 기존 작품에 붙으면 BE 가 빈 값을 무시하고, 새로 만들어야 하면 BE 가 거절해 그 건만 검수 대기가 됩니다(한 실행 안에서 마지막에 한 번 더 보내 다른 플랫폼 행이 만든 작품에 붙임)
 - 검수 대기 처리는 검수 API(`uvicorn review.app:app --port 8200`)의 `GET /review/queue` · `POST /review/{id}/approve`(`overrides`, 기존 작품에 붙일 `target_works_id`) · `POST /review/{id}/reject` 로 합니다
+- 수집 시각만 다르고 내용이 같으면 판정 · import 상태를 그대로 둬 BE 로 다시 보내지 않습니다
+
+**작품별 수집 이력 · 링크 복구**
+
+`stage load` 가 플랫폼 작품마다 수집 이력(staging DB `works_source`)을 남깁니다: 링크 · 연결된 BE 작품 ID · 제목 · 작가 · 검색어(지금까지 수집된 제목들) · 마지막 수집 · 성공 시각 · 상태 · 연속 실패 횟수. 같은 런의 수집 리포트(`<모드>_report.json`)에 있는 상세 수집 실패(`DETAIL_NOT_FOUND`)도 같이 기록하고, 3번 연달아 실패하면 그 작품을 검수 대기(`LINK_BROKEN`)로 돌립니다.
+
+```bash
+# 마지막 수집이 실패한 작품의 링크를 다시 찾는다 (크롬 사용)
+#   옛 링크를 한 번 더 열고, 안 되면 저장된 검색어로 검색해 제목 · 작가 · 작품 유형이 맞는 후보를 고른다
+python cli.py stage recover --env dev [--platform RIDIBOOKS] [--limit 50]
+python cli.py stage load --env dev --input 'output/2026-10-10/*_recover.jsonl' --source recover
+```
 
 **스케줄러**
 ```bash
@@ -378,7 +390,7 @@ works_platform: { works_id: 1, platform: "NAVER_WEBTOON" }
 │
 ├── review/                         # 검수 파이프라인 (크롤러는 서비스 DB 에 직접 쓰지 않음)
 │   ├── env.py                      # BE 대상 dev · prod (주소 · 내부 API 키 · staging DB)
-│   ├── schema.sql · store.py       # staging DB (staging_run · works_staging · review_decision)
+│   ├── schema.sql · store.py       # staging DB (staging_run · works_staging · review_decision · works_source)
 │   ├── catalog.py                  # BE enum 카탈로그 (장르 · 연령 · 유형 · 플랫폼)
 │   ├── rules.py                    # Layer 1 규칙 검사 · Layer 1.5 런 이상 차단
 │   ├── artists.py · landing.py     # 작가명 · 작품 링크 정규화

@@ -717,3 +717,20 @@ def test_suspected_duplicate_goes_back_to_review_and_can_be_attached(store):
     store.mark_skipped(sid, [9066])
     assert store.get(sid)['status'] == 'SKIPPED'
     assert store.importable() == []
+
+
+@pytest.mark.parametrize('name,expected', [
+    ('테이밍(The Taming) 2권', '테이밍(The Taming)'),
+    ('가짜 성녀는 퇴장을 기다린다 3~5권', '가짜 성녀는 퇴장을 기다린다'),
+    ('오르카 맨션 (1~3권)', '오르카 맨션'),
+    # 시즌 · 제목 속 숫자 · '권' 없는 범위(네이버 웹툰 시즌)는 그대로
+    ('사이드킥 2~3', '사이드킥 2~3'),
+    ('하이브 1~2', '하이브 1~2'),
+    ('레사 시즌2~3', '레사 시즌2~3'),
+    ('닥터 프로스트 시즌 1~2', '닥터 프로스트 시즌 1~2'),
+    ('갬블링 1945', '갬블링 1945'),
+    ('12월', '12월'),
+    ('1권', '1권'),  # 전부 지워지면 원래 이름을 둔다
+])
+def test_volume_suffix_removed_from_works_name(name, expected):
+    assert validate_item(item(works_name=name), CATALOG).normalized['works_name'] == expected

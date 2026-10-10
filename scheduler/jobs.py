@@ -6,6 +6,17 @@ from config import OUTPUT_DIR
 log = logging.getLogger(__name__)
 
 
+def job_notion_requests():
+    """노션 작품 추가 요청 처리 (#66). 수집 → 검수 적재 → BE 반영 → 노션 표시."""
+    log.info('[job] 노션 작품 추가 요청 처리 시작')
+    try:
+        from crawler.modes.requests import run_requests
+        from review import env as storix_env
+        log.info('[job] 노션 요청 처리 완료 %s', run_requests(storix_env.target()))
+    except Exception as e:
+        log.error('[job] 노션 요청 처리 실패: %s', e, exc_info=True)
+
+
 def job_initial_naver():
     log.info('[job] 네이버 웹툰 initial 크롤링 시작')
     try:

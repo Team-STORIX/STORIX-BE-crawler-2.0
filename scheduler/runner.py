@@ -7,6 +7,7 @@ from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from scheduler.jobs import (
+    job_notion_requests,
     job_initial_naver,
     job_initial_kakao,
     job_initial_ridibooks,
@@ -27,6 +28,12 @@ log = logging.getLogger(__name__)
 TZ = os.getenv('SCHED_TIMEZONE', 'Asia/Seoul')
 
 SCHEDULE = [
+    {
+        # 노션 랜딩 폼 요청은 하루 한 번 (#66). 노션 웹훅은 공개 주소가 생기면 검토
+        'id': 'notion_requests',
+        'func': job_notion_requests,
+        'trigger': CronTrigger(hour=int(os.getenv('SCHED_NOTION_REQUESTS_HOUR', '10')), minute=0, timezone=TZ),
+    },
     {
         'id': 'initial_naver',
         'func': job_initial_naver,

@@ -75,6 +75,8 @@ GENRE_MAP = {
 # ---- 리디북스 설정 ----
 RIDIBOOKS_COOKIE_FILE = SESSIONS_DIR / "ridibooks_cookies.pkl"
 BOMTOON_COOKIE_FILE = SESSIONS_DIR / "bomtoon_cookies.pkl"
+LEZHIN_COOKIE_FILE = SESSIONS_DIR / "lezhin_cookies.pkl"
+MRBLUE_COOKIE_FILE = SESSIONS_DIR / "mrblue_cookies.pkl"
 RIDIBOOKS_LOGIN_URL = "https://ridibooks.com/account/login"
 
 # (base_url, 추가 파라미터, 레이블, 최대 수집 수, 장르 힌트, 작품 유형)

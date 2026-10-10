@@ -8,7 +8,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, InvalidSessionIdException
 from urllib3.exceptions import ReadTimeoutError as _DriverTimeoutError
 
-from .base_crawler import BaseCrawler, SessionExpiredError
+from .base_crawler import BaseCrawler, SessionExpiredError, pick_candidates
 from config import RIDIBOOKS_COOKIE_FILE, RIDIBOOKS_LOGIN_URL, RIDIBOOKS_ID, RIDIBOOKS_PW
 
 # 리디 브레드크럼 카테고리 텍스트 → 대표 장르(DB 표준값).
@@ -163,12 +163,12 @@ class RidibooksCrawler(BaseCrawler):
         print("❌ [리디북스] 로그인 실패.")
         return False
 
-    def search_url_by_title(self, title: str) -> str | None:
-        """제목으로 리디북스 작품 URL 검색. 정확·부분·유사(≥임계값) 매칭 반환 (불일치 시 None).
+    def search_candidates(self, title: str) -> list[dict]:
+        """리디 검색 결과 → 후보 목록 (일치도 순, 카드에 보이는 유형 힌트 포함).
 
         검색 결과 카드는 emotion 해시 클래스라 안정적인 셀렉터가 없어, `/books/<id>`
-        링크(속성 기반)를 훑어 (책ID, 화면표시 제목) 쌍을 모아 매칭한다. 같은 책에
-        썸네일·제목 두 앵커가 걸리므로 책ID로 합쳐 텍스트가 있는 쪽을 제목으로 쓴다.
+        링크(속성 기반)를 훑어 책ID 별로 (표시 제목, 카드 텍스트)를 모은다. 같은 책에
+        썸네일 · 제목 두 앵커가 걸리므로 책ID로 합쳐 텍스트가 있는 쪽을 제목으로 쓴다.
         """
         import urllib.parse
 
@@ -179,54 +179,40 @@ class RidibooksCrawler(BaseCrawler):
             )
         except TimeoutException:
             print(f"   ⚠️  '{title}' 검색 결과 로딩 실패 — 스킵")
-            return None
+            return []
         time.sleep(1)
 
-        norm_title = self._norm_title(title)
+        cards = self.driver.execute_script("""
+            const out = {};
+            for (const a of document.querySelectorAll("a[href*='/books/']")) {
+                const id = (a.href.match(/\\/books\\/(\\d+)/) || [])[1];
+                if (!id) continue;
+                const text = ((a.getAttribute('title') || a.innerText || '').split('\\n')[0] || '').trim();
+                let card = a;
+                for (let i = 0; i < 6 && card.parentElement; i++) {
+                    card = card.parentElement;
+                    if (card.innerText.length > 40) break;
+                }
+                const prev = out[id];
+                if (!prev) out[id] = {text, card: card.innerText, order: Object.keys(out).length};
+                else if (!prev.text && text) prev.text = text;
+            }
+            return Object.entries(out).sort((a, b) => a[1].order - b[1].order)
+                .map(([id, v]) => [id, v.text, v.card]);
+        """) or []
+        raw = [(f"https://ridibooks.com/books/{book_id}", text, ridi_type_hint(card))
+               for book_id, text, card in cards if text]
+        return self.rank_candidates(title, raw)
 
-        # 책ID → (href, 표시 제목). 검색 결과 순서(가장 위)가 먼저 들어오도록 유지.
-        by_id: dict[str, tuple[str, str]] = {}
-        for el in self.driver.find_elements(By.CSS_SELECTOR, "a[href*='/books/']"):
-            href = el.get_attribute('href') or ''
-            m = re.search(r'/books/(\d+)', href)
-            if not m:
-                continue
-            book_id = m.group(1)
-            clean_url = f"https://ridibooks.com/books/{book_id}"
-            text = (el.get_attribute('title') or el.text or '').strip().split('\n')[0].strip()
-            prev = by_id.get(book_id)
-            # 텍스트가 있는 앵커(제목 링크)를 우선 채택, 없으면 URL만이라도 보존
-            if prev is None or (not prev[1] and text):
-                by_id[book_id] = (clean_url, text)
-
-        exact = partial = fuzzy = None
-        fuzzy_score = 0.0
-        for clean_url, text in by_id.values():
-            if not text:
-                continue
-            norm_text = self._norm_title(text)
-            if norm_text == norm_title:
-                exact = (clean_url, text)
-                break
-            if partial is None and (norm_title in norm_text or norm_text in norm_title):
-                partial = (clean_url, text)
-            ratio = self._title_ratio(norm_title, norm_text)
-            if ratio >= self.TITLE_FUZZY_THRESHOLD and ratio > fuzzy_score:
-                fuzzy_score = ratio
-                fuzzy = (clean_url, text)
-
-        if exact:
-            print(f"   ↳ 검색 결과 (정확): {exact[0]} [{exact[1]}]")
-            return exact[0]
-        if partial:
-            print(f"   ↳ 검색 결과 (부분): {partial[0]} [{partial[1]}]")
-            return partial[0]
-        if fuzzy:
-            print(f"   ↳ 검색 결과 (유사 {fuzzy_score:.0%}): {fuzzy[0]} [{fuzzy[1]}]")
-            return fuzzy[0]
-
-        print(f"   ⚠️  '{title}'과 일치하는 검색 결과 없음 — 스킵")
-        return None
+    def search_url_by_title(self, title: str, works_type: str | None = None) -> str | None:
+        """제목으로 리디북스 작품 URL 검색. 원하는 유형이 있으면 그 유형 후보를 먼저 고른다."""
+        picked = pick_candidates(self.search_candidates(title), works_type)
+        if not picked:
+            print(f"   ⚠️  '{title}'과 일치하는 검색 결과 없음 — 스킵")
+            return None
+        c = picked[0]
+        print(f"   ↳ 검색 결과 ({c['kind']}): {c['url']} [{c['text']}]")
+        return c['url']
 
     def get_category_urls(self, base_url: str, extra_params: str, max_count: int) -> list[str]:
         """카테고리 베스트셀러 URL 목록 수집 (스크롤 + 더보기 버튼)."""
@@ -632,3 +618,17 @@ def parse_ridi_age(src: str, book_id: str) -> str:
         if f'{n}세 이용가' in titles or f'{n}세이용가' in titles:
             return f'{n}세 이용가'
     return ''
+
+
+def ridi_type_hint(card_text: str) -> str | None:
+    """검색 결과 카드 글자 → 유형 힌트. '[e북] 마도조사 | … 해외 소설' · '마도조사 | … BL 웹툰' 형식.
+    e북은 단행본, 웹툰 · 만화는 웹툰, 소설은 웹소설. 판단이 안 서면 None (상세에서 다시 판정)."""
+    t = card_text or ''
+    if '[e북]' in t:
+        return '단행본'
+    head = ' '.join(t.split('\n')[:3])  # 제목 · 작가/출판사/카테고리 · 권수 줄만 본다 (소개글 제외)
+    if '웹툰' in head or '만화' in head:
+        return '웹툰'
+    if '소설' in head:
+        return '웹소설'
+    return None

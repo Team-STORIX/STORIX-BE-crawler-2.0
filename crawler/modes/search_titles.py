@@ -9,7 +9,7 @@ from pathlib import Path
 from selenium.common.exceptions import InvalidSessionIdException, WebDriverException
 from urllib3.exceptions import ReadTimeoutError as _DriverTimeoutError
 
-from modules.crawler.base_crawler import SessionExpiredError
+from modules.crawler.base_crawler import SessionExpiredError, is_edition, pick_candidates
 from modules.crawler.naver_crawler import NaverCrawler
 from modules.crawler.naver_novel_crawler import NaverNovelCrawler
 from modules.crawler.naver_series_crawler import NaverSeriesCrawler
@@ -155,6 +155,54 @@ def _found_slots(
     return {(t, ty) for ty in types}
 
 
+# 원하는 유형의 작품을 찾기까지 상세를 열어 볼 후보 수
+MAX_TYPE_TRIES = 3
+
+
+def _crawl_for_type(crawler, candidates: list[dict], ttype: str | None, crawled: dict,
+                    query: str = '') -> list[dict]:
+    """원하는 유형(웹툰 · 웹소설 · 단행본 · None)의 본편과 판본(19세 완전판 · 개정판)을 수집해 돌려준다.
+
+    검색 화면의 유형 힌트로 먼저 거르고(pick_candidates), 상세에서 판정한 works_type 이
+    원하는 유형과 다르면 다음 후보를 연다. 단행본 · 유형 미지정은 상세 유형을 따지지 않는다.
+    판본은 BE 가 다른 작품으로 판정하므로 본편과 따로 담는다. 외전은 후보 단계에서 이미 빠져 있다.
+    """
+    want = ttype if ttype in ('웹툰', '웹소설') else None
+    picked = pick_candidates(candidates, ttype)
+    if not is_edition(query):
+        mains = [c for c in picked if not is_edition(c['text'])]
+        editions = [c for c in picked if is_edition(c['text'])]
+    else:
+        mains, editions = picked, []
+
+    def open_detail(c):
+        if c['url'] not in crawled:
+            print(f"   ↳ 후보 ({c['kind']}{', ' + c['type_hint'] if c['type_hint'] else ''}): {c['url']} [{c['text']}]")
+            crawled[c['url']] = crawler.crawl_detail_with_retry(c['url'])
+        result = crawled[c['url']]
+        if not result:
+            return None
+        got = (result.get('works_type') or '').strip()
+        if want and got != want:
+            print(f'   ↳ {got or "유형 없음"} 이라 {want} 아님 — 다음 후보')
+            return None
+        return result
+
+    results = []
+    for c in mains[:MAX_TYPE_TRIES]:
+        r = open_detail(c)
+        if r:
+            results.append(r)
+            break
+    for c in editions[:MAX_TYPE_TRIES]:
+        r = open_detail(c)
+        if r:
+            results.append(r)
+    if not results:
+        print(f'  ⚠️  {ttype or "작품"} 후보 없음 — 스킵')
+    return results
+
+
 def _search_and_write(
     wanted: dict[str, set[str | None]],
     platform: str,
@@ -182,21 +230,25 @@ def _search_and_write(
                 print(f'\n  [{i}/{len(wanted)}] "{title}" 검색 중...')
 
                 try:
-                    url = crawler.search_url_by_title(title)
-                    if not url:
+                    candidates = crawler.search_candidates(title)
+                    if not candidates:
                         print(f'  ⚠️  검색 결과 없음 — 스킵')
                         skip_count += 1
                         continue
 
-                    result = crawler.crawl_detail_with_retry(url)
-                    if not result:
-                        print(f'  ❌ 크롤링 실패')
-                        fail_count += 1
-                        continue
-
-                    writer.write(result)
-                    found.update(_found_slots(title, types, result))
-                    ok_count += 1
+                    crawled: dict[str, dict | None] = {}  # 같은 후보를 유형마다 다시 열지 않는다
+                    written: set[str] = set()  # 다른 유형 섹션에서 이미 저장한 같은 작품은 다시 안 쓴다
+                    for ttype in sorted(types, key=lambda t: t or ''):
+                        results = _crawl_for_type(crawler, candidates, ttype, crawled, title)
+                        if not results:
+                            skip_count += 1
+                        for result in results:
+                            if result['source_url'] in written:
+                                continue
+                            written.add(result['source_url'])
+                            writer.write(result)
+                            found.update(_found_slots(title, types, result))
+                            ok_count += 1
                 except _DRIVER_ERRORS as e:
                     # 제목 검색 단계의 드라이버 다운. 재시작 후 다음 작품 계속.
                     print(f'  ♻️  드라이버 이상 — 재시작 후 계속: {e}')

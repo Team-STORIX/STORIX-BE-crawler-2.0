@@ -29,3 +29,8 @@ def test_parse_kakao_title(og, doc, big, expected):
 ])
 def test_clean_kakao_synopsis(raw, expected):
     assert clean_kakao_synopsis(raw) == expected
+
+
+def test_kakao_title_keeps_edition_label():
+    # [19세 완전판] 을 떼면 BE 가 본편과 같은 작품으로 보고 본편을 덮어쓴다
+    assert parse_kakao_title('넷카마 펀치!!! 외전2 [19세 완전판]', '', '') == '넷카마 펀치!!! 외전2 [19세 완전판]'

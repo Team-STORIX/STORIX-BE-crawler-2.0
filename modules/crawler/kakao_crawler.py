@@ -8,7 +8,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, InvalidSessionIdException
 from urllib3.exceptions import ReadTimeoutError as _DriverTimeoutError
 
-from .base_crawler import BaseCrawler, SessionExpiredError
+from .base_crawler import BaseCrawler, SessionExpiredError, pick_candidates
 from config import KAKAO_COOKIE_FILE, KAKAO_LOGIN_URL, KAKAO_ID, KAKAO_PW
 
 class KakaoCrawler(BaseCrawler):
@@ -148,59 +148,33 @@ class KakaoCrawler(BaseCrawler):
         print("❌ [카카오] 로그인 실패. 쿠키를 저장하지 않습니다.")
         return False
 
-    def search_url_by_title(self, title: str) -> str | None:
-        """제목으로 카카오페이지 작품 URL 검색. 정확·부분·유사(≥임계값) 매칭 반환 (불일치 시 None)."""
+    def search_candidates(self, title: str) -> list[dict]:
+        """카카오페이지 검색 결과 → 후보 목록 (일치도 순, 카드에 보이는 유형 힌트 포함)."""
         import urllib.parse
 
         self.driver.get(
             f"https://page.kakao.com/search/result?keyword={urllib.parse.quote(title)}&tab=content"
         )
         time.sleep(3)
-
-        norm_title = self._norm_title(title)
-
-        candidates = self.driver.find_elements(By.XPATH, "//a[contains(@href,'/content/')]")
-
-        exact = None
-        partial = None
-        fuzzy = None
-        fuzzy_score = 0.0
-
-        for el in candidates:
+        raw = []
+        for el in self.driver.find_elements(By.XPATH, "//a[contains(@href,'/content/')]"):
             href = el.get_attribute('href') or ''
             if '/content/' not in href:
                 continue
-            text = (el.get_attribute('title') or el.text or '').strip()
-            if not text:
-                continue
-            norm_text = self._norm_title(text)
+            name, type_hint = parse_kakao_search_card(el.get_attribute('title') or el.text or '')
+            if name:
+                raw.append((href, name, type_hint))
+        return self.rank_candidates(title, raw)
 
-            if norm_text == norm_title:
-                exact = (href, text)
-                break
-
-            if partial is None and (norm_title in norm_text or norm_text in norm_title):
-                partial = (href, text)
-
-            ratio = self._title_ratio(norm_title, norm_text)
-            if ratio >= self.TITLE_FUZZY_THRESHOLD and ratio > fuzzy_score:
-                fuzzy_score = ratio
-                fuzzy = (href, text)
-
-        if exact:
-            print(f"   ↳ 검색 결과 (정확): {exact[0]} [{exact[1]}]")
-            return exact[0]
-
-        if partial:
-            print(f"   ↳ 검색 결과 (부분): {partial[0]} [{partial[1]}]")
-            return partial[0]
-
-        if fuzzy:
-            print(f"   ↳ 검색 결과 (유사 {fuzzy_score:.0%}): {fuzzy[0]} [{fuzzy[1]}]")
-            return fuzzy[0]
-
-        print(f"   ⚠️  '{title}'과 일치하는 검색 결과 없음 — 스킵")
-        return None
+    def search_url_by_title(self, title: str, works_type: str | None = None) -> str | None:
+        """제목으로 카카오페이지 작품 URL 검색. 원하는 유형이 있으면 그 유형 후보를 먼저 고른다."""
+        picked = pick_candidates(self.search_candidates(title), works_type)
+        if not picked:
+            print(f"   ⚠️  '{title}'과 일치하는 검색 결과 없음 — 스킵")
+            return None
+        c = picked[0]
+        print(f"   ↳ 검색 결과 ({c['kind']}): {c['url']} [{c['text']}]")
+        return c['url']
 
     # 무한 스크롤 (개수 기반 + Wiggle)
     def load_all_items(self, item_xpath):
@@ -459,7 +433,8 @@ class KakaoCrawler(BaseCrawler):
 
 
 _KAKAO_SITE_NAMES = {'카카오페이지', '콘텐츠홈', ''}  # 화면이 그려지기 전 기본값
-_KAKAO_TITLE_LABELS = re.compile(r'\s*\[(완결|독점|19세 완전판|휴재)\]')
+# [19세 완전판] 은 떼지 않는다. 떼면 BE 가 본편과 같은 작품으로 보고 본편을 19세판 정보로 덮어쓴다
+_KAKAO_TITLE_LABELS = re.compile(r'\s*\[(완결|독점|휴재)\]')
 # 정보 탭 섹션 제목. 작품명 자리에 이게 들어오면 잘못 읽은 것이다
 KAKAO_SECTION_TITLES = {'줄거리', '키워드', '상세정보', '동일작', '이 작가의 다른 작품'}
 
@@ -482,3 +457,22 @@ def clean_kakao_synopsis(text: str) -> str:
     t = re.sub(r'^줄거리\s*', '', t)
     t = re.sub(r'\s*(더보기|접기)$', '', t)
     return t.strip()
+
+
+def parse_kakao_search_card(text: str) -> tuple[str, str | None]:
+    """검색 결과 카드 → (작품명, 유형 힌트).
+
+    카드 텍스트 첫 줄은 '작품, 넷카마 펀치!!! [완결], 15세 연령 제한, 웹소설, BL, 작가 키마님, …' 형식이다.
+    제목에 [단행본] 이 붙으면 단행본, 아니면 '웹툰' · '웹소설' 표기를 유형으로 본다.
+    """
+    first = (text or '').strip().split('\n')[0]
+    parts = [p.strip() for p in first.split(', ')]
+    if len(parts) < 2 or parts[0] != '작품':
+        return first.strip(), None
+    name = parts[1]
+    if '[단행본]' in name:
+        return name, '단행본'
+    for p in parts[2:]:
+        if p in ('웹툰', '웹소설'):
+            return name, p
+    return name, None

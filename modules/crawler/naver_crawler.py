@@ -203,7 +203,8 @@ class NaverCrawler(BaseCrawler):
                 exact = (href, text)
                 break
 
-            if partial is None and (norm_title in norm_text or norm_text in norm_title):
+            # 부분 일치는 앞부분 일치만 (BaseCrawler.title_match 와 같은 기준)
+            if partial is None and (norm_text.startswith(norm_title) or norm_title.startswith(norm_text)):
                 partial = (href, text)
 
             ratio = self._title_ratio(norm_title, norm_text)

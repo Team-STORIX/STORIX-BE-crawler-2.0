@@ -525,7 +525,7 @@ class RidibooksCrawler(BaseCrawler):
             age = parse_ridi_age(src, m.group(1) if m else '')
             hashtags = parse_ridi_keywords(src)
             if not age:
-                self._log.warning("리디 연령을 판정하지 못함(검수 대기로): %s", url)
+                self._log.warning("리디 책 데이터를 읽지 못해 연령 판정 실패: %s", url)
 
             # 상단 브레드크럼 카테고리(/category/ 링크) 텍스트 — genre·works_type 판정에 함께 사용.
             #   예) ["판타지 웹소설", "현대 판타지"] / ["로맨스 e북", "하이틴", "현대물"]
@@ -605,9 +605,9 @@ def parse_ridi_age(src: str, book_id: str) -> str:
 
     - 이 책 데이터의 is_adult_only=true 또는 age_limit=19 → 18세 이용가
     - 페이지 공지(notices) 제목 "15세 이용가 안내" / "12세 이용가 안내" → 15세 / 12세
-    - 그 밖에는 '' (판정 못 함). 같은 작품도 판(웹소설 · 웹툰 · e북)마다 공지가 있기도 없기도 해서
-      공지가 없다고 전체연령가로 단정할 수 없다. 빈 값이면 새 작품은 검수 대기로 가고,
-      기존 작품은 BE import 가 덮어쓰지 않는다
+    - 책 데이터를 읽었는데 성인도 아니고 공지도 없으면 전체연령가 (2026-10-10 사용자 결정).
+      BE 가 연령을 올리기만 해서(v2.6.6) 다른 플랫폼에서 들어온 15세 · 18세를 내리지 않는다
+    - 책 데이터 자체를 못 읽으면 '' (판정 실패 — 페이지 구조가 바뀌었을 수 있다)
     """
     if not src or not book_id:
         return ''
@@ -622,7 +622,7 @@ def parse_ridi_age(src: str, book_id: str) -> str:
     for n in ('15', '12'):
         if f'{n}세 이용가' in titles or f'{n}세이용가' in titles:
             return f'{n}세 이용가'
-    return ''
+    return '전체연령가'
 
 
 def ridi_type_hint(card_text: str) -> str | None:

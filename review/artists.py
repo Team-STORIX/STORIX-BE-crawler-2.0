@@ -7,6 +7,7 @@
   카카오 원작 칸        '작가/출판사' (묵향동후/진강문학성) 또는 공동 작가 'a/b'
 
 BE 에는 한 형식으로 보낸다: 역할 라벨을 떼고, 원작 → 글 → 그림 순으로 이름 단위 중복을 지워 'a, b, c'.
+웹소설 · 단행본은 그림(표지 일러스트) 작가를 빼고 원작 → 글 만 (#62). illustrator 칸은 그대로 둔다.
 (기존 modules/db_handler 는 필드 단위로만 중복을 지워 'a, b, a' 가 생겼다)
 """
 import re
@@ -86,6 +87,12 @@ def parse_raw(raw) -> list[tuple[str, set[str]]]:
     return out
 
 
+def is_novel(works_type) -> bool:
+    """웹소설 · 단행본. 크롤러 표기('웹소설')와 BE enum 이름('WEBNOVEL' · 'BOOK') 둘 다 받는다."""
+    t = (works_type or '').strip().upper() if isinstance(works_type, str) else ''
+    return '소설' in t or '단행본' in t or t in ('WEBNOVEL', 'BOOK')
+
+
 def normalize_artists(item: dict) -> dict:
     """artist_name · author · illustrator · original_author 를 정규화해 돌려준다."""
     parsed = parse_raw(item.get('artist_name'))
@@ -102,7 +109,14 @@ def normalize_artists(item: dict) -> dict:
 
     # 역할 표기가 없는 원본 이름(시리즈 · 웹소설 단일 작가 등)도 빠뜨리지 않는다
     unlabeled = [n for n, roles in parsed if not roles]
-    artists = _dedupe(original + author + illustrator + unlabeled)
+    if is_novel(item.get('works_type')):
+        # 웹소설 그림 작가는 표지 일러스트레이터라 작가명에 넣지 않는다 (#62). 역할 없이 같이 온 이름도 뺀다
+        cover_only = {_key(n) for n in illustrator} - {_key(n) for n in original + author}
+        artists = _dedupe([n for n in original + author + unlabeled if _key(n) not in cover_only])
+        # 글 작가를 못 읽어 그림 작가만 남은 경우 작가명이 비면 작품을 특정할 수 없다. 그대로 둔다
+        artists = artists or _dedupe(original + author + illustrator + unlabeled)
+    else:
+        artists = _dedupe(original + author + illustrator + unlabeled)
     if not author and unlabeled:
         author = _dedupe(unlabeled[:1])
 

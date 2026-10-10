@@ -123,6 +123,32 @@ def test_normalize_artists(raw, expected):
     assert normalize_artists(raw) == expected
 
 
+@pytest.mark.parametrize('raw,expected_artist_name', [
+    # 웹소설 그림 작가는 표지 일러스트레이터라 작가명에서 뺀다 (#62)
+    ({'works_type': '웹소설', 'artist_name': '묵향동후, 千二百', 'author': '묵향동후', 'illustrator': '千二百'}, '묵향동후'),
+    ({'works_type': 'WEBNOVEL', 'artist_name': '', 'original_author': '싱숑', 'author': 'UMI', 'illustrator': '슬리피-C'},
+     '싱숑, UMI'),
+    ({'works_type': '단행본', 'artist_name': '김로아 ∙ 글 / 몬 ∙ 그림'}, '김로아'),
+    # 글 · 그림을 같이 한 작가는 남는다
+    ({'works_type': '웹소설', 'artist_name': '홍길동', 'author': '홍길동', 'illustrator': '홍길동'}, '홍길동'),
+    # 그림 작가만 읽힌 경우 작가명이 비지 않게 그대로 둔다
+    ({'works_type': '웹소설', 'artist_name': '', 'illustrator': '千二百'}, '千二百'),
+    # 웹툰은 지금처럼 원작 → 글 → 그림
+    ({'works_type': '웹툰', 'artist_name': '', 'original_author': '싱숑', 'author': 'UMI', 'illustrator': '슬리피-C'},
+     '싱숑, UMI, 슬리피-C'),
+    ({'artist_name': '', 'author': '묵향동후', 'illustrator': '광풍취고당'}, '묵향동후, 광풍취고당'),
+])
+def test_novel_artist_name_excludes_cover_illustrator(raw, expected_artist_name):
+    from review.artists import normalize_artists
+    assert normalize_artists(raw)['artist_name'] == expected_artist_name
+
+
+def test_novel_keeps_illustrator_field():
+    from review.artists import normalize_artists
+    normalized = normalize_artists({'works_type': '웹소설', 'artist_name': '', 'author': '묵향동후', 'illustrator': '千二百'})
+    assert normalized['illustrator'] == '千二百'
+
+
 def test_layer1_sends_normalized_artist_name():
     v = validate_item(item(artist_name='구름고래비누 ∙ 글 / 희서 ∙ 그림', author='', illustrator=''), CATALOG)
     assert v.status == AUTO_PASS

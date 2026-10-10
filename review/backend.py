@@ -2,13 +2,13 @@
 
 크롤러용 API 는 관리자 API 와 분리된 /internal/v1/** 이고, 관리자 로그인(JWT) 대신 고정 키로 인증한다.
 키는 Parameter Store /storix/{dev,prod}/env/INTERNAL_API_KEY 에 있고, 로컬은 .env(gitignore 됨)에 넣는다.
-
-환경변수: STORIX_API_BASE_URL, STORIX_INTERNAL_API_KEY
+대상 환경 · 환경변수는 review/env.py 참고.
 """
 import json
-import os
 import urllib.error
 import urllib.request
+
+from review import env as storix_env
 
 API_KEY_HEADER = 'X-Internal-Api-Key'
 
@@ -18,18 +18,20 @@ class BackendAuthError(RuntimeError):
 
 
 class BackendSession:
-    def __init__(self, base_url: str, api_key: str, timeout: float = 30.0):
+    def __init__(self, base_url: str, api_key: str, timeout: float = 30.0, env: str = ''):
+        self.env = env
         self.base_url = base_url.rstrip('/')
         self._api_key = api_key
         self._timeout = timeout
 
     @classmethod
     def from_env(cls) -> 'BackendSession | None':
-        base_url = os.getenv('STORIX_API_BASE_URL', '')
-        api_key = os.getenv('STORIX_INTERNAL_API_KEY', '')
-        if not (base_url and api_key):
+        """STORIX_ENV 에 맞는 주소 · 키로 만든다. 키가 없으면 None."""
+        env = storix_env.target()
+        api_key = storix_env.internal_api_key(env)
+        if not api_key:
             return None
-        return cls(base_url, api_key)
+        return cls(storix_env.api_base_url(env), api_key, env=env)
 
     def request(self, method: str, path: str, body: dict | None = None, timeout: float | None = None):
         """CustomResponse.result 를 돌려준다. 401 · 403 은 BackendAuthError,
@@ -39,7 +41,8 @@ class BackendSession:
         except urllib.error.HTTPError as e:
             if e.code not in (401, 403):
                 raise
-            raise BackendAuthError(f'BE 내부 API 인증 실패: HTTP {e.code} ({self.base_url}) — STORIX_INTERNAL_API_KEY 확인') from None
+            key_name = f'STORIX_{self.env.upper()}_INTERNAL_API_KEY' if self.env else '내부 API 키'
+            raise BackendAuthError(f'BE 내부 API 인증 실패: HTTP {e.code} ({self.base_url}) — {key_name} 확인') from None
 
     def _send(self, method: str, path: str, body: dict | None, timeout: float | None):
         headers = {'Accept': 'application/json', API_KEY_HEADER: self._api_key}

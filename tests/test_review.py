@@ -617,13 +617,50 @@ def test_session_bad_key_stops_import(backend):
     assert len(backend.paths) == 1  # 다시 시도하지 않는다
 
 
-def test_session_from_env_needs_key(monkeypatch):
+@pytest.fixture
+def clean_env(monkeypatch):
+    for k in ('STORIX_ENV', 'STORIX_DEV_INTERNAL_API_KEY', 'STORIX_PROD_INTERNAL_API_KEY',
+              'STORIX_DEV_API_BASE_URL', 'STORIX_PROD_API_BASE_URL', 'STAGING_DATABASE_NAME'):
+        monkeypatch.delenv(k, raising=False)
+    return monkeypatch
+
+
+def test_env_defaults_to_dev(clean_env):
+    from review import env
+    assert env.target() == 'dev'
+    assert env.api_base_url('dev') == 'https://dev.storix.kr'
+    assert env.staging_database('dev') == 'storix_staging_dev'
+
+
+def test_env_prod_uses_prod_url_key_and_staging_db(clean_env):
+    from review import env
     from review.backend import BackendSession
-    monkeypatch.setenv('STORIX_API_BASE_URL', 'https://dev.storix.kr')
-    monkeypatch.delenv('STORIX_INTERNAL_API_KEY', raising=False)
+    clean_env.setenv('STORIX_ENV', 'PROD')
+    clean_env.setenv('STORIX_DEV_INTERNAL_API_KEY', 'dev-key')
+    clean_env.setenv('STORIX_PROD_INTERNAL_API_KEY', 'prod-key')
+    session = BackendSession.from_env()
+    assert (session.env, session.base_url, session._api_key) == ('prod', 'https://api.storix.kr', 'prod-key')
+    assert env.staging_database('prod') == 'storix_staging_prod'
+
+
+def test_env_never_falls_back_to_other_env_key(clean_env):
+    from review.backend import BackendSession
+    clean_env.setenv('STORIX_ENV', 'prod')
+    clean_env.setenv('STORIX_DEV_INTERNAL_API_KEY', 'dev-key')
     assert BackendSession.from_env() is None
-    monkeypatch.setenv('STORIX_INTERNAL_API_KEY', 'k')
-    assert BackendSession.from_env().base_url == 'https://dev.storix.kr'
+
+
+def test_env_rejects_unknown_target(clean_env):
+    from review import env
+    clean_env.setenv('STORIX_ENV', 'staging')
+    with pytest.raises(ValueError):
+        env.target()
+
+
+def test_env_base_url_override(clean_env):
+    from review import env
+    clean_env.setenv('STORIX_DEV_API_BASE_URL', 'http://localhost:8080')
+    assert env.api_base_url('dev') == 'http://localhost:8080'
 
 
 def test_session_passes_409_through_to_import(backend):

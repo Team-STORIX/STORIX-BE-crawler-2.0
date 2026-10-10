@@ -99,13 +99,16 @@ def _parse_titles_file(path: Path) -> list[tuple[str, str | None]]:
 
 
 def cmd_login(args):
-    from config import NAVER_COOKIE_FILE, KAKAO_COOKIE_FILE, RIDIBOOKS_COOKIE_FILE, BOMTOON_COOKIE_FILE
+    from config import (NAVER_COOKIE_FILE, KAKAO_COOKIE_FILE, RIDIBOOKS_COOKIE_FILE, BOMTOON_COOKIE_FILE,
+                        LEZHIN_COOKIE_FILE, MRBLUE_COOKIE_FILE)
 
     cookie_files = {
         'naver_webtoon': NAVER_COOKIE_FILE,
         'kakao_page': KAKAO_COOKIE_FILE,
         'ridibooks': RIDIBOOKS_COOKIE_FILE,
         'bomtoon': BOMTOON_COOKIE_FILE,
+        'lezhin': LEZHIN_COOKIE_FILE,
+        'mrblue': MRBLUE_COOKIE_FILE,
     }
 
     platform = args.platform
@@ -134,6 +137,12 @@ def cmd_login(args):
         elif p == 'bomtoon':
             from modules.crawler.bomtoon_crawler import BomtoonCrawler
             crawler = BomtoonCrawler()
+        elif p == 'lezhin':
+            from modules.crawler.lezhin_crawler import LezhinCrawler
+            crawler = LezhinCrawler()
+        elif p == 'mrblue':
+            from modules.crawler.mrblue_crawler import MrblueCrawler
+            crawler = MrblueCrawler()
         else:
             print(f'❌ 지원하지 않는 플랫폼: {p}')
             continue
@@ -347,7 +356,7 @@ def main():
 
     login_p = subparsers.add_parser('login', help='로그인 세션 저장 (Docker 실행 전 선행)')
     login_p.add_argument('--platform', required=True,
-                         help='naver_webtoon | kakao_page | ridibooks | bomtoon | all (bomtoon 은 all 에 안 들어감)')
+                         help='naver_webtoon | kakao_page | ridibooks | bomtoon | lezhin | mrblue | all (bomtoon · lezhin · mrblue 는 all 에 안 들어감)')
 
     stage_p = subparsers.add_parser('stage', help='검수 파이프라인 (works_staging → BE import API)')
     stage_sub = stage_p.add_subparsers(dest='stage_command')

@@ -7,6 +7,8 @@ from modules.crawler.naver_crawler import NaverCrawler
 from modules.crawler.kakao_crawler import KakaoCrawler
 from modules.crawler.ridibooks_crawler import RidibooksCrawler
 from modules.crawler.bomtoon_crawler import BomtoonCrawler
+from modules.crawler.lezhin_crawler import LezhinCrawler
+from modules.crawler.mrblue_crawler import MrblueCrawler
 from modules.crawler.base_crawler import AuthExpiredError
 from crawler.output.jsonl_writer import JSONLWriter
 from crawler.parallel import run_platforms
@@ -24,6 +26,8 @@ PLATFORM_URL_PATTERNS = {
     'kakao_page': 'page.kakao.com',
     'ridibooks': 'ridibooks.com',
     'bomtoon': 'bomtoon.com',
+    'lezhin': 'lezhin.com',
+    'mrblue': 'mrblue.com',
 }
 
 SUPPORTED_PLATFORMS = list(PLATFORM_URL_PATTERNS.keys())
@@ -168,15 +172,15 @@ def _recrawl_ridibooks(urls: list[str], writer: JSONLWriter):
         crawler.close_driver()
 
 
-def _recrawl_bomtoon(urls: list[str], writer: JSONLWriter):
-    # 상세는 API(HTTP)로 받는다. 성인 작품은 로그인 세션이 있어야 해 브라우저로 로그인부터 한다
-    crawler = BomtoonCrawler()
+def _recrawl_logged_in(CrawlerClass, label: str, urls: list[str], writer: JSONLWriter):
+    # 상세는 HTTP 로 받는다. 성인 작품은 로그인 세션이 있어야 해 세션부터 확인한다 (없으면 브라우저 로그인)
+    crawler = CrawlerClass()
     try:
         crawler.start_driver()
         if not crawler.login():
-            raise AuthExpiredError('봄툰 로그인 실패 (성인 인증 계정 필요)')
+            raise AuthExpiredError(f'{label} 로그인 실패 (성인 인증 계정 필요)')
         for i, url in enumerate(urls, 1):
-            print(f'[봄툰 {i}/{len(urls)}]', end='\r')
+            print(f'[{label} {i}/{len(urls)}]', end='\r')
             data = crawler.crawl_detail_with_retry(url)
             if data:
                 writer.write(data)
@@ -184,11 +188,25 @@ def _recrawl_bomtoon(urls: list[str], writer: JSONLWriter):
         crawler.close_driver()
 
 
+def _recrawl_bomtoon(urls: list[str], writer: JSONLWriter):
+    _recrawl_logged_in(BomtoonCrawler, '봄툰', urls, writer)
+
+
+def _recrawl_lezhin(urls: list[str], writer: JSONLWriter):
+    _recrawl_logged_in(LezhinCrawler, '레진코믹스', urls, writer)
+
+
+def _recrawl_mrblue(urls: list[str], writer: JSONLWriter):
+    _recrawl_logged_in(MrblueCrawler, '미스터블루', urls, writer)
+
+
 _RECRAWL_MAP = {
     'naver_webtoon': _recrawl_naver,
     'kakao_page': _recrawl_kakao,
     'ridibooks': _recrawl_ridibooks,
     'bomtoon': _recrawl_bomtoon,
+    'lezhin': _recrawl_lezhin,
+    'mrblue': _recrawl_mrblue,
 }
 
 

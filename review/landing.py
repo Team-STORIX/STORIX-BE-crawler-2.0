@@ -20,6 +20,10 @@ _RULES = (
      'https://ridibooks.com/books/{}', 'RIDIBOOKS'),
     (re.compile(r'bomtoon\.com/detail/([^/?#\s]+)'),
      'https://www.bomtoon.com/detail/{}', 'BOMTOON'),
+    (re.compile(r'lezhin\.com/(?:ko/)?comic/([^/?#\s]+)'),
+     'https://www.lezhin.com/ko/comic/{}', 'LEZHIN'),
+    (re.compile(r'mrblue\.com/(webtoon|comic|novel)/([A-Za-z0-9_]+)'),
+     'https://www.mrblue.com/{}/{}', 'MRBLUE'),
 )
 
 

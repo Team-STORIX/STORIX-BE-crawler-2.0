@@ -1,3 +1,5 @@
+import json
+import re
 import time
 import random
 import pickle
@@ -8,7 +10,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import NoSuchElementException, InvalidSessionIdException
 from urllib3.exceptions import ReadTimeoutError as _DriverTimeoutError
 
-from .base_crawler import PASS_THROUGH, BaseCrawler, SessionExpiredError
+from .base_crawler import PASS_THROUGH, BaseCrawler, HttpUnavailable, SessionExpiredError
 
 from config import NAVER_COOKIE_FILE, NAVER_ID, NAVER_PW
 
@@ -18,6 +20,50 @@ _PRE_CONTRACT_PATHS = ('/challenge/', '/bestChallenge/')
 
 def is_pre_contract_url(url: str) -> bool:
     return any(p in (url or '') for p in _PRE_CONTRACT_PATHS)
+
+
+# 작품 정보 API. 상세 페이지가 화면에 그리는 값(제목 · 작가 역할 · 연령 · 소개 · 태그 · 표지)을 그대로 준다
+TITLE_INFO_API = 'https://comic.naver.com/api/article/list/info?titleId={}'
+_ARTIST_ROLES = {'ARTIST_WRITER': 'author', 'ARTIST_PAINTER': 'illustrator', 'ARTIST_NOVEL_ORIGIN': 'original_author'}
+
+
+def parse_naver_title_info(info: dict, url: str) -> dict | None:
+    """작품 정보 API 응답 → 수집 결과. 브라우저 crawl_detail 과 같은 값을 만든다.
+    도전만화 · 베스트도전(webtoonLevelCode 가 WEBTOON 아님)은 None. 응답 형식이 다르면 HttpUnavailable."""
+    title = (info.get('titleName') or '').strip()
+    if not title or 'curationTagList' not in info:
+        raise HttpUnavailable('작품 정보 응답 형식이 다름')
+    if info.get('webtoonLevelCode') != 'WEBTOON':
+        return None
+
+    roles = {'author': '', 'illustrator': '', 'original_author': ''}
+    names = []
+    for artist in info.get('communityArtists') or []:
+        name = (artist.get('name') or '').strip()
+        if not name:
+            continue
+        if name not in names:
+            names.append(name)
+        for code in artist.get('artistTypeList') or []:
+            field = _ARTIST_ROLES.get(code)
+            if field and not roles[field]:
+                roles[field] = name
+
+    # 화면과 같이 첫 태그가 장르, 나머지가 해시태그
+    tags = [t for tag in info.get('curationTagList') or [] if (t := (tag.get('tagName') or '').strip().lstrip('#'))]
+    return {
+        "platform": "NAVER_WEBTOON",
+        "works_name": title,
+        "artist_name": ', '.join(names),
+        **roles,
+        "age_classification": ((info.get('age') or {}).get('description') or '').strip(),
+        "description": (info.get('synopsis') or '').strip(),
+        "genre": tags[0] if tags else '',
+        "hashtags": tags[1:],
+        "thumbnail_url": info.get('sharedThumbnailUrl') or info.get('thumbnailUrl') or '',
+        "works_type": "웹툰",
+        "source_url": url,
+    }
 
 
 class NaverCrawler(BaseCrawler):
@@ -281,6 +327,19 @@ class NaverCrawler(BaseCrawler):
         except Exception as e:
             print(f"❌ 목록 수집 중 오류: {e}")
             return []
+
+    def crawl_detail_http(self, url):
+        m = re.search(r'titleId=(\d+)', url or '')
+        if not m or is_pre_contract_url(url):
+            raise HttpUnavailable('작품 번호 없는 주소')
+        body = self.http_get(TITLE_INFO_API.format(m.group(1)), headers={'Accept': 'application/json'})
+        if body is None:
+            return None  # 내려간 작품
+        try:
+            info = json.loads(body)
+        except ValueError:
+            raise HttpUnavailable('JSON 아님')
+        return parse_naver_title_info(info, url)
 
     def crawl_detail(self, url):
         try:

@@ -122,7 +122,8 @@ class JSONLWriter:
     def __init__(self, platform: str, mode: str, output_dir: Path = None, filename: str = None):
         base = output_dir or OUTPUT_DIR
         date_str = datetime.now().strftime('%Y-%m-%d')
-        self.path = Path(base) / date_str / (filename or f'{mode}.jsonl')
+        # 플랫폼마다 파일을 따로 쓴다. 플랫폼을 동시에 돌려도 서로 덮어쓰지 않는다 (#7)
+        self.path = Path(base) / date_str / (filename or f'{platform}_{mode}.jsonl')
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._platform = platform
         self._mode = mode

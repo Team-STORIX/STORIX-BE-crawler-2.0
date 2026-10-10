@@ -1,10 +1,12 @@
 """
 search_titles 모드: 작품명 리스트 → 플랫폼 검색 → 크롤링 → JSONL 저장
 
+결과는 플랫폼마다 ./output/YYYY-MM-DD/<플랫폼>_search_titles.jsonl 에 쓴다.
 이후 검수 적재 → BE 반영:
-    python cli.py stage load --input ./output/YYYY-MM-DD/search_titles.jsonl --source search_titles
+    python cli.py stage load --input './output/YYYY-MM-DD/*_search_titles.jsonl' --source search_titles
     python cli.py stage import --run-id <런>
 """
+import threading
 from pathlib import Path
 
 from selenium.common.exceptions import InvalidSessionIdException, WebDriverException
@@ -18,6 +20,7 @@ from modules.crawler.naver_series_crawler import NaverSeriesCrawler
 from modules.crawler.kakao_crawler import KakaoCrawler
 from modules.crawler.ridibooks_crawler import RidibooksCrawler
 from crawler.output.jsonl_writer import JSONLWriter
+from crawler.parallel import run_platforms
 
 # 제목 검색(search_url_by_title) 단계에서 드라이버가 멈추면 나는 예외들.
 # crawl_detail_with_retry 와 달리 이 단계는 재시작 보호가 없어 여기서 직접 처리한다.
@@ -63,6 +66,7 @@ def run_search_titles(
     platform: str,
     titles: list[tuple[str, str | None]],
     titles_file: str = None,
+    parallel: int = 1,
 ) -> None:
     if not titles:
         print('⚠️  검색할 작품명이 없습니다.')
@@ -74,7 +78,8 @@ def run_search_titles(
     # 원소는 제목이 아니라 (제목, 타입) — 섹션끼리는 서로 독립이라 제목만으로 묶으면
     # 웹툰판을 찾았을 때 웹소설 줄까지 지워진다.
     found: set[tuple[str, str | None]] = set()
-    for p in targets:
+
+    def run(p: str) -> None:
         # 이 플랫폼이 취급하는 타입의 작품만 추린다. (타입 None은 항상 포함)
         accepted = _PLATFORM_TYPES.get(p, set())
         # 같은 제목이 여러 섹션에 있어도 한 플랫폼에서 두 번 검색하지는 않는다.
@@ -87,16 +92,11 @@ def run_search_titles(
         if not wanted:
             label = _CRAWLER_MAP[p][1]
             print(f'\n⏭️  [{label}] 해당 타입 작품이 없어 스킵')
-            continue
-        try:
-            _search_and_write(wanted, p, found)
-        except Exception as e:
-            # 한 플랫폼(로그인 실패 등)의 오류가 나머지 플랫폼·파일 정리를 막지 않도록 격리
-            print(f'⚠️  [{p}] 건너뜀: {e}')
-            if isinstance(e, RateLimitedError):
-                report.record(p, report.RATE_LIMITED, '플랫폼 중단', str(e))
-            elif isinstance(e, AuthExpiredError):
-                report.record(p, report.AUTH_EXPIRED, '플랫폼 중단', str(e))
+            return
+        _search_and_write(wanted, p, found)
+
+    # 한 플랫폼(로그인 실패 등)의 오류는 나머지 플랫폼 · 파일 정리를 막지 않는다 (run_platforms 가 격리)
+    run_platforms(targets, run, parallel)
 
     # 크롤 성공한 작품은 목록 파일에서 제거 → 파일엔 '못 찾은 작품'만 남는다.
     if titles_file:
@@ -178,6 +178,9 @@ def _crawl_types(sections: set[str | None], platform: str) -> list[str | None]:
 
 # 원하는 유형의 작품을 찾기까지 상세를 열어 볼 후보 수
 MAX_TYPE_TRIES = 3
+
+# 플랫폼을 동시에 돌리면 여러 스레드가 found 를 채운다
+_found_lock = threading.Lock()
 
 
 def _crawl_for_type(crawler, candidates: list[dict], ttype: str | None, crawled: dict,
@@ -274,7 +277,8 @@ def _search_and_write(
                                 continue
                             written.add(result['source_url'])
                             writer.write(result)
-                            found.update(_found_slots(title, types, result))
+                            with _found_lock:
+                                found.update(_found_slots(title, types, result))
                             ok_count += 1
                 except (RateLimitedError, AuthExpiredError):
                     # 차단이 계속되거나 재로그인이 실패했다 — 이 플랫폼은 여기서 멈춘다 (리포트는 crawl_detail_with_retry 가 남김)

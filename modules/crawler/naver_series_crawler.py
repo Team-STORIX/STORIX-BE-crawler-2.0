@@ -9,11 +9,13 @@ from selenium.common.exceptions import InvalidSessionIdException
 from urllib3.exceptions import ReadTimeoutError as _DriverTimeoutError
 
 from .naver_crawler import NaverCrawler
-from .base_crawler import PASS_THROUGH, SessionExpiredError, pick_candidates
+from .base_crawler import PASS_THROUGH, BaseCrawler, SessionExpiredError, pick_candidates
 
 
 class NaverSeriesCrawler(NaverCrawler):
     REPORT_PLATFORM = 'naver_series'
+    # 네이버 웹툰 작품 정보 API 는 웹툰 전용이다. 상세는 브라우저로 연다
+    crawl_detail_http = BaseCrawler.crawl_detail_http
 
     """series.naver.com 네이버 시리즈 크롤러 (웹소설·웹툰 단행본).
 

@@ -2,6 +2,8 @@ import os
 import re
 import time
 import random
+import urllib.error
+import urllib.request
 from difflib import SequenceMatcher
 
 from selenium import webdriver
@@ -24,11 +26,17 @@ class AuthExpiredError(Exception):
     """세션이 만료됐고 재로그인도 실패했다. 그 플랫폼을 중단한다 (#6)."""
 
 
+class HttpUnavailable(Exception):
+    """HTTP 로 상세를 받지 못했다 (응답 형식이 바뀜 · 로그인이 필요함 등). 브라우저로 다시 연다 (#7)."""
+
+
 # crawl_detail 이 삼키지 말고 위로 올려야 하는 예외. 크롤러마다 except 로 다시 던진다
 PASS_THROUGH = (InvalidSessionIdException, SessionExpiredError, _DriverTimeoutError, RateLimitedError, AuthExpiredError)
 
 # 차단 화면의 제목 · 본문 표시
 _BLOCK_MARKERS = ('403 Forbidden', '429 Too Many', 'Too Many Requests', 'Access Denied', '요청이 너무 많', '비정상적인 접근')
+
+USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
 
 
 # 플랫폼이 제목 뒤에 붙이는 라벨. 제목 비교 전에 뗀다 ('넷카마 펀치!!! [완결]' → '넷카마 펀치!!!')
@@ -99,6 +107,10 @@ class BaseCrawler:
     LOGIN_URL_MARKERS: tuple[str, ...] = ()
     # 수집 리포트에 쓰는 플랫폼 이름 (crawler/report.py)
     REPORT_PLATFORM: str = ''
+    # HTTP 403 을 차단으로 볼지. 아니면 브라우저로 다시 연다 (로그인이 필요한 작품일 수 있다)
+    HTTP_403_IS_BLOCK: bool = False
+    # 브라우저로 상세를 이만큼 열 때마다 드라이버를 새로 띄운다. 긴 런에서 크롬 메모리가 쌓이지 않게 (#7)
+    RESTART_EVERY: int = 100
 
     # 목록 수집 함수. 결과가 0건이면 수집 리포트에 남긴다 (__init_subclass__)
     _LIST_METHODS = ('get_genre_urls', 'get_list_urls', 'get_category_urls')
@@ -128,6 +140,11 @@ class BaseCrawler:
         self._interval = self.REQUEST_INTERVAL
         self._last_get = 0.0
         self._rate_limits = 0
+        self._browser_details = 0
+        # 상세를 HTTP 로 먼저 받는다 (crawl_detail_http 가 있는 크롤러만). False 면 브라우저만 쓴다
+        self.use_http = True
+        # 이미지를 받지 않는다. 사람이 로그인 화면(보안문자)을 봐야 할 때만 끈다 (cli login)
+        self.block_images = True
 
     @staticmethod
     def _norm_title(s: str) -> str:
@@ -225,6 +242,11 @@ class BaseCrawler:
         options.add_argument("--disable-dev-shm-usage")
         options.add_argument("--disable-gpu")
         options.add_argument("--disable-extensions")
+        # 메모리 절감 (#7). 썸네일은 이미지 주소 문자열만 쓰므로 이미지를 받지 않는다.
+        # DOM 이 만들어지면 바로 넘어간다 — 화면 요소는 크롤러마다 WebDriverWait 로 기다린다
+        if self.block_images:
+            options.add_experimental_option('prefs', {'profile.managed_default_content_settings.images': 2})
+        options.page_load_strategy = 'eager'
 
         if headless:
             options.add_argument("--headless=new")
@@ -232,7 +254,7 @@ class BaseCrawler:
         options.add_experimental_option("excludeSwitches", ["enable-automation"])
         options.add_experimental_option('useAutomationExtension', False)
         options.add_argument('--disable-blink-features=AutomationControlled')
-        options.add_argument('user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36')
+        options.add_argument(f'user-agent={USER_AGENT}')
 
         # Selenium 4.6+ 내장 드라이버 관리자 사용 (webdriver-manager 불필요)
         self.driver = webdriver.Chrome(options=options)
@@ -251,9 +273,7 @@ class BaseCrawler:
         original = self.driver.get
 
         def get(url):
-            wait = self._interval - (time.time() - self._last_get)
-            if wait > 0:
-                time.sleep(wait)
+            self._throttle()
             try:
                 return original(url)
             finally:
@@ -261,6 +281,31 @@ class BaseCrawler:
                 self._check_blocked(url)
 
         self.driver.get = get
+
+    def _throttle(self) -> None:
+        wait = self._interval - (time.time() - self._last_get)
+        if wait > 0:
+            time.sleep(wait)
+
+    def http_get(self, url: str, headers: dict | None = None, timeout: float = 15.0) -> str | None:
+        """브라우저 없이 GET. 요청 간격은 driver.get 과 같이 지킨다.
+        404 → None (없는 작품), 429(· 차단으로 보는 403) → RateLimitedError, 그 밖의 실패 → HttpUnavailable."""
+        self._throttle()
+        req = urllib.request.Request(url, headers={'User-Agent': USER_AGENT, 'Accept-Language': 'ko-KR,ko;q=0.9',
+                                                   **(headers or {})})
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                return resp.read().decode('utf-8', 'replace')
+        except urllib.error.HTTPError as e:
+            if e.code == 404:
+                return None
+            if e.code == 429 or (e.code == 403 and self.HTTP_403_IS_BLOCK):
+                raise RateLimitedError(f'HTTP {e.code}: {url}')
+            raise HttpUnavailable(f'HTTP {e.code}')
+        except (urllib.error.URLError, TimeoutError, OSError) as e:
+            raise HttpUnavailable(str(e))
+        finally:
+            self._last_get = time.time()
 
     def _check_blocked(self, url: str) -> None:
         try:
@@ -300,16 +345,44 @@ class BaseCrawler:
         except Exception as e:
             self._log.error("드라이버 재시작 실패: %s", e)
 
+    def _has_http_detail(self) -> bool:
+        return self.use_http and type(self).crawl_detail_http is not BaseCrawler.crawl_detail_http
+
+    def _browser_detail(self, url: str):
+        if self.RESTART_EVERY and self._browser_details >= self.RESTART_EVERY:
+            self._log.info("상세 %d건마다 드라이버 재시작 (메모리 정리)", self.RESTART_EVERY)
+            self._restart_driver()
+            self._browser_details = 0
+        self._browser_details += 1
+        return self.crawl_detail(url)
+
     def crawl_detail_with_retry(self, url: str, max_attempts: int = 3):
-        """상세 수집. 결과 상태를 수집 리포트에 남긴다.
+        """상세 수집. HTTP 수집기가 있으면 먼저 쓰고, 못 받으면 브라우저로 연다. 결과 상태를 수집 리포트에 남긴다.
         차단이 MAX_RATE_LIMITS 번 연달아 나거나 재로그인이 실패하면 예외를 올려 그 플랫폼을 중단시킨다."""
         from crawler import report
         platform = self.REPORT_PLATFORM or self.__class__.__name__
+        use_http = self._has_http_detail()
         attempt = 0
         while attempt < max_attempts:
             attempt += 1
             try:
-                result = self.crawl_detail(url)
+                if use_http:
+                    try:
+                        result = self.crawl_detail_http(url)
+                    except HttpUnavailable as e:
+                        self._log.info("HTTP 로 못 받아 브라우저로 엶 (%s): %s", url, e)
+                        use_http = False
+                        attempt -= 1
+                        continue
+                    if result is None:
+                        # HTTP 가 확실히 답했다 (내려간 작품 · 수집 대상 아님). 다시 열어도 같다
+                        report.record(platform, report.DETAIL_NOT_FOUND, url)
+                        return None
+                else:
+                    result = self._browser_detail(url)
+            except AuthExpiredError as e:
+                report.record(platform, report.AUTH_EXPIRED, url, str(e))
+                raise
             except RateLimitedError as e:
                 self._rate_limits += 1
                 self._interval = min(self.MAX_INTERVAL, max(self._interval, 1.0) * 2)
@@ -341,6 +414,11 @@ class BaseCrawler:
         self._log.error("최대 재시도 횟수 초과, 포기: %s", url)
         report.record(platform, report.DETAIL_NOT_FOUND, url)
         return None
+
+    def crawl_detail_http(self, url: str) -> dict | None:
+        """브라우저 없이 상세를 받는다 (#7). dict = 수집 결과, None = 없는 작품 · 수집 대상 아님,
+        HttpUnavailable = 브라우저로 다시 열어야 함. 구현한 크롤러만 쓴다 (_has_http_detail)."""
+        raise HttpUnavailable('HTTP 수집기 없음')
 
     # 추상 메서드
     def login(self):

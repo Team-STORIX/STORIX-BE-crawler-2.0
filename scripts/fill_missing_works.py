@@ -42,10 +42,9 @@ MISSING_QUERY = """
     ORDER BY w.works_id
 """
 
-# search_titles 가 인식하는 타입 헤더 (cli._TYPE_HEADERS 와 일치)
-# '단행본'은 DB works_type 에 없는 값이라 보통 0건이지만, 손으로 제목을 넣을 자리로
-# 빈 섹션을 항상 남겨둔다. (단행본 섹션은 시리즈·카카오·리디에서만 검색됨)
-SECTION_TYPES = ['웹툰', '웹소설', '단행본']
+# search_titles 가 인식하는 섹션 헤더 (cli._TYPE_HEADERS). DB works_type 그대로 웹툰 · 웹소설로 나눈다.
+# 웹툰판 · 웹소설판을 다 받으려면 손으로 '## 전체' 섹션을 만들어 넣는다
+SECTION_TYPES = ['웹툰', '웹소설']
 
 
 def main():

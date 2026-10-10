@@ -2,7 +2,7 @@
 import pytest
 
 pytest.importorskip('selenium')
-from crawler.modes.search_titles import _crawl_for_type  # noqa: E402
+from crawler.modes.search_titles import _crawl_for_type, _crawl_types, _found_slots  # noqa: E402
 from modules.crawler.base_crawler import BaseCrawler, pick_candidates  # noqa: E402
 from modules.crawler.kakao_crawler import parse_kakao_search_card  # noqa: E402
 from modules.crawler.ridibooks_crawler import ridi_type_hint  # noqa: E402
@@ -136,3 +136,28 @@ def test_prefix_followed_by_other_words_is_not_a_match(query, text):
 ])
 def test_prefix_followed_by_subtitle_is_a_match(query, text):
     assert BaseCrawler.title_match(query, text)[0] == 1
+
+
+@pytest.mark.parametrize('sections,platform,expected', [
+    ({'전체'}, 'kakao_page', ['웹소설', '웹툰']),
+    ({'전체'}, 'naver_webtoon', ['웹툰']),      # 네이버 웹툰은 웹툰만
+    ({'전체'}, 'naver_novel', ['웹소설']),
+    ({'웹툰', '전체'}, 'ridibooks', ['웹소설', '웹툰']),
+    ({'웹툰'}, 'naver_series', ['웹툰']),
+])
+def test_all_section_expands_to_webtoon_and_novel(sections, platform, expected):
+    assert _crawl_types(sections, platform) == expected
+
+
+def test_all_section_is_filled_by_either_version():
+    assert _found_slots('넷카마 펀치!!!', {'전체'}, {'works_type': '웹툰'}) == {('넷카마 펀치!!!', '전체')}
+    assert _found_slots('넷카마 펀치!!!', {'웹툰', '전체'}, {'works_type': '웹툰'}) == \
+        {('넷카마 펀치!!!', '웹툰'), ('넷카마 펀치!!!', '전체')}
+
+
+def test_titles_file_sections(tmp_path, capsys):
+    from cli import _parse_titles_file
+    f = tmp_path / 'titles.txt'
+    f.write_text('## 웹툰\n천관사복\n## 전체\n넷카마 펀치!!!\n## 단행본\n군림천하\n', encoding='utf-8')
+    assert _parse_titles_file(f) == [('천관사복', '웹툰'), ('넷카마 펀치!!!', '전체'), ('군림천하', '웹소설')]
+    assert '단행본' in capsys.readouterr().out  # 없어진 섹션은 경고한다

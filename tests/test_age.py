@@ -24,9 +24,9 @@ def test_notice_sets_age(title, age):
     assert parse_ridi_age(page(notices=f'{{"content":"...","title":"{title}"}}'), '100') == age
 
 
-def test_no_notice_is_unknown_not_all_ages():
-    # 같은 작품도 판마다 공지가 없을 수 있어 전체연령가로 단정하지 않는다
-    assert parse_ridi_age(page(), '100') == ''
+def test_no_notice_is_all_ages():
+    # 성인도 아니고 공지도 없으면 전체연령가 (BE 가 연령을 올리기만 해 다른 플랫폼 15세 · 18세를 내리지 않는다)
+    assert parse_ridi_age(page(), '100') == '전체연령가'
 
 
 def test_other_books_on_page_are_ignored():
@@ -35,6 +35,7 @@ def test_other_books_on_page_are_ignored():
 
 
 def test_unknown_book_id():
+    # 책 데이터를 못 읽으면 판정 실패(빈 값) — 공지 없음과 구분한다
     assert parse_ridi_age(page(), '1') == ''
     assert parse_ridi_age('', '100') == ''
 

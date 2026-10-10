@@ -6,6 +6,8 @@ from pathlib import Path
 from modules.crawler.naver_crawler import NaverCrawler
 from modules.crawler.kakao_crawler import KakaoCrawler
 from modules.crawler.ridibooks_crawler import RidibooksCrawler
+from modules.crawler.bomtoon_crawler import BomtoonCrawler
+from modules.crawler.base_crawler import AuthExpiredError
 from crawler.output.jsonl_writer import JSONLWriter
 from crawler.parallel import run_platforms
 from crawler.modes.initial import (
@@ -21,6 +23,7 @@ PLATFORM_URL_PATTERNS = {
     'naver_webtoon': 'comic.naver.com',
     'kakao_page': 'page.kakao.com',
     'ridibooks': 'ridibooks.com',
+    'bomtoon': 'bomtoon.com',
 }
 
 SUPPORTED_PLATFORMS = list(PLATFORM_URL_PATTERNS.keys())
@@ -165,10 +168,27 @@ def _recrawl_ridibooks(urls: list[str], writer: JSONLWriter):
         crawler.close_driver()
 
 
+def _recrawl_bomtoon(urls: list[str], writer: JSONLWriter):
+    # 상세는 API(HTTP)로 받는다. 성인 작품은 로그인 세션이 있어야 해 브라우저로 로그인부터 한다
+    crawler = BomtoonCrawler()
+    try:
+        crawler.start_driver()
+        if not crawler.login():
+            raise AuthExpiredError('봄툰 로그인 실패 (성인 인증 계정 필요)')
+        for i, url in enumerate(urls, 1):
+            print(f'[봄툰 {i}/{len(urls)}]', end='\r')
+            data = crawler.crawl_detail_with_retry(url)
+            if data:
+                writer.write(data)
+    finally:
+        crawler.close_driver()
+
+
 _RECRAWL_MAP = {
     'naver_webtoon': _recrawl_naver,
     'kakao_page': _recrawl_kakao,
     'ridibooks': _recrawl_ridibooks,
+    'bomtoon': _recrawl_bomtoon,
 }
 
 

@@ -201,3 +201,47 @@ def test_report_for(tmp_path):
     assert report_for(tmp_path / 'kakao_page_initial.jsonl').name == 'initial_report.json'
     assert report_for(tmp_path / 'ridibooks_recover.jsonl') is None
 
+
+
+# ---------------------------------------------------------------- 검수 API 조회 (#54)
+
+@pytest.fixture
+def api(store):  # noqa: F811
+    from fastapi.testclient import TestClient
+    from review import app as app_mod
+    app_mod.app.dependency_overrides[app_mod._store] = lambda: store
+    app_mod.app.dependency_overrides[app_mod._catalog] = lambda: CATALOG
+    try:
+        yield TestClient(app_mod.app)  # lifespan(BE 카탈로그 요청)은 돌리지 않는다
+    finally:
+        app_mod.app.dependency_overrides.clear()
+
+
+@needs_mysql
+def test_api_lists_broken_sources_with_staging_status(api, store):  # noqa: F811
+    from review import service
+    ok_url = 'https://ridibooks.com/books/1'
+    service.load_run(store, CATALOG, [item(source_url=URL, platform='RIDIBOOKS'),
+                                      item(source_url=ok_url, platform='RIDIBOOKS', works_name='다른 작품')], 't')
+    for i in range(3):
+        store.record_source_failure(URL, 'DETAIL_NOT_FOUND', '404',
+                                    datetime.now(timezone.utc) + timedelta(minutes=i + 1))
+
+    broken = api.get('/sources', params={'status': 'broken'}).json()
+    assert [(r['platform_work_id'], r['crawl_fail_count'], r['staging_status']) for r in broken] == \
+        [('4928000826', 3, 'NEEDS_REVIEW')]
+    assert {r['platform_work_id'] for r in api.get('/sources').json()} == {'4928000826', '1'}
+    assert [r['platform_work_id'] for r in api.get('/sources', params={'status': 'SUCCESS'}).json()] == ['1']
+    assert api.get('/sources', params={'platform': 'KAKAO_PAGE'}).json() == []
+
+    one = api.get('/sources/RIDIBOOKS/4928000826').json()
+    assert one['search_keywords'] == ['전지적 독자 시점'] and one['staging_id']
+    assert api.get('/sources/RIDIBOOKS/404').status_code == 404
+
+
+@needs_mysql
+def test_api_filters_sources_by_works_id(api, store):  # noqa: F811
+    from review import service
+    service.load_run(store, CATALOG, [item(source_url=URL, platform='RIDIBOOKS')], 't')
+    store.mark_imported(store.queue('AUTO_PASS')[0]['id'], 4242)
+    assert [r['works_id'] for r in api.get('/sources', params={'works_id': 4242}).json()] == [4242]

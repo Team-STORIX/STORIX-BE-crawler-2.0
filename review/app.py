@@ -176,6 +176,25 @@ def import_to_backend(run_id: str | None = None,
         raise HTTPException(status_code=502, detail=str(e))
 
 
+@app.get('/sources', dependencies=[Depends(_auth)])
+def list_sources(status: str | None = Query(None, description="broken(복구 대상) · SUCCESS · RELINKED · DETAIL_NOT_FOUND …"),
+                 platform: str | None = Query(None, description='BE Platform enum name (예: RIDIBOOKS)'),
+                 works_id: int | None = Query(None, ge=1),
+                 limit: int = Query(50, ge=1, le=500),
+                 offset: int = Query(0, ge=0),
+                 store: StagingStore = Depends(_store)):
+    """작품별 수집 이력 (#28). 연속 실패가 많은 것부터. 링크 복구 실행은 CLI(stage recover)로 한다."""
+    return store.list_sources(status, platform, works_id, limit, offset)
+
+
+@app.get('/sources/{platform}/{platform_work_id}', dependencies=[Depends(_auth)])
+def get_source(platform: str, platform_work_id: str, store: StagingStore = Depends(_store)):
+    row = store.get_source_by_key(platform, platform_work_id)
+    if not row:
+        raise HTTPException(status_code=404, detail='수집 이력 없음')
+    return row
+
+
 @app.get('/stats', dependencies=[Depends(_auth)])
 def stats(store: StagingStore = Depends(_store)):
     return store.stats()

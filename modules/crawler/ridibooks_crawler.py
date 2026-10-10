@@ -328,6 +328,7 @@ class RidibooksCrawler(BaseCrawler):
                     ).get_attribute("content") or ""
                 except Exception:
                     pass
+            thumb = ridi_real_cover(thumb, url)
 
             # 더보기 클릭 (description 펼치기 — line-clamp 해제)
             try:
@@ -632,3 +633,15 @@ def ridi_type_hint(card_text: str) -> str | None:
     if '소설' in head:
         return '웹소설'
     return None
+
+
+# 성인 인증이 안 된 화면에서 표지 대신 나오는 가림 이미지
+RIDI_ADULT_COVER = re.compile(r'ridicdn\.net/.*book_cover/cover_adult')
+
+
+def ridi_real_cover(thumb: str, book_url: str) -> str:
+    """가림 이미지면 책 ID 로 실제 표지 주소를 만든다. 리디 이미지 서버는 성인 책도 표지를 준다."""
+    if not RIDI_ADULT_COVER.search(thumb or ''):
+        return thumb
+    m = re.search(r'/books/(\d+)', book_url or '')
+    return f'https://img.ridicdn.net/cover/{m.group(1)}/xxlarge' if m else ''

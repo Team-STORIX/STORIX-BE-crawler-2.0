@@ -51,3 +51,12 @@ def test_series_age(lines, age):
     from modules.crawler.naver_series_crawler import NaverSeriesCrawler
     crawler = NaverSeriesCrawler.__new__(NaverSeriesCrawler)
     assert crawler._parse_info(lines)['age_classification'] == age
+
+
+def test_ridi_adult_cover_replaced_with_real_cover():
+    from modules.crawler.ridibooks_crawler import ridi_real_cover
+    gate = 'https://static.ridicdn.net/books-backend/p/21d66d/books/dist/images/book_cover/cover_adult.png'
+    assert ridi_real_cover(gate, 'https://ridibooks.com/books/777063298') == \
+        'https://img.ridicdn.net/cover/777063298/xxlarge'
+    real = 'https://img.ridicdn.net/cover/4928002744/xxlarge#1'
+    assert ridi_real_cover(real, 'https://ridibooks.com/books/4928000826') == real

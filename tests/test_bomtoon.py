@@ -41,7 +41,7 @@ def test_non_adult_age_is_left_empty_and_novel_type():
     assert parse_bomtoon_contents({**DATA, 'type': 'CARTOON'}, 'u')['works_type'] == '웹툰'  # 봄툰 만화 분류
 
 
-@pytest.mark.parametrize('tag', ['2/12/22일', '4일/14일/24일', '토요연재', '열흘연재', '오직봄툰', '봄툰공모전_당선웹툰'])
+@pytest.mark.parametrize('tag', ['2/12/22일', '4일/14일/24일', '토요연재', '열흘연재', '오직봄툰', '봄툰공모전_당선웹툰', '봄티콘'])
 def test_bomtoon_meta_tags(tag):
     from modules.crawler.bomtoon_crawler import BOMTOON_META_TAGS
     assert BOMTOON_META_TAGS.match(tag)

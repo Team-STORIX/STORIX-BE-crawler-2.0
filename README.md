@@ -1,23 +1,21 @@
 # STORIX-BE-Crawler 2.0
 
 네이버 웹툰 / 네이버 웹소설 / 네이버 시리즈 / 카카오페이지 / 리디북스 크롤러
-Selenium 병렬 워커 → JSONL 산출물 → DB 배치 적재 파이프라인
+Selenium 병렬 워커 → JSONL 산출물 → 검수 staging(Layer 1 · 1.5) → BE import API
 
 ---
 
 ## 주요 기능
 
-- CLI 진입점 (`cli.py`) — `crawl` / `batch` 명령
+- CLI 진입점 (`cli.py`) — `login` / `crawl` / `stage` 명령
 - JSONL 산출물 작성기 (`crawler/output/jsonl_writer.py`)
 - 크롤링 모드: initial (전체), new_works (신작), update_fields (필드 갱신), search_titles (작품명 검색), **custom_url (URL 기반)**
-- 배치 적재: 스키마 검증 → 폴백 복구 → DB INSERT (`batch/`)
+- 검수 파이프라인 (`review/`): JSONL → staging DB → 규칙 검사(Layer 1) · 런 이상 차단(Layer 1.5) → 사람 검수 → BE import API. **크롤러는 서비스 DB에 직접 쓰지 않습니다**
 - APScheduler 기반 자동 실행 (`scheduler/`)
 - 병렬 워커 풀 (`ThreadPoolExecutor` + `queue.Queue`, 워커 2개)
 - 환경변수 자격증명 자동 로그인 → 쿠키 로그인 → 브라우저 수동 로그인 순으로 폴백
-- **works_platform 중간 테이블** — 동일 작품이 여러 플랫폼에 연재될 경우 플랫폼 목록 확장
-- **검수 큐 대화형 수정** — 검증 실패 레코드를 사용자가 직접 수정
+- **같은 작품 판정은 BE 가 담당** — 여러 플랫폼에서 들어온 같은 작품은 한 작품에 플랫폼 · 링크 · 해시태그가 합쳐짐 (연령은 올리기만, 해시태그는 합집합)
 - **JSONL 중복 제거** — `platform_work_id` 기준 in-memory dedup, 재실행 시 기존 파일 로드 후 덮어씌움
-- **DB priority 공존 로직** — 새 값·기존 값 모두 있을 때 장르 우선순위(`로판`=5 등)로 선택, 한쪽만 있으면 있는 쪽 채택
 
 ---
 
@@ -40,21 +38,17 @@ pip install -r requirements.txt
 cp .env.example .env
 ```
 
-**DB 연결 옵션 (둘 중 하나 선택)**
+**검수 staging DB**
 
-| 방법 | 설명 |
-|------|------|
-| SSM 터널 | RDS(프라이빗 서브넷) 접근. 터미널 1에서 터널 유지, 터미널 2에서 크롤러 실행 |
-| 로컬 MySQL | `docker compose up db -d` 로 로컬 MySQL 컨테이너 실행. `.env`의 PORT를 `3306`으로 변경 |
+크롤러는 검수용 staging DB(`storix_staging_dev` · `storix_staging_prod`)만 씁니다. 운영 RDS 안의 별도 DB이고, 크롤러 계정 `storix_crawler`는 이 DB에만 권한이 있습니다(비밀번호: Parameter Store `/storix/crawler/STAGING_DB_PASSWORD`).
 
 ```bash
-# SSM 터널 방식 (storix-db-tunnel.sh 는 레포에 포함되지 않음 — 인프라 담당자에게 별도 전달받아 사용)
-./storix-db-tunnel.sh          # 터미널 1: 유지
-
-# 로컬 MySQL 방식
-docker compose up db -d
-# .env: MYSQL_DATABASE_PORT=3306
+# SSM 터널 (storix-db-tunnel.sh 는 레포에 포함되지 않음 — 인프라 담당자에게 별도 전달받아 사용)
+./storix-db-tunnel.sh          # 127.0.0.1:13306 유지
+# .env: MYSQL_DATABASE_HOST=127.0.0.1 / PORT=13306 / USER=storix_crawler / PASSWORD=…
 ```
+
+BE 대상(dev · prod)은 `STORIX_ENV` 또는 `--env` 로 고르고, 주소 · 내부 API 키 · staging DB 가 함께 바뀝니다(`review/env.py`, `.env.example` 참고).
 
 ---
 
@@ -100,12 +94,12 @@ python cli.py crawl --mode custom_url --url "https://ridibooks.com/books/5131000
 python cli.py crawl --mode custom_url --url "https://ridibooks.com/category/bestsellers/1613?period=steady" --count 200
 ```
 
-> **리디 단건 URL**을 이미 알고 있으면 `custom_url` 모드에 `/books/<id>` 상세 URL을 직접 넣어 크롤한 뒤 `batch import`(또는 `scripts/fill_import.py`)로 적재하세요. 카테고리 목록 URL을 주면 목록을 수집해 각 상세를 크롤합니다. 작품명만 있으면 아래 `search_titles`를 쓰면 됩니다.
+> **리디 단건 URL**을 이미 알고 있으면 `custom_url` 모드에 `/books/<id>` 상세 URL을 직접 넣어 크롤한 뒤 `stage load` → `stage import` 로 적재하세요(아래 **검수 · 적재**). 카테고리 목록 URL을 주면 목록을 수집해 각 상세를 크롤합니다. 작품명만 있으면 아래 `search_titles`를 쓰면 됩니다.
 
 > **`search_titles` 모드 (임의 목록으로 특정 작품만 채우기)**
 > - 지원 플랫폼: `naver_webtoon`, `naver_novel`, `naver_series`, `kakao_page`, `ridibooks`, `all`
 > - `titles.txt`에 작품명을 줄바꿈으로 나열하면 각 플랫폼에서 제목 검색 → 상세 크롤 → JSONL 저장.
-> - `titles.txt`는 레포에 포함되지 않습니다(`.gitignore`). 직접 만들거나 아래 `scripts/fill_missing_works.py --write` / `scripts/fill_missing_genre.py --write`로 생성하세요.
+> - `titles.txt`는 레포에 포함되지 않습니다(`.gitignore`). 직접 만드세요.
 > - 제목은 **`## 웹툰` / `## 웹소설` / `## 전체`** 섹션 헤더 아래에 둡니다. 섹션은 **찾을 작품 유형**이며, 헤더 없이 나온 제목은 스킵됩니다.
 >   - `웹툰` → 네이버 웹툰·시리즈·카카오·리디에서 **웹툰판만** / `웹소설` → 네이버 웹소설·시리즈·카카오·리디에서 **웹소설판만**
 >   - `전체` → 웹툰판·웹소설판을 각각 찾아 **있는 판을 다** 수집 (한쪽만 있으면 그것만)
@@ -113,116 +107,37 @@ python cli.py crawl --mode custom_url --url "https://ridibooks.com/category/best
 >   - 웹소설은 연재판을 먼저 고르고, 연재판이 없을 때만 e북을 고릅니다. e북 연령은 보내지 않습니다(권마다 연령이 달라 웹소설 연령을 덮어쓸 수 있음)
 >   - 외전·번외는 본편과 같은 작품이라 수집하지 않고, 19세 완전판·개정판은 BE가 다른 작품으로 보므로 본편과 함께 수집합니다
 >   - 예전 `## 단행본` 섹션은 경고 후 웹소설로 찾습니다
-> - 같은 섹션에 같은 제목이 여러 줄 있으면 **첫 줄만 쓰고 나머지는 제외**합니다(같은 작품 중복 크롤 방지). 단 `원룸 조교님` ⇄ `원룸조교님`처럼 표기가 다르면 별개로 봅니다 — 이런 쌍은 적재 후 `scripts/review_similar_works.py`로 병합하세요.
+> - 같은 섹션에 같은 제목이 여러 줄 있으면 **첫 줄만 쓰고 나머지는 제외**합니다(같은 작품 중복 크롤 방지). 단 `원룸 조교님` ⇄ `원룸조교님`처럼 표기가 다르면 별개로 봅니다 — 같은 작품 판정은 BE import 가 하고(라벨 · 띄어쓰기 · 기호를 뺀 제목 + 작가), 애매하면 `SUSPECTED_DUPLICATE` 로 검수 대기가 됩니다.
 > - `--platform all`은 위 5개 플랫폼을 순회하며, **한 곳에서라도 찾으면** 해당 작품을 처리합니다.
 > - 제목 매칭은 **완전일치 → 앞부분 일치 → 유사도 ≥90%** 순으로 시도합니다. `[완결]`·`[e북]` 같은 라벨을 떼고 정규화(공백·괄호·`·∙#` 제거) 후 비교합니다. 앞부분 일치는 뒤에 붙은 말이 부제·판본 구분자(` - `, `:`, `~`, `(`, `[`)로 시작할 때만 인정합니다(`레지나레나 - 용서받지 못한 그대에게`는 통과, `상수리나무 아래 4컷 만화`는 다른 작품). 임계값은 `BaseCrawler.TITLE_FUZZY_THRESHOLD`로 조정.
 > - 네이버 웹툰 도전만화·베스트도전, 네이버 웹소설 베스트리그·챌린지리그는 **정식 계약 전 작품이라 수집하지 않습니다**(검수에서도 `PRE_CONTRACT_WORK`로 거절).
-> - **네이버 웹소설**은 정식(시리즈에디션)에 없으면 **베스트리그·챌린지리그(베스트도전)**까지 검색합니다. 리그 우선순위는 `정식 > 베스트 > 챌린지`, 로그에 `(베스트리그·정확)`처럼 출처를 표기합니다. 단 아마추어 리그는 2차창작·팬픽 오탐을 막기 위해 **부분일치를 제외하고 완전일치·유사도만** 인정합니다.
-> - **리디북스**는 `ridibooks.com/search`에서 `/books/<id>`를 찾아 매칭합니다. 성인(19금) 작품은 **성인 인증된 계정으로 로그인**돼 있어야 검색 결과에 노출되니, 리디 세션(`sessions/ridibooks_cookies.pkl`)이 성인 인증 상태인지 확인하세요. 리디 상세는 `works_type` 자동감지가 약해 웹소설이 `웹툰`으로 잡힐 수 있으니 적재 후 확인이 필요합니다.
+> - **리디북스**는 `ridibooks.com/search`에서 `/books/<id>`를 찾아 매칭합니다. 성인(19금) 작품은 **성인 인증된 계정으로 로그인**돼 있어야 검색 결과에 노출되니, 리디 세션(`sessions/ridibooks_cookies.pkl`)이 성인 인증 상태인지 확인하세요. 리디 연령은 책 데이터(성인) · "15세 · 12세 이용가 안내" 공지로 판정하고, 둘 다 없으면 전체연령가입니다. 성인 e북 표지가 가림 이미지면 책 ID 로 실제 표지를 받습니다.
 > - **`--titles-file` 사용 시 크롤에 성공한 작품은 파일에서 자동 제거**되어, `titles.txt`에는 못 찾은 작품만 남습니다(재시도용). `--titles`(직접 입력)는 파일을 수정하지 않습니다.
-> - 이후 `batch import`가 빈 필드만 `COALESCE`로 채우므로 기존 값은 보존됩니다.
+> - BE import 는 빈 값을 덮어쓰지 않고, 연령은 올리기만 하며, 해시태그는 기존 태그에 더합니다.
 
-**해시태그/플랫폼 빈 works 채우기** (`scripts/fill_missing_works.py`)
+**검수 · 적재 (`stage`)**
 
-`works_hashtag` 또는 `works_platform`이 하나도 없는 works를 찾아, `works_type`(웹툰/웹소설)별 섹션 헤더 형식으로 `titles.txt`를 생성합니다. 그대로 `search_titles`에 넣어 재크롤하면 빈 해시태그·플랫폼이 채워집니다.
-
-```bash
-# 1단계: 대상 조회 (읽기 전용, 파일 미변경 — 미리보기만)
-python scripts/fill_missing_works.py
-
-# 2단계: titles.txt 에 기록 (-o 로 경로 변경 가능)
-python scripts/fill_missing_works.py --write
-
-# 3단계: 재크롤
-python cli.py crawl --platform all --mode search_titles --titles-file titles.txt
-
-# 4단계: 중복 없이 DB 반영 (fill_import.py — 일반 batch import 대신 사용)
-python scripts/fill_import.py --input output/2026-07-25/search_titles.jsonl --dry-run  # 분류 미리보기
-python scripts/fill_import.py --input output/2026-07-25/search_titles.jsonl            # 실제 반영
-```
-
-> - 기본은 **읽기 전용**이며, 실제 기록은 `--write`가 있어야 합니다(`titles.txt` 실수 덮어쓰기 방지).
-> - 해시태그 0 / 플랫폼 0 건수를 나눠 요약 출력합니다.
-> - `works_type`이 웹툰/웹소설이 아닌 행은 `search_titles`가 스킵하므로 파일에 넣지 않고 **경고로 따로 보고**합니다(수동 처리 필요).
-> - 웹툰판·웹소설판을 다 받으려면 생성된 파일에 `## 전체` 섹션을 손으로 만들어 제목을 옮기세요.
-
-**왜 `fill_import.py`인가 (중복 행 방지)**
-
-일반 `batch import`는 `(works_name + artist_name)`으로 기존 행을 찾으므로, 재크롤한 작가명이 DB와 조금이라도 다르면 **빈 행을 채우는 대신 새 행을 하나 더 만듭니다.** [scripts/fill_import.py](scripts/fill_import.py)는 `works_name`으로 기존 행을 찾아 이렇게 분기합니다:
-
-| 상황 | 처리 |
-|------|------|
-| 크롤 작가 == 기존 작가 | 그 행을 정상 채움 (`save_one_row`) |
-| 기존 작가가 비어있음 | 그 행에 작가명 세팅 후 채움 (ADOPT) |
-| 기존 작가가 이미 다른 값 | 채우지 않고 **검수큐(별도 폴더)에 저장** [CONFLICT] |
-| 빈 작가 행 다수 / 매칭 없음 / 크롤 작가 없음 | 검수큐 |
-
-> - 채우는 값의 병합 규칙은 `save_one_row`와 동일(빈 값 유지·채워진 값 반영, 해시태그는 있을 때만 교체, 플랫폼은 `INSERT IGNORE` 추가).
-> - 검수큐는 기본 `output/fill_review/artist_conflict_queue.jsonl`에 쌓이며 `python cli.py batch review --input <경로>`로 조회. `--review-dir`로 위치 변경 가능.
-
-**이름이 유사한 작품 병합 검수** (`scripts/review_similar_works.py`)
-
-`패밀리 레스토랑 가자` vs `패밀리 레스토랑 가자[단행본]`, `나 혼자만 레벨업` vs `나혼자만 레벨업`처럼 표기 차이로 갈린 **같은 작품**을 사람이 한 쌍씩 확인해 병합합니다. `works_name`을 정규화(공백·기호 제거, 소문자화)해 유사도 ≥ 임계값(기본 0.8)인 쌍만 뽑아, 두 작품을 나란히 띄우고 **어느 쪽을 기준(우선)으로 합칠지** 물어봅니다.
+수집 결과(JSONL)는 바로 BE 로 가지 않고 staging 에서 검수를 거칩니다.
 
 ```bash
-# 1단계: 후보쌍만 확인 (읽기 전용, DB 변경 없음)
-python scripts/review_similar_works.py --dry-run
+# 1) staging 적재 + 규칙 검사 (런 단위). --env 생략 시 STORIX_ENV(기본 dev)
+python cli.py stage load --env dev --input output/2026-10-10/search_titles.jsonl --source search_titles
 
-# 2단계: 검수 시작 (한 쌍씩 1/2/s/q 입력 — 선택은 즉시 반영)
-python scripts/review_similar_works.py
+# 2) 상태 확인
+python cli.py stage stats --env dev
 
-# 옵션
-python scripts/review_similar_works.py --skip-sequels     # 시즌·N부·외전·연도만 다른 쌍 제외 (권장)
-python scripts/review_similar_works.py --threshold 0.85   # 더 엄격하게
-python scripts/review_similar_works.py --type 웹툰         # 웹툰끼리만 비교
-python scripts/review_similar_works.py --cross-type       # 웹툰↔웹소설도 비교(기본은 같은 타입끼리만)
+# 3) BE 반영 (보내기 전에 런별 건수를 보여주고 확인받음)
+python cli.py stage import --env dev --run-id <런>
 ```
 
-> `--skip-sequels`는 `마음의소리 ⇄ 마음의소리2`, `아일랜드 1부 ⇄ 2부`, `2025 루키 단편선 ⇄ 2024 루키 단편선`처럼 **시즌·N부·외전·연도만 다른 별개 편**을 후보에서 자동 제외합니다. 단 `개정판`·`단행본`·`완전판` 같은 **판본 차이는 같은 작품**으로 보고 후보에 그대로 남깁니다(`패밀리 레스토랑 가자 ⇄ 패밀리 레스토랑 가자[단행본]`).
+| 판정 | 의미 |
+|---|---|
+| `AUTO_PASS` | 바로 BE 로 보냄 |
+| `NEEDS_REVIEW` | 사람이 확인 (장르 매핑 실패, 가림 표지, BE 중복 의심, 새 작품인데 연령 · 장르가 빔 등) |
+| `REJECTED` | 보내지 않음 (작품명 · 작가 · 링크 없음, 정식 계약 전 작품 등) |
 
-각 쌍에서 입력값:
-
-| 입력 | 동작 |
-|------|------|
-| `1` | **[1]번을 기준(우선)**으로 [2] 흡수 병합 |
-| `2` | **[2]번을 기준(우선)**으로 [1] 흡수 병합 |
-| `s` (또는 Enter) | 건너뛰기 |
-| `q` | 종료 |
-
-> - **기준으로 고른 행의 값이 우선**이며, 비어 있는 필드(작가·장르·연령·썸네일·설명 등)만 상대 행 값으로 채웁니다. 이후 상대 행의 플랫폼·해시태그·서비스 참조(즐겨찾기/토픽룸 등)를 기준 행으로 옮기고 상대 행을 삭제합니다.
-> - 서비스 참조 이전은 [scripts/works_ref_migration.py](scripts/works_ref_migration.py)를 사용합니다. 유니크 충돌로 못 옮기는 **사용자 데이터가 남으면 그 행은 삭제하지 않고 경고만** 남깁니다(고아 참조 → API NPE 방지).
-> - 화면에 작가·플랫폼·설명 길이가 함께 표시됩니다. `시즌1 vs 시즌2`, `외전`처럼 이름만 비슷하고 다른 작품이면 `s`로 건너뛰세요.
-> - ⚠️ 병합 선택은 **즉시 커밋**됩니다. `--dry-run`으로 후보 규모를 먼저 확인한 뒤 시작하세요.
-
-**배치 적재**
-```bash
-# 당일 폴더 자동 감지 후 DB 적재 (크롤링 직후 권장)
-python cli.py batch import
-
-# 특정 날짜 폴더 전체 DB 적재
-python cli.py batch import --input ./output/2026-07-17/
-
-# 감시 모드 (새 파일 생성 시 자동 적재)
-python cli.py batch import --input ./output/ --watch
-
-# 수동 검수 큐 확인
-python cli.py batch review --input ./output/2026-05-09/manual_review_queue.jsonl
-
-# 검수 큐 대화형 수정 (당일 폴더 자동 감지)
-python cli.py batch fix
-
-# 특정 날짜의 검수 큐 수정
-python cli.py batch fix --input ./output/2026-05-09/manual_review_queue.jsonl
-```
-
-**검수 큐 수정 후 DB 적재**
-```bash
-# 1단계: 검수 큐 대화형 수정 (고정된 레코드는 fixed_records.jsonl로 저장)
-python cli.py batch fix
-
-# 2단계: 수정된 레코드를 DB에 적재
-python cli.py batch import --input ./output/2026-05-14/fixed_records.jsonl
-```
+- 연령 · 장르가 비어도 막지 않습니다. 기존 작품에 붙으면 BE 가 빈 값을 무시하고, 새로 만들어야 하면 BE 가 거절해 그 건만 검수 대기가 됩니다(한 실행 안에서 마지막에 한 번 더 보내 다른 플랫폼 행이 만든 작품에 붙임)
+- 검수 대기 처리는 검수 API(`uvicorn review.app:app --port 8200`)의 `GET /review/queue` · `POST /review/{id}/approve`(`overrides`, 기존 작품에 붙일 `target_works_id`) · `POST /review/{id}/reject` 로 합니다
 
 **스케줄러**
 ```bash
@@ -299,16 +214,13 @@ python cli.py login --platform all
 python cli.py login --platform all
 
 # 2단계: 스케줄러 상시 실행 (백그라운드)
-docker compose --profile scheduler up -d
+docker compose --profile scheduler up -d   # 수집 결과를 staging 에 적재까지 함. BE 반영은 stage import 로 사람이 실행
 
 # DB만 실행 (로컬 개발용)
 docker compose up db -d
 
 # 크롤링 단발 실행
 docker compose --profile crawl up
-
-# 배치 적재 단발 실행
-docker compose --profile batch up
 ```
 
 쿠키가 만료되면 스케줄러가 자동 재로그인을 시도합니다. `.env`에 자격증명이 없거나 CAPTCHA가 발생한 경우에는 로컬에서 `python cli.py login --platform <platform>` 을 다시 실행한 뒤 컨테이너를 재시작하세요.
@@ -426,11 +338,11 @@ works_platform: { works_id: 1, platform: "NAVER_WEBTOON" }
 
 ```
 .
-├── cli.py                          # CLI 진입점 (crawl / batch 명령)
+├── cli.py                          # CLI 진입점 (login / crawl / stage 명령)
 ├── config.py                       # URL, DB, 경로, 로그인 자격증명 상수
 ├── requirements.txt
 ├── Dockerfile
-├── docker-compose.yml              # 로컬용 (db / crawl / batch / scheduler / api 프로필)
+├── docker-compose.yml              # 로컬용 (db / crawl / scheduler / api 프로필)
 ├── .env.example                    # 환경변수 템플릿
 ├── .github/workflows/
 │   └── ci.yml                      # PR 검사 (pytest, docker build)
@@ -458,17 +370,19 @@ works_platform: { works_id: 1, platform: "NAVER_WEBTOON" }
 │   │   ├── naver_novel_crawler.py  # 네이버 웹소설 크롤러 (novel.naver.com, 장르목록·상세·제목검색)
 │   │   ├── naver_series_crawler.py # 네이버 시리즈 크롤러 (series.naver.com, 웹소설·웹툰 단행본, 제목검색)
 │   │   └── ridibooks_crawler.py    # 리디북스 크롤러 (작가 추출 다중 셀렉터, 비정상 URL 필터)
-│   ├── db_handler.py               # MySQL 연결, save_one_row() (priority 공존 upsert), works_platform 연동
 │   └── logger.py                   # 구조화 로거 팩토리
 │
-├── batch/
-│   ├── validator.py                # JSONL 레코드 스키마/값 검증
-│   ├── fallback.py                 # 누락 필드 복구, 플랫폼 키 정규화, 수동 검수 큐 기록
-│   ├── importer.py                 # JSONL → DB 적재, --watch 감시 모드
-│   └── reviewer.py                 # 검수 큐 대화형 수정 (batch fix)
+├── review/                         # 검수 파이프라인 (크롤러는 서비스 DB 에 직접 쓰지 않음)
+│   ├── env.py                      # BE 대상 dev · prod (주소 · 내부 API 키 · staging DB)
+│   ├── schema.sql · store.py       # staging DB (staging_run · works_staging · review_decision)
+│   ├── catalog.py                  # BE enum 카탈로그 (장르 · 연령 · 유형 · 플랫폼)
+│   ├── rules.py                    # Layer 1 규칙 검사 · Layer 1.5 런 이상 차단
+│   ├── artists.py · landing.py     # 작가명 · 작품 링크 정규화
+│   ├── service.py · app.py         # 적재 · 승인 · 거절, 검수 API (FastAPI)
+│   └── importer.py · backend.py    # BE import API 호출 (X-Internal-Api-Key)
 │
 ├── scheduler/
-│   ├── jobs.py                     # 크롤링 잡 함수 (7개: initial 3 / new_works 2 / update_fields 2)
+│   ├── jobs.py                     # 크롤링 잡 함수 (7개: initial 3 / new_works 2 / update_fields 2) — 결과는 staging 적재까지
 │   └── runner.py                   # APScheduler BlockingScheduler 실행기
 │
 ├── api/
@@ -477,13 +391,6 @@ works_platform: { works_id: 1, platform: "NAVER_WEBTOON" }
 ├── tools/
 │   ├── register_session.py         # 로컬에서 로그인 → 쿠키 추출 → API 업로드 툴
 │   └── build_exe.ps1               # 위 툴을 exe 로 빌드 (PyInstaller)
-│
-├── scripts/                        # 운영·정비용 스크립트
-│   ├── fill_missing_works.py       # 해시태그/플랫폼 빈 works → titles.txt 생성 (재크롤용)
-│   ├── fill_missing_genre.py       # genre 빈 works → titles.txt 생성 (재크롤용)
-│   ├── fill_import.py              # 채우기 크롤 결과를 중복 없이 DB 반영, 작가 충돌은 검수큐로
-│   ├── review_similar_works.py     # 이름 유사(≥80%) 작품쌍을 사람이 한 쌍씩 검수·병합 (기준행 우선)
-│   └── works_ref_migration.py      # works 삭제 전 서비스 테이블(즐겨찾기/토픽룸 등) 참조 이전 공용 로직
 │
 └── output/                         # 크롤링 산출물 (날짜별 JSONL, .gitignore 처리됨)
     └── YYYY-MM-DD/

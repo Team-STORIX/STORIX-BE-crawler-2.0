@@ -1,8 +1,9 @@
 """
 search_titles 모드: 작품명 리스트 → 플랫폼 검색 → 크롤링 → JSONL 저장
 
-이후 DB 적재는 기존 파이프라인 사용:
-    python cli.py batch import --input ./output/YYYY-MM-DD/
+이후 검수 적재 → BE 반영:
+    python cli.py stage load --input ./output/YYYY-MM-DD/search_titles.jsonl --source search_titles
+    python cli.py stage import --run-id <런>
 """
 from pathlib import Path
 
@@ -285,7 +286,7 @@ def _search_and_write(
                 f'\n✅ [{label}] 완료 — '
                 f'수집 {ok_count}건 | 실패 {fail_count}건 | 스킵 {skip_count}건'
             )
-            print(f'   DB 적재: python cli.py batch import --input {writer.path}')
+            print(f'   검수 적재: python cli.py stage load --input {writer.path} --source search_titles')
     finally:
         crawler.close_driver()
 

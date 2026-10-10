@@ -1,10 +1,70 @@
 import json
+import re
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
 
-from modules.db_handler import parse_artists
 from config import OUTPUT_DIR
+
+# 작가 원문을 글 · 그림 · 원작으로 나눈다. 옛 modules/db_handler.py(직접 INSERT 경로, #5 에서 삭제)에서 옮겨 왔다.
+# 검수 단계(review/artists.py normalize_artists)가 다시 정규화하므로 여기서는 수집 결과 파일 형식만 맞춘다
+_ROLE_TOKEN_RE = re.compile(r'^(?:글|그림|작화|원작|각색)+$')
+
+
+def parse_artists(artist_name_raw):
+
+    author, illustrator, original_author = None, None, None
+    
+    if not artist_name_raw:
+        return None, None, None
+
+    # 정규화
+    text = artist_name_raw.replace('∙', ' ').replace(':', ' ')
+    text = text.replace('글/그림', '글 그림').replace('글/원작', '글 원작')
+
+    parts = [p.strip() for p in text.split('/') if p.strip()]
+
+    for part in parts:
+        part = part.strip()
+        if not part: continue
+
+        # 공백 토큰 단위로 분리: 토큰 '전체'가 역할 키워드일 때만 역할 라벨로 인정한다.
+        # ('글쓰는기계' → 이름) 라벨은 이름 앞(카카오식 '글 홍길동')에도,
+        # 이름 뒤(네이버식 '홍길동 ∙ 글/그림')에도 올 수 있어 양쪽을 모두 떼어낸다.
+        roles: set[str] = set()
+        tokens = part.split()
+
+        def _absorb_role(tok: str) -> None:
+            if '글' in tok or '각색' in tok:
+                roles.add('글')
+            if '그림' in tok or '작화' in tok:
+                roles.add('그림')
+            if '원작' in tok:
+                roles.add('원작')
+
+        while tokens and _ROLE_TOKEN_RE.match(tokens[0]):
+            _absorb_role(tokens.pop(0))
+        while tokens and _ROLE_TOKEN_RE.match(tokens[-1]):
+            _absorb_role(tokens.pop())
+
+        name = ' '.join(tokens).strip()
+        if not name:
+            continue
+
+        if not roles:
+            if not author:
+                author = name
+            elif not illustrator:
+                illustrator = name
+        else:
+            if '글' in roles: author = name
+            if '그림' in roles: illustrator = name
+            if '원작' in roles: original_author = name
+
+    if len(parts) == 1 and author and not illustrator and not original_author:
+        illustrator = author
+
+    return author, illustrator, original_author
 
 
 def _normalize_record(data: dict, platform: str, mode: str) -> dict:

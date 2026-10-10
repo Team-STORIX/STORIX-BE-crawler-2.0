@@ -27,24 +27,6 @@ services:
       - crawl
     command: ["python", "cli.py", "crawl", "--platform", "all", "--mode", "initial"]
 
-  batch:
-    build: .
-    image: storix-crawler:latest
-    container_name: storix_batch
-    network_mode: host
-    environment:
-      - DOCKER_ENV=true
-      - MYSQL_DATABASE_HOST=127.0.0.1
-      - MYSQL_DATABASE_PORT=13306
-      - MYSQL_DATABASE_USER=${MYSQL_DATABASE_USER:-root}
-      - MYSQL_DATABASE_PASSWORD=${MYSQL_DATABASE_PASSWORD:-storix}
-      - MYSQL_DATABASE_NAME=${MYSQL_DATABASE_NAME:-storix}
-    volumes:
-      - ./output:/app/output
-    profiles:
-      - batch
-    command: ["python", "cli.py", "batch", "import"]
-
   scheduler:
     build: .
     image: storix-crawler:latest

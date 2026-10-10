@@ -47,6 +47,11 @@ ENUM_FIELDS = {
 # 정식 계약 전 작품 (네이버 웹툰 도전만화·베스트도전, 네이버 웹소설 베스트리그·챌린지리그). 받지 않는다
 PRE_CONTRACT_URL = re.compile(r'comic\.naver\.com/(?:challenge|bestChallenge)/|novel\.naver\.com/(?:best|challenge)/')
 
+# 작품명 자리에 들어오면 잘못 읽은 것: 상세 페이지의 섹션 제목 · 사이트 이름
+# (2026-10 카카오 화면 개편 때 작품명이 전부 "줄거리"로 수집됨)
+NOT_A_TITLE = {'줄거리', '작품소개', '작품 소개', '소개', '키워드', '상세정보', '작품정보', '작품 정보', '동일작',
+               '카카오페이지', '콘텐츠홈', '네이버 웹툰', '네이버 웹소설', '네이버 시리즈', '리디', '리디북스'}
+
 # 표지가 아닌 썸네일. 비율이 다른 작품과 안 맞거나 작품을 알아볼 수 없어 사람이 확인한다
 #  - 네이버 웹소설 og:image 정사각형(type=n200_200): 작가가 따로 올리는 공유용 이미지
 #  - 네이버 웹소설 장르 기본 표지(romance_320_12.png 등): 작가가 표지를 안 올린 작품
@@ -92,6 +97,8 @@ def validate_item(item: dict, catalog: EnumCatalog) -> Verdict:
         violations.append(_violation('source_url', 'INVALID_URL', url, REJECTED))
     if PRE_CONTRACT_URL.search(url):
         violations.append(_violation('source_url', 'PRE_CONTRACT_WORK', url, REJECTED))
+    if normalized['works_name'] in NOT_A_TITLE:
+        violations.append(_violation('works_name', 'NOT_A_TITLE', normalized['works_name'], REJECTED))
 
     for f, (kind, severity) in ENUM_FIELDS.items():
         raw = _clean(item.get(f))

@@ -263,6 +263,24 @@ class KakaoCrawler(BaseCrawler):
             print("❌ 리스트 로딩 실패")
             return []
 
+    def _title_sources(self, timeout: float = 5.0) -> tuple[str, str, str]:
+        """(og:title, 문서 제목, 화면 큰 제목). 화면이 그려지기 전엔 og:title 이 '카카오페이지' 라 잠깐 기다린다."""
+        js = """
+            const og = document.querySelector("meta[property='og:title']");
+            const big = document.querySelector('span[class*="font-large3-bold"]');
+            return [og ? og.content : '', document.title || '', big ? big.innerText : ''];
+        """
+        end = time.time() + timeout
+        sources = ('', '', '')
+        while True:
+            try:
+                sources = tuple((v or '').strip() for v in self.driver.execute_script(js))
+            except Exception:
+                pass
+            if parse_kakao_title(*sources) or time.time() > end:
+                return sources
+            time.sleep(0.5)
+
     def crawl_detail(self, url):
         try:
             # 작품 정보 탭 이동
@@ -306,31 +324,20 @@ class KakaoCrawler(BaseCrawler):
             except Exception:
                 pass
 
-            # 제목 (여러 셀렉터 fallback)
-            title = ""
-            _title_candidates = [
-                (By.XPATH, '//*[@id="__next"]/div/div[2]/div[1]/div/div[1]/div[1]/div/div[2]/a/div/span[1]'),
-                (By.XPATH, '//h1'),
-                (By.XPATH, '//h2'),
-                (By.CSS_SELECTOR, "meta[property='og:title']"),
-            ]
-            for _by, _sel in _title_candidates:
-                try:
-                    el = self.driver.find_element(_by, _sel)
-                    t = el.get_attribute("content") if _by == By.CSS_SELECTOR else el.text
-                    t = (t or "").strip()
-                    t = re.sub(r'\s*\[(완결|독점|19세 완전판|휴재)\]', '', t).replace("휴재", "").strip()
-                    if t:
-                        title = t
-                        break
-                except Exception:
-                    pass
+            # 제목. h1 · h2 는 "줄거리" · "키워드" 같은 섹션 제목이라 쓰지 않는다 (2026-10 화면 개편 후 전부 "줄거리"로 수집됨)
+            title = parse_kakao_title(*self._title_sources())
 
             # 설명 - JS innerText로 \n 보존 (og:description은 개행 제거됨)
             # whitespace-pre-wrap span이 실제 설명 컨테이너 (class*="pre-wrap" 으로 매칭)
             desc = ""
             try:
                 desc = self.driver.execute_script("""
+                    // 정보 탭의 '줄거리' 섹션 본문. 섹션 상자 텍스트는 "줄거리\\n본문" 이라 제목은 파이썬에서 뗀다
+                    const h = [...document.querySelectorAll('h2')].find(e => e.innerText.trim() === '줄거리');
+                    for (let el = h && h.parentElement, i = 0; el && i < 5; el = el.parentElement, i++) {
+                        const t = el.innerText.trim();
+                        if (t.length > '줄거리'.length + 20) return t;
+                    }
                     const candidates = [
                         document.querySelector('[class*="pre-wrap"]'),
                         document.querySelector('[class*="pre-line"]'),
@@ -360,6 +367,7 @@ class KakaoCrawler(BaseCrawler):
                     ).get_attribute("content") or ""
                 except Exception:
                     desc = ""
+            desc = clean_kakao_synopsis(desc)
 
             # 상세 정보 리스트
             author, illustrator, original_author, age, genre, works_type = "", "", "", "", "", ""
@@ -448,3 +456,29 @@ class KakaoCrawler(BaseCrawler):
         except Exception as e:
             self._log.error("crawl_detail 실패 (%s): %s", url, e)
             return None
+
+
+_KAKAO_SITE_NAMES = {'카카오페이지', '콘텐츠홈', ''}  # 화면이 그려지기 전 기본값
+_KAKAO_TITLE_LABELS = re.compile(r'\s*\[(완결|독점|19세 완전판|휴재)\]')
+# 정보 탭 섹션 제목. 작품명 자리에 이게 들어오면 잘못 읽은 것이다
+KAKAO_SECTION_TITLES = {'줄거리', '키워드', '상세정보', '동일작', '이 작가의 다른 작품'}
+
+
+def parse_kakao_title(og_title: str, doc_title: str, big_title: str) -> str:
+    """카카오 작품명. og:title → 문서 제목('작품명 - 웹소설 | 카카오페이지') → 화면 큰 제목 순.
+    사이트 이름 · 섹션 제목은 작품명이 아니므로 건너뛴다. 못 찾으면 ''."""
+    doc = re.sub(r'\s*\|\s*카카오페이지\s*$', '', doc_title or '')
+    doc = re.sub(r'\s+-\s+(웹툰|웹소설|책)\s*$', '', doc)
+    for raw in (og_title, doc, big_title):
+        t = _KAKAO_TITLE_LABELS.sub('', (raw or '').strip()).replace('휴재', '').strip()
+        if t and t not in _KAKAO_SITE_NAMES and t not in KAKAO_SECTION_TITLES:
+            return t
+    return ''
+
+
+def clean_kakao_synopsis(text: str) -> str:
+    """줄거리 본문만 남긴다. 섹션 제목 '줄거리' 와 펼치기 버튼 글자를 뗀다."""
+    t = (text or '').strip()
+    t = re.sub(r'^줄거리\s*', '', t)
+    t = re.sub(r'\s*(더보기|접기)$', '', t)
+    return t.strip()

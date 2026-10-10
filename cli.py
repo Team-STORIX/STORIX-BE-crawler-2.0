@@ -1,4 +1,5 @@
 import argparse
+import glob
 import sys
 from pathlib import Path
 
@@ -133,6 +134,7 @@ def cmd_login(args):
             print(f'❌ 지원하지 않는 플랫폼: {p}')
             continue
 
+        crawler.block_images = False  # 보안문자 · 로그인 화면을 사람이 봐야 한다
         crawler.start_driver()
         try:
             if crawler.login():
@@ -158,7 +160,7 @@ def cmd_crawl(args):
             print(f'❌ 지원하지 않는 플랫폼: {platform}')
             print(f'   지원 목록: {", ".join(SUPPORTED_PLATFORMS)} | all')
             sys.exit(1)
-        run_initial(platform)
+        run_initial(platform, args.parallel)
 
     elif mode == 'new_works':
         from crawler.modes.new_works import run_new_works, SUPPORTED_PLATFORMS
@@ -166,7 +168,7 @@ def cmd_crawl(args):
             print(f'❌ 지원하지 않는 플랫폼: {platform}')
             print(f'   지원 목록: {", ".join(SUPPORTED_PLATFORMS)} | all')
             sys.exit(1)
-        run_new_works(platform)
+        run_new_works(platform, args.parallel)
 
     elif mode == 'update_fields':
         from crawler.modes.update_fields import run_update_fields, SUPPORTED_PLATFORMS
@@ -178,7 +180,7 @@ def cmd_crawl(args):
             print('❌ update_fields 모드는 --input 경로가 필요합니다.')
             print('   예: python cli.py crawl --platform all --mode update_fields --input ./output/2026-05-09/')
             sys.exit(1)
-        run_update_fields(platform, args.input)
+        run_update_fields(platform, args.input, args.parallel)
 
     elif mode == 'search_titles':
         from crawler.modes.search_titles import run_search_titles, SUPPORTED_PLATFORMS
@@ -191,7 +193,7 @@ def cmd_crawl(args):
             print('❌ 검색할 작품명이 없습니다.')
             print('   --titles-file titles.txt  또는  --titles "작품A,작품B"')
             sys.exit(1)
-        run_search_titles(platform, titles, titles_file=getattr(args, 'titles_file', None))
+        run_search_titles(platform, titles, titles_file=getattr(args, 'titles_file', None), parallel=args.parallel)
 
     elif mode == 'custom_url':
         from crawler.modes.custom_url import run_custom_url
@@ -253,7 +255,10 @@ def cmd_stage(args):
                 print(f'❌ enum 카탈로그를 못 받았습니다: {e}')
                 sys.exit(1)
             path = Path(args.input)
-            files = sorted(path.glob('*.jsonl')) if path.is_dir() else [path]
+            if any(c in args.input for c in '*?['):  # 'output/2026-10-10/*_search_titles.jsonl'
+                files = sorted(Path(f) for f in glob.glob(args.input))
+            else:
+                files = sorted(path.glob('*.jsonl')) if path.is_dir() else [path]
             files = [f for f in files if f.name != 'manual_review_queue.jsonl']
             if not files:
                 print(f'❌ JSONL 파일이 없습니다: {path}')
@@ -314,6 +319,8 @@ def main():
                          help='[search_titles 전용] 작품명 목록 (쉼표 구분, 예: "작품A,작품B")')
     crawl_p.add_argument('--url',
                          help='[custom_url 전용] 크롤링할 URL (예: https://comic.naver.com/webtoon?tab=dailyPlus)')
+    crawl_p.add_argument('--parallel', type=int, default=1,
+                         help='[--platform all] 동시에 돌릴 플랫폼 수 (기본 1). 크롬은 이 수 × 플랫폼 워커 수만큼 뜬다')
     crawl_p.add_argument('--count',
                          type=int,
                          help='[custom_url 전용] 크롤링 개수 (기본값: 500개, 무한 스크롤 무시)')
@@ -330,7 +337,8 @@ def main():
     env_p.add_argument('--env', choices=('dev', 'prod'), help='BE 대상 환경 (기본 STORIX_ENV, 없으면 dev)')
 
     stage_load_p = stage_sub.add_parser('load', parents=[env_p], help='JSONL 을 staging 에 적재하고 Layer 1 · 1.5 판정')
-    stage_load_p.add_argument('--input', required=True, help='JSONL 파일 또는 디렉토리')
+    stage_load_p.add_argument('--input', required=True,
+                              help="JSONL 파일 · 디렉토리 · 패턴 (예: 'output/2026-10-10/*_search_titles.jsonl')")
     stage_load_p.add_argument('--source', required=True,
                               help='직전 런과 건수를 비교할 단위 (예: naver_webtoon_initial)')
     stage_load_p.add_argument('--catalog-file', dest='catalog_file',

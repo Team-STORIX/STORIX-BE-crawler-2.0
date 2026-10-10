@@ -73,6 +73,9 @@ python cli.py crawl --platform all --mode search_titles --titles-file titles.txt
 # 작품명 리스트로 검색 크롤링 (쉼표 구분 직접 입력)
 python cli.py crawl --platform all --mode search_titles --titles "나 혼자만 레벨업,재혼 황후"
 
+# 플랫폼 5개를 동시에 (크롬이 플랫폼마다 따로 뜬다. initial · new_works · update_fields 도 같은 옵션)
+python cli.py crawl --platform all --mode search_titles --titles-file titles.txt --parallel 5
+
 # 네이버 웹소설(novel.naver.com) / 네이버 시리즈(series.naver.com) / 리디북스도 지원
 python cli.py crawl --platform naver_novel  --mode search_titles --titles-file titles.txt
 python cli.py crawl --platform naver_series --mode search_titles --titles "화산귀환,재벌집 막내아들"
@@ -112,6 +115,7 @@ python cli.py crawl --mode custom_url --url "https://ridibooks.com/category/best
 > - 제목 매칭은 **완전일치 → 앞부분 일치 → 유사도 ≥90%** 순으로 시도합니다. `[완결]`·`[e북]` 같은 라벨을 떼고 정규화(공백·괄호·`·∙#` 제거) 후 비교합니다. 앞부분 일치는 뒤에 붙은 말이 부제·판본 구분자(` - `, `:`, `~`, `(`, `[`)로 시작할 때만 인정합니다(`레지나레나 - 용서받지 못한 그대에게`는 통과, `상수리나무 아래 4컷 만화`는 다른 작품). 임계값은 `BaseCrawler.TITLE_FUZZY_THRESHOLD`로 조정.
 > - 네이버 웹툰 도전만화·베스트도전, 네이버 웹소설 베스트리그·챌린지리그는 **정식 계약 전 작품이라 수집하지 않습니다**(검수에서도 `PRE_CONTRACT_WORK`로 거절).
 > - **리디북스**는 `ridibooks.com/search`에서 `/books/<id>`를 찾아 매칭합니다. 성인(19금) 작품은 **성인 인증된 계정으로 로그인**돼 있어야 검색 결과에 노출되니, 리디 세션(`sessions/ridibooks_cookies.pkl`)이 성인 인증 상태인지 확인하세요. 리디 연령은 책 데이터(성인) · "15세 · 12세 이용가 안내" 공지로 판정하고, 둘 다 없으면 전체연령가입니다. 성인 e북 표지가 가림 이미지면 책 ID 로 실제 표지를 받습니다.
+> - **상세 수집은 HTTP 가 먼저**입니다. 네이버 웹툰은 작품 정보 API(`comic.naver.com/api/article/list/info`), 리디는 상세 HTML 안의 책 데이터(`__NEXT_DATA__`)로 받고, 못 받으면 브라우저로 엽니다. 브라우저는 이미지를 받지 않고(`eager` 로딩), 상세 100건마다 드라이버를 새로 띄웁니다.
 > - **`--titles-file` 사용 시 크롤에 성공한 작품은 파일에서 자동 제거**되어, `titles.txt`에는 못 찾은 작품만 남습니다(재시도용). `--titles`(직접 입력)는 파일을 수정하지 않습니다.
 > - BE import 는 빈 값을 덮어쓰지 않고, 연령은 올리기만 하며, 해시태그는 기존 태그에 더합니다.
 
@@ -121,7 +125,7 @@ python cli.py crawl --mode custom_url --url "https://ridibooks.com/category/best
 
 ```bash
 # 1) staging 적재 + 규칙 검사 (런 단위). --env 생략 시 STORIX_ENV(기본 dev)
-python cli.py stage load --env dev --input output/2026-10-10/search_titles.jsonl --source search_titles
+python cli.py stage load --env dev --input 'output/2026-10-10/*_search_titles.jsonl' --source search_titles
 
 # 2) 상태 확인
 python cli.py stage stats --env dev
@@ -394,11 +398,9 @@ works_platform: { works_id: 1, platform: "NAVER_WEBTOON" }
 │
 └── output/                         # 크롤링 산출물 (날짜별 JSONL, .gitignore 처리됨)
     └── YYYY-MM-DD/
-        ├── initial.jsonl           # platform_work_id 기준 중복 제거, 재실행 시 덮어씌움
-        ├── new_works.jsonl
-        ├── search_titles.jsonl
-        ├── update_fields.jsonl
-        ├── naver_webtoon_initial.jsonl # 스케줄러 실행 시 플랫폼별 파일
+        ├── naver_webtoon_initial.jsonl     # <플랫폼>_<모드>.jsonl. platform_work_id 기준 중복 제거, 재실행 시 덮어씌움
+        ├── ridibooks_search_titles.jsonl   # 플랫폼마다 파일이 따로라 --parallel 로 동시에 돌려도 안 겹침
+        ├── search_titles_report.json       # 수집 리포트 (플랫폼별 상태 코드)
         └── manual_review_queue.jsonl
 ```
 

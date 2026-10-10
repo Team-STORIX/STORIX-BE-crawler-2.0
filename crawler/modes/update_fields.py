@@ -7,6 +7,7 @@ from modules.crawler.naver_crawler import NaverCrawler
 from modules.crawler.kakao_crawler import KakaoCrawler
 from modules.crawler.ridibooks_crawler import RidibooksCrawler
 from crawler.output.jsonl_writer import JSONLWriter
+from crawler.parallel import run_platforms
 from crawler.modes.initial import (
     _build_naver_workers,
     _build_kakao_workers,
@@ -171,29 +172,29 @@ _RECRAWL_MAP = {
 }
 
 
-def run_update_fields(platform: str, input_path: str, platform_filenames: bool = False) -> list[Path]:
+def run_update_fields(platform: str, input_path: str, parallel: int = 1) -> list[Path]:
     path = Path(input_path)
     grouped = _load_source_urls(path)
     written_paths: list[Path] = []
 
     targets = list(PLATFORM_URL_PATTERNS.keys()) if platform == 'all' else [platform]
 
-    for p in targets:
+    def run(p: str) -> None:
         urls = grouped.get(p, [])
         if not urls:
             print(f'⚠️  [{p}] 재크롤링할 URL이 없습니다.')
-            continue
+            return
         if p not in _RECRAWL_MAP:
             print(f'⚠️  지원하지 않는 플랫폼: {p}')
-            continue
+            return
 
         print(f'\n{"="*60}')
         print(f'🔄 [{p}] update_fields 시작 — {len(urls)}개 URL')
         print(f'{"="*60}')
-        filename = f'{p}_update_fields.jsonl' if platform_filenames else None
-        with JSONLWriter(platform=p, mode='update_fields', filename=filename) as writer:
+        with JSONLWriter(platform=p, mode='update_fields') as writer:
             _RECRAWL_MAP[p](urls, writer)
         written_paths.append(writer.path)
         print(f'\n✅ [{p}] 완료. {writer.count}건 저장됨.')
 
+    run_platforms(targets, run, parallel)
     return written_paths

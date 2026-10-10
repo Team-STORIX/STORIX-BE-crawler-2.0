@@ -7,6 +7,7 @@ from modules.crawler.kakao_crawler import KakaoCrawler
 from modules.crawler.ridibooks_crawler import RidibooksCrawler
 from modules.crawler.naver_novel_crawler import NaverNovelCrawler
 from crawler.output.jsonl_writer import JSONLWriter
+from crawler.parallel import run_platforms
 from crawler.modes.initial import (
     _build_naver_workers,
     _build_naver_novel_workers,
@@ -203,15 +204,18 @@ _PLATFORM_MAP = {
 SUPPORTED_PLATFORMS = list(_PLATFORM_MAP.keys())
 
 
-def run_new_works(platform: str):
+def run_new_works(platform: str, parallel: int = 1):
     targets = SUPPORTED_PLATFORMS if platform == 'all' else [platform]
-    for p in targets:
+
+    def run(p: str) -> None:
         if p not in _PLATFORM_MAP:
             print(f'⚠️  지원하지 않는 플랫폼: {p}. 지원 목록: {SUPPORTED_PLATFORMS}')
-            continue
+            return
         print(f'\n{"="*60}')
         print(f'🚀 [{p}] new_works 크롤링 시작')
         print(f'{"="*60}')
         with JSONLWriter(platform=p, mode='new_works') as writer:
             _PLATFORM_MAP[p](writer)
         print(f'\n✅ [{p}] 완료. {writer.count}건 저장됨.')
+
+    run_platforms(targets, run, parallel)

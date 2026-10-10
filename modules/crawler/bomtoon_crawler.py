@@ -17,6 +17,8 @@ SITE = 'https://www.bomtoon.com'
 CONTENTS_API = SITE + '/api/balcony-api-v2/contents/{}'
 # 로그인 세션(next-auth). user.accessToken.token 을 API 에 Authorization: Bearer 로 붙인다 (쿠키만으로는 성인 작품이 안 열림)
 SESSION_API = SITE + '/api/auth/session'
+# 작품명 검색 (화면 검색과 같은 API)
+SEARCH_API = SITE + '/api/balcony-api-v2/search/title'
 API_HEADERS = {'Accept': 'application/json', 'x-balcony-id': 'BOMTOON_COM', 'x-balcony-timeZone': 'Asia/Seoul'}
 _ALIAS = re.compile(r'bomtoon\.com/detail/([^/?#\s]+)')
 
@@ -67,7 +69,9 @@ def parse_bomtoon_contents(data: dict, url: str) -> dict:
         'description': (data.get('synopsis') or '').replace('\r\n', '\n').strip(),
         'genre': genre,
         'hashtags': hashtags,
-        'thumbnail_url': thumbs.get('DETAIL') or thumbs.get('VERTICAL') or thumbs.get('MAIN') or '',
+        # 표지는 세로형 VERTICAL(315x415, 다른 플랫폼 표지와 같은 세로 비율). DETAIL 은 상세 화면 가로 배너(720x330),
+        # ORIGINAL_TYPE_* 는 작품 속 장면 홍보 컷이라 쓰지 않는다. 세로형이 없으면 정사각 MAIN (2026-10-10 확인)
+        'thumbnail_url': thumbs.get('VERTICAL') or thumbs.get('MAIN') or thumbs.get('SQUARE') or '',
         'works_type': _TYPES.get(data.get('type'), ''),
         'source_url': f"{SITE}/detail/{data.get('alias') or bomtoon_alias(url)}",
     }
@@ -249,5 +253,24 @@ class BomtoonCrawler(BaseCrawler):
         print('⏰ 봄툰 로그인 대기 시간 초과.')
         return False
 
+    def search_candidates(self, title: str) -> list[dict]:
+        """봄툰 검색 API → 후보 (일치도 순). 성인 작품도 받으려면 로그인 세션 토큰이 필요하다."""
+        import urllib.parse
+        headers = dict(API_HEADERS)
+        token = self._access_token()
+        if token:
+            headers['Authorization'] = f'Bearer {token}'
+        body = self.http_get(SEARCH_API + '?' + urllib.parse.urlencode({
+            'searchText': title, 'isIncludeAdult': 'true', 'page': 0, 'size': 30,
+            'isCheckDevice': 'true', 'contentsThumbnailType': 'MAIN'}), headers=headers)
+        try:
+            contents = ((json.loads(body or '{}').get('data') or {}).get('contents')) or []
+        except ValueError:
+            return []
+        raw = [(f"{SITE}/detail/{c['alias']}", c.get('title') or '', _TYPES.get(c.get('type')))
+               for c in contents if c.get('alias')]
+        return self.rank_candidates(title, raw)
+
     def search_url_by_title(self, title: str) -> str | None:
-        return None
+        candidates = self.search_candidates(title)
+        return candidates[0]['url'] if candidates else None

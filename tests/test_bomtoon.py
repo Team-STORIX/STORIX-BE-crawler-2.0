@@ -15,8 +15,9 @@ DATA = {
     'tags': [{'name': n, 'isExtra': False} for n in ('BL', '4일/14일/24일', '월드드랍', '봄툰공모전_당선웹툰',
                                                      '미인공', '오메가버스', '오직봄툰', '토요연재')]
             + [{'name': n, 'isExtra': True} for n in ('츤데레수', '도해x단조', '드실래요_잘생긴..감자♥', '미인공')],
-    'thumbnails': [{'type': 'SQUARE', 'imagePath': 'https://img/sq.webp'},
-                   {'type': 'DETAIL', 'imagePath': 'https://img/detail.webp'}],
+    'thumbnails': [{'type': 'DETAIL', 'imagePath': 'https://img/detail.webp'},
+                   {'type': 'MAIN', 'imagePath': 'https://img/main.webp'},
+                   {'type': 'VERTICAL', 'imagePath': 'https://img/vertical.webp'}],
 }
 
 
@@ -27,7 +28,9 @@ def test_parse_bomtoon_contents():
     assert r['age_classification'] == '18세 이용가'
     assert (r['genre'], r['works_type']) == ('BL', '웹툰')
     assert r['hashtags'] == ['미인공', '오메가버스', '츤데레수']  # 연재 요일 · 봄툰 분류 · 문장 · 커플링 태그 제외
-    assert r['thumbnail_url'] == 'https://img/detail.webp'
+    assert r['thumbnail_url'] == 'https://img/vertical.webp'  # 세로 표지. DETAIL 은 가로 배너
+    no_vertical = {**DATA, 'thumbnails': [t for t in DATA['thumbnails'] if t['type'] != 'VERTICAL']}
+    assert parse_bomtoon_contents(no_vertical, 'u')['thumbnail_url'] == 'https://img/main.webp'
     assert r['description'].startswith('[오직봄툰 공모전 당선작]\n')
     assert r['source_url'] == 'https://www.bomtoon.com/detail/URMYWORLD'
 

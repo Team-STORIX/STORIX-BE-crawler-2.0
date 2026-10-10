@@ -194,6 +194,13 @@ def test_pre_contract_works_are_rejected(url):
     assert any(x['code'] == 'PRE_CONTRACT_WORK' for x in v.violations)
 
 
+@pytest.mark.parametrize('name', ['줄거리', '카카오페이지', '작품소개'])
+def test_section_title_as_works_name_is_rejected(name):
+    v = validate_item(item(works_name=name), CATALOG)
+    assert v.status == REJECTED
+    assert any(x['code'] == 'NOT_A_TITLE' for x in v.violations)
+
+
 def test_official_naver_urls_pass():
     for url in ('https://comic.naver.com/webtoon/list?titleId=747269',
                 'https://novel.naver.com/webnovel/list?novelId=1'):

@@ -3,7 +3,7 @@
 Works 에는 BE 만 쓴다. 크롤러가 raw SQL 로 직접 넣던 방식(modules/db_handler.save_one_row)을 대체한다.
 BE 를 거치면 enum Converter 를 반드시 타고, ES 색인 이벤트도 같이 나간다.
 
-BE: POST /api/v1/admin/works/import (ADMIN)
+BE: POST /internal/v1/works/import (X-Internal-Api-Key)
   요청 {"items": [{stagingId, worksName, ..., genre: "FANTASY", ...}]}  ← enum 은 name
   응답 result: [{stagingId, result, worksId, candidateWorksIds, error}]
     CREATED | UPDATED | UNCHANGED  → IMPORTED
@@ -39,7 +39,7 @@ def _label(row: dict) -> str:
     n = row.get('normalized') or {}
     return f'"{n.get("works_name") or ""}" / "{n.get("artist_name") or ""}"'
 
-IMPORT_PATH = '/api/v1/admin/works/import'
+IMPORT_PATH = '/internal/v1/works/import'
 CHUNK_SIZE = 100
 
 _FIELD_MAP = {

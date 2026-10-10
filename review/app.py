@@ -5,8 +5,7 @@
 
 환경변수
     STORIX_API_BASE_URL   BE 주소 (enum 카탈로그 · import API)
-    STORIX_ADMIN_EMAIL    BE ADMIN 계정. 기동 시 로그인하고 만료되면 다시 로그인한다
-    STORIX_ADMIN_PASSWORD
+    STORIX_INTERNAL_API_KEY  BE 내부 API 키 (X-Internal-Api-Key 헤더)
     REVIEW_CATALOG_FILE   BE 를 못 붙을 때 카탈로그 응답을 저장한 JSON 파일 (선택)
     REVIEW_API_TOKEN      설정하면 X-Review-Token 헤더가 맞아야 호출된다 (선택)
     STAGING_DATABASE_NAME staging DB 이름 (기본 storix_staging)
@@ -26,7 +25,7 @@ from review.store import StagingStore, connect, ensure_schema
 
 API_TOKEN = os.getenv('REVIEW_API_TOKEN', '')
 BACKEND = BackendSession.from_env()
-BACKEND_MISSING = 'STORIX_API_BASE_URL / STORIX_ADMIN_EMAIL / STORIX_ADMIN_PASSWORD 미설정'
+BACKEND_MISSING = 'STORIX_API_BASE_URL / STORIX_INTERNAL_API_KEY 미설정'
 
 _state: dict = {}
 

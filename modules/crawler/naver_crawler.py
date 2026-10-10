@@ -8,7 +8,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import NoSuchElementException, InvalidSessionIdException
 from urllib3.exceptions import ReadTimeoutError as _DriverTimeoutError
 
-from .base_crawler import BaseCrawler, SessionExpiredError
+from .base_crawler import PASS_THROUGH, BaseCrawler, SessionExpiredError
 
 from config import NAVER_COOKIE_FILE, NAVER_ID, NAVER_PW
 
@@ -21,6 +21,9 @@ def is_pre_contract_url(url: str) -> bool:
 
 
 class NaverCrawler(BaseCrawler):
+    REPORT_PLATFORM = 'naver_webtoon'
+    LOGIN_URL_MARKERS = ('nid.naver.com',)
+
 
     def _is_logged_in(self) -> bool:
         """NID_AUT 쿠키 존재 여부로 네이버 로그인 확인 (XPATH보다 신뢰성 높음)."""
@@ -357,7 +360,7 @@ class NaverCrawler(BaseCrawler):
                 "source_url": url
             }
         
-        except (InvalidSessionIdException, _DriverTimeoutError):
+        except PASS_THROUGH:
             raise
         except Exception as e:
             self._log.warning("crawl_detail 실패 (%s): %s", url, e)

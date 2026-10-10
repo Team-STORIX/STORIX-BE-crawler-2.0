@@ -205,6 +205,8 @@ def _run_naver_completed(writer: JSONLWriter, lead: NaverCrawler, worker_q: queu
             btn.click()
             time.sleep(2)
             urls = _scroll_and_collect(lead.driver)
+            if not urls:
+                lead.report_empty_list(COMPLETED_URL)
             print(f'📊 {len(urls)}개')
             crawl_batch(urls)
         except Exception as e:

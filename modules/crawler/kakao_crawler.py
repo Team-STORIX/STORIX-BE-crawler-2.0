@@ -8,10 +8,14 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, InvalidSessionIdException
 from urllib3.exceptions import ReadTimeoutError as _DriverTimeoutError
 
-from .base_crawler import BaseCrawler, SessionExpiredError, pick_candidates
+from .base_crawler import PASS_THROUGH, BaseCrawler, SessionExpiredError, pick_candidates
 from config import KAKAO_COOKIE_FILE, KAKAO_LOGIN_URL, KAKAO_ID, KAKAO_PW
 
 class KakaoCrawler(BaseCrawler):
+    REPORT_PLATFORM = 'kakao_page'
+    LOGIN_URL_MARKERS = ('accounts.kakao.com', 'kauth.kakao.com')
+    REQUEST_INTERVAL = 1.0
+
 
     def _save_cookies(self):
         try:
@@ -425,7 +429,7 @@ class KakaoCrawler(BaseCrawler):
                 "source_url": url
             }
         
-        except (InvalidSessionIdException, _DriverTimeoutError):
+        except PASS_THROUGH:
             raise
         except Exception as e:
             self._log.error("crawl_detail 실패 (%s): %s", url, e)

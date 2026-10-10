@@ -155,6 +155,8 @@ python cli.py stage recover --env dev [--platform RIDIBOOKS] [--limit 50]
 python cli.py stage load --env dev --input 'output/2026-10-10/*_recover.jsonl' --source recover
 ```
 
+검수 API 에서도 조회할 수 있습니다: `GET /sources?status=broken`(복구 대상, 연속 실패 많은 순) · `GET /sources/{platform}/{platform_work_id}`(작품 하나의 이력과 같은 링크의 staging 상태).
+
 **스케줄러**
 ```bash
 python -m scheduler.runner

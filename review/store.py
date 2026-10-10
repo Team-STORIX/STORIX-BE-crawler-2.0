@@ -250,6 +250,39 @@ class StagingStore:
                     (*params, limit))
         return [_loads(r, 'search_keywords') for r in cur.fetchall()]
 
+    # 같은 링크의 staging 행(검수 상태)을 붙여 돌려준다. 검수 대기(LINK_BROKEN)가 왜 생겼는지 같이 보려고
+    _SOURCE_SELECT = ('SELECT ws.*, s.id AS staging_id, s.status AS staging_status FROM works_source ws '
+                      'LEFT JOIN works_staging s ON s.source_url = ws.source_url')
+
+    def list_sources(self, status: str | None = None, platform: str | None = None, works_id: int | None = None,
+                     limit: int = 50, offset: int = 0) -> list[dict]:
+        """수집 이력 목록. status='broken' 이면 마지막 수집이 실패한 것(복구 대상), 그 밖에는 상태 코드 그대로."""
+        where, params = [], []
+        if status == 'broken':
+            where.append('ws.crawl_status NOT IN (%s, %s)')
+            params += [SOURCE_SUCCESS, SOURCE_RELINKED]
+        elif status:
+            where.append('ws.crawl_status = %s')
+            params.append(status)
+        if platform:
+            where.append('ws.platform = %s')
+            params.append(platform)
+        if works_id:
+            where.append('ws.works_id = %s')
+            params.append(works_id)
+        sql = self._SOURCE_SELECT + (' WHERE ' + ' AND '.join(where) if where else '')
+        cur = self._cursor()
+        cur.execute(sql + ' ORDER BY ws.crawl_fail_count DESC, ws.updated_at DESC, ws.id DESC LIMIT %s OFFSET %s',
+                    (*params, limit, offset))
+        return [_loads(r, 'search_keywords') for r in cur.fetchall()]
+
+    def get_source_by_key(self, platform: str, platform_work_id: str) -> dict | None:
+        cur = self._cursor()
+        cur.execute(self._SOURCE_SELECT + ' WHERE ws.platform = %s AND ws.platform_work_id = %s',
+                    (platform, platform_work_id))
+        row = cur.fetchone()
+        return _loads(row, 'search_keywords') if row else None
+
     def get_source(self, url: str) -> dict | None:
         key = platform_work_key(canonical_landing_url(url))
         if not key:

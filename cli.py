@@ -348,7 +348,14 @@ def main():
     if args.command == 'login':
         cmd_login(args)
     elif args.command == 'crawl':
+        from datetime import datetime
+        from config import OUTPUT_DIR
+        from crawler import report
+        report.reset()
         cmd_crawl(args)
+        report.save(OUTPUT_DIR / datetime.now().strftime('%Y-%m-%d'), args.mode)
+        if report.failed():
+            sys.exit(1)  # 목록 0건 · 세션 만료 · 차단으로 멈춘 플랫폼이 있다 (#6)
     elif args.command == 'stage':
         cmd_stage(args)
     else:

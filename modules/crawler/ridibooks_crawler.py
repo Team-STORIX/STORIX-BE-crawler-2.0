@@ -10,7 +10,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, InvalidSessionIdException
 from urllib3.exceptions import ReadTimeoutError as _DriverTimeoutError
 
-from .base_crawler import BaseCrawler, SessionExpiredError, pick_candidates
+from .base_crawler import PASS_THROUGH, BaseCrawler, SessionExpiredError, pick_candidates
 from config import RIDIBOOKS_COOKIE_FILE, RIDIBOOKS_LOGIN_URL, RIDIBOOKS_ID, RIDIBOOKS_PW
 
 # 리디 브레드크럼 카테고리 텍스트 → 대표 장르(DB 표준값).
@@ -53,6 +53,11 @@ def _ridi_is_general_lit(cat_texts: list[str]) -> bool:
 
 
 class RidibooksCrawler(BaseCrawler):
+    REPORT_PLATFORM = 'ridibooks'
+    LOGIN_URL_MARKERS = ('account/login',)
+    # 연달아 열면 403 이 난다 (2026-10-09 연령 점검 중 확인, #6)
+    REQUEST_INTERVAL = 2.0
+
 
     def _save_cookies(self):
         try:
@@ -593,7 +598,7 @@ class RidibooksCrawler(BaseCrawler):
                 "source_url": url,
             }
 
-        except (InvalidSessionIdException, SessionExpiredError, _DriverTimeoutError):
+        except PASS_THROUGH:
             raise
         except Exception as e:
             self._log.error("crawl_detail 실패 (%s): %s", url, e)

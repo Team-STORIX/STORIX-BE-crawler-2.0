@@ -10,7 +10,8 @@ from pathlib import Path
 from selenium.common.exceptions import InvalidSessionIdException, WebDriverException
 from urllib3.exceptions import ReadTimeoutError as _DriverTimeoutError
 
-from modules.crawler.base_crawler import SessionExpiredError, is_edition, pick_candidates
+from crawler import report
+from modules.crawler.base_crawler import AuthExpiredError, RateLimitedError, SessionExpiredError, is_edition, pick_candidates
 from modules.crawler.naver_crawler import NaverCrawler
 from modules.crawler.naver_novel_crawler import NaverNovelCrawler
 from modules.crawler.naver_series_crawler import NaverSeriesCrawler
@@ -92,6 +93,10 @@ def run_search_titles(
         except Exception as e:
             # 한 플랫폼(로그인 실패 등)의 오류가 나머지 플랫폼·파일 정리를 막지 않도록 격리
             print(f'⚠️  [{p}] 건너뜀: {e}')
+            if isinstance(e, RateLimitedError):
+                report.record(p, report.RATE_LIMITED, '플랫폼 중단', str(e))
+            elif isinstance(e, AuthExpiredError):
+                report.record(p, report.AUTH_EXPIRED, '플랫폼 중단', str(e))
 
     # 크롤 성공한 작품은 목록 파일에서 제거 → 파일엔 '못 찾은 작품'만 남는다.
     if titles_file:
@@ -241,7 +246,7 @@ def _search_and_write(
     crawler.start_driver()
     try:
         if not crawler.login():
-            raise RuntimeError(f'{label} 로그인 실패')
+            raise AuthExpiredError(f'{label} 로그인 실패')
 
         with JSONLWriter(platform, 'search_titles') as writer:
             ok_count = fail_count = skip_count = 0
@@ -254,6 +259,7 @@ def _search_and_write(
                     candidates = crawler.search_candidates(title)
                     if not candidates:
                         print(f'  ⚠️  검색 결과 없음 — 스킵')
+                        report.record(crawler.REPORT_PLATFORM, report.SEARCH_FAILED, title)
                         skip_count += 1
                         continue
 
@@ -270,6 +276,9 @@ def _search_and_write(
                             writer.write(result)
                             found.update(_found_slots(title, types, result))
                             ok_count += 1
+                except (RateLimitedError, AuthExpiredError):
+                    # 차단이 계속되거나 재로그인이 실패했다 — 이 플랫폼은 여기서 멈춘다 (리포트는 crawl_detail_with_retry 가 남김)
+                    raise
                 except _DRIVER_ERRORS as e:
                     # 제목 검색 단계의 드라이버 다운. 재시작 후 다음 작품 계속.
                     print(f'  ♻️  드라이버 이상 — 재시작 후 계속: {e}')

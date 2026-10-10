@@ -117,6 +117,14 @@ def _import_file(path: Path):
     서비스 DB 에 직접 넣던 batch import 는 없앴다(#5). BE 반영은 사람이 결과를 보고
     `python cli.py stage import --run-id <런>` 으로 한다. 대상 환경은 STORIX_ENV.
     """
+    from crawler import report
+    report.save(path.parent, path.stem)
+    failed = report.failed()
+    report.reset()
+    if failed:
+        # 목록 0건 · 세션 만료 · 차단으로 멈춘 플랫폼이 있다. 반쪽 결과를 staging 에 넣지 않는다 (#6)
+        log.error('[stage] 수집 실패로 적재하지 않음: %s (리포트: %s_report.json)', path, path.stem)
+        return
     if not path.exists():
         log.warning('[stage] 적재할 파일 없음: %s', path)
         return

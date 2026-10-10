@@ -7,10 +7,12 @@ from selenium.common.exceptions import InvalidSessionIdException
 from urllib3.exceptions import ReadTimeoutError as _DriverTimeoutError
 
 from .naver_crawler import NaverCrawler
-from .base_crawler import SessionExpiredError
+from .base_crawler import PASS_THROUGH, SessionExpiredError
 
 
 class NaverNovelCrawler(NaverCrawler):
+    REPORT_PLATFORM = 'naver_novel'
+
     """novel.naver.com 웹소설 크롤러. 로그인은 NaverCrawler와 동일한 쿠키 재사용."""
 
 
@@ -283,7 +285,7 @@ class NaverNovelCrawler(NaverCrawler):
                 "source_url": url,
             }
 
-        except (InvalidSessionIdException, SessionExpiredError, _DriverTimeoutError):
+        except PASS_THROUGH:
             raise
         except Exception as e:
             self._log.error("crawl_detail 실패 (%s): %s", url, e)

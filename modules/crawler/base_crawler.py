@@ -16,6 +16,21 @@ class SessionExpiredError(Exception):
     pass
 
 
+class RateLimitedError(Exception):
+    """403 · 429 차단 화면. 간격을 늘려 재시도하고, 계속되면 그 플랫폼을 중단한다 (#6)."""
+
+
+class AuthExpiredError(Exception):
+    """세션이 만료됐고 재로그인도 실패했다. 그 플랫폼을 중단한다 (#6)."""
+
+
+# crawl_detail 이 삼키지 말고 위로 올려야 하는 예외. 크롤러마다 except 로 다시 던진다
+PASS_THROUGH = (InvalidSessionIdException, SessionExpiredError, _DriverTimeoutError, RateLimitedError, AuthExpiredError)
+
+# 차단 화면의 제목 · 본문 표시
+_BLOCK_MARKERS = ('403 Forbidden', '429 Too Many', 'Too Many Requests', 'Access Denied', '요청이 너무 많', '비정상적인 접근')
+
+
 # 플랫폼이 제목 뒤에 붙이는 라벨. 제목 비교 전에 뗀다 ('넷카마 펀치!!! [완결]' → '넷카마 펀치!!!')
 # 판본 표기(19세 완전판 · 개정판)는 떼지 않는다 — BE 가 다른 작품으로 보고, 본편과 따로 수집한다
 _TITLE_LABELS = re.compile(r'\s*\[(?:완결|독점|단행본|휴재|연재)\]|^\s*\[e북\]\s*')
@@ -57,15 +72,62 @@ def pick_candidates(candidates: list[dict], works_type: str | None) -> list[dict
     return same + unknown + extra
 
 
+def _check_empty_list(fn):
+    import functools
+
+    @functools.wraps(fn)
+    def wrapper(self, *args, **kwargs):
+        result = fn(self, *args, **kwargs)
+        if not result:
+            self.report_empty_list(str(args[0]) if args else fn.__name__)
+        return result
+
+    wrapper._checks_empty = True
+    return wrapper
+
+
 class BaseCrawler:
     # 제목 검색 매칭 임계값. 완전일치·부분일치(포함)로 못 잡은 후보 중
     # 정규화 문자열 유사도가 이 값 이상이면 마지막 순위로 채택한다.
     TITLE_FUZZY_THRESHOLD: float = 0.9
+    # 페이지 이동(driver.get) 사이 최소 간격(초). 리디는 연달아 열면 403 이 나서 넉넉히 둔다
+    REQUEST_INTERVAL: float = 0.5
+    MAX_INTERVAL: float = 30.0
+    # 연속 차단이 이만큼 나면 그 플랫폼을 중단한다
+    MAX_RATE_LIMITS: int = 3
+    # 로그인 페이지 주소 표시. 목록 0건이 세션 만료 때문인지 가린다
+    LOGIN_URL_MARKERS: tuple[str, ...] = ()
+    # 수집 리포트에 쓰는 플랫폼 이름 (crawler/report.py)
+    REPORT_PLATFORM: str = ''
+
+    # 목록 수집 함수. 결과가 0건이면 수집 리포트에 남긴다 (__init_subclass__)
+    _LIST_METHODS = ('get_genre_urls', 'get_list_urls', 'get_category_urls')
+
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        for name in cls._LIST_METHODS:
+            fn = cls.__dict__.get(name)
+            if fn is not None and not getattr(fn, '_checks_empty', False):
+                setattr(cls, name, _check_empty_list(fn))
+
+    def report_empty_list(self, section: str) -> None:
+        """목록 0건 → 로그인 화면이면 AUTH_EXPIRED, 아니면 PARSING_FAILED (셀렉터가 깨졌거나 구조가 바뀜)."""
+        from crawler import report
+        platform = self.REPORT_PLATFORM or self.__class__.__name__
+        if self.is_login_page():
+            report.record(platform, report.AUTH_EXPIRED, section, '목록 수집 중 로그인 화면으로 이동')
+            print(f'❌ [{platform}] 목록 0건 — 로그인 화면으로 튕김 (세션 만료): {section}')
+        else:
+            report.record(platform, report.PARSING_FAILED, section, '목록 0건')
+            print(f'❌ [{platform}] 목록 0건 — 셀렉터 · 페이지 구조 확인 필요: {section}')
 
     def __init__(self, headless: bool = False):
         self.driver = None
         self._headless = headless
         self._log = get_logger(self.__class__.__name__)
+        self._interval = self.REQUEST_INTERVAL
+        self._last_get = 0.0
+        self._rate_limits = 0
 
     @staticmethod
     def _norm_title(s: str) -> str:
@@ -174,6 +236,7 @@ class BaseCrawler:
 
         # Selenium 4.6+ 내장 드라이버 관리자 사용 (webdriver-manager 불필요)
         self.driver = webdriver.Chrome(options=options)
+        self._wrap_get()
         self.driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
             "source": """Object.defineProperty(navigator, 'webdriver', { get: () => undefined })"""
         })
@@ -183,6 +246,37 @@ class BaseCrawler:
             self.driver.quit()
             self.driver = None
     
+    def _wrap_get(self) -> None:
+        """driver.get 에 플랫폼별 최소 간격과 차단 화면 감지를 붙인다. 크롤러 코드는 그대로 driver.get 을 쓴다."""
+        original = self.driver.get
+
+        def get(url):
+            wait = self._interval - (time.time() - self._last_get)
+            if wait > 0:
+                time.sleep(wait)
+            try:
+                return original(url)
+            finally:
+                self._last_get = time.time()
+                self._check_blocked(url)
+
+        self.driver.get = get
+
+    def _check_blocked(self, url: str) -> None:
+        try:
+            body = self.driver.execute_script("return document.body ? document.body.innerText.slice(0, 300) : ''")
+            head = f'{self.driver.title} {body or ""}'
+        except Exception:
+            return
+        if any(m in head for m in _BLOCK_MARKERS):
+            raise RateLimitedError(f'차단 화면: {url}')
+
+    def is_login_page(self) -> bool:
+        try:
+            return any(m in self.driver.current_url for m in self.LOGIN_URL_MARKERS)
+        except Exception:
+            return False
+
     def human_pause(self, min_s=1.0, max_s=2.0):
         time.sleep(random.uniform(min_s, max_s))
     
@@ -194,31 +288,58 @@ class BaseCrawler:
             pass
         try:
             self.start_driver()
-            if not self.login_with_cookies():
-                if in_docker:
-                    self._log.error("세션 만료. Docker 환경에서는 수동 재로그인 불가.")
-                    return
-                self._log.warning("쿠키 만료 감지. 수동 재로그인 대기 중...")
-                self.login()
+            if self.login_with_cookies():
+                return
+            if in_docker:
+                raise AuthExpiredError('세션 만료 — Docker 환경에서는 수동 재로그인 불가')
+            self._log.warning("쿠키 만료 감지. 수동 재로그인 대기 중...")
+            if not self.login():
+                raise AuthExpiredError('세션 만료 — 재로그인 실패')
+        except AuthExpiredError:
+            raise
         except Exception as e:
             self._log.error("드라이버 재시작 실패: %s", e)
 
     def crawl_detail_with_retry(self, url: str, max_attempts: int = 3):
-        for attempt in range(1, max_attempts + 1):
+        """상세 수집. 결과 상태를 수집 리포트에 남긴다.
+        차단이 MAX_RATE_LIMITS 번 연달아 나거나 재로그인이 실패하면 예외를 올려 그 플랫폼을 중단시킨다."""
+        from crawler import report
+        platform = self.REPORT_PLATFORM or self.__class__.__name__
+        attempt = 0
+        while attempt < max_attempts:
+            attempt += 1
             try:
                 result = self.crawl_detail(url)
+            except RateLimitedError as e:
+                self._rate_limits += 1
+                self._interval = min(self.MAX_INTERVAL, max(self._interval, 1.0) * 2)
+                if self._rate_limits >= self.MAX_RATE_LIMITS:
+                    report.record(platform, report.RATE_LIMITED, url, str(e))
+                    raise
+                self._log.warning("차단 감지 %d/%d — 간격 %.0f초로 늘려 재시도 (%s)",
+                                  self._rate_limits, self.MAX_RATE_LIMITS, self._interval, url)
+                time.sleep(self._interval)
+                attempt -= 1  # 차단은 재시도 횟수에 넣지 않는다
+                continue
             except (InvalidSessionIdException, SessionExpiredError, _DriverTimeoutError) as e:
                 self._log.error("드라이버 재시작 (%s): %s", url, e)
-                self._restart_driver()
+                try:
+                    self._restart_driver()
+                except AuthExpiredError as auth:
+                    report.record(platform, report.AUTH_EXPIRED, url, str(auth))
+                    raise
                 result = None
 
             if result is not None:
+                self._rate_limits = 0
+                report.record(platform, report.SUCCESS)
                 return result
             if attempt < max_attempts:
                 wait = 2.0 * attempt
                 self._log.warning("재시도 %d/%d (%s), %.0f초 대기", attempt, max_attempts - 1, url, wait)
                 time.sleep(wait)
         self._log.error("최대 재시도 횟수 초과, 포기: %s", url)
+        report.record(platform, report.DETAIL_NOT_FOUND, url)
         return None
 
     # 추상 메서드

@@ -74,3 +74,8 @@ def test_validate_item_cleans_hashtags():
         'hashtags': ['오컬트판타지', '판타지', '공포', '2025 지상최대공모전'],
     }, CATALOG)
     assert v.normalized['hashtags'] == ['오컬트판타지', '공포']
+
+
+def test_format_tags_are_noise():
+    from review.hashtags import clean_hashtags
+    assert clean_hashtags(['e북', 'E북', '만화', '애니화'], None, CATALOG) == ['애니화']

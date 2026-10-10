@@ -234,8 +234,8 @@ def cmd_stage(args):
     from review.store import StagingStore, connect, ensure_schema
 
     sub = getattr(args, 'stage_command', None)
-    if sub not in ('load', 'import', 'stats'):
-        print('❌ stage 서브 명령이 없습니다. (load | import | stats)')
+    if sub not in ('load', 'import', 'stats', 'recover'):
+        print('❌ stage 서브 명령이 없습니다. (load | import | stats | recover)')
         sys.exit(1)
 
     from review.store import STAGING_DATABASE
@@ -245,7 +245,7 @@ def cmd_stage(args):
     try:
         store = StagingStore(conn)
         if sub == 'load':
-            from review.service import load_run, read_jsonl
+            from review.service import load_run, read_jsonl, record_report_failures, report_for
             if args.catalog_file:
                 os.environ['REVIEW_CATALOG_FILE'] = args.catalog_file
             try:
@@ -268,6 +268,9 @@ def cmd_stage(args):
                 print(f'📥 {f.name}: {json.dumps(result, ensure_ascii=False)}')
                 if result['held']:
                     print('⛔ 런 보류 — 분포 이상. 확인 후 POST /runs/{run_id}/release 로 풀어야 import 됩니다')
+            # 같은 런의 상세 수집 실패를 작품별 수집 이력에 남긴다 (#28). 리포트는 런마다 하나라 한 번만 읽는다
+            for report in dict.fromkeys(r for r in map(report_for, files) if r):
+                print(f'🩹 {report.name}: {json.dumps(record_report_failures(store, report), ensure_ascii=False)}')
         elif sub == 'import':
             from review.importer import BackendClient, run_import
             if BACKEND is None:
@@ -295,6 +298,19 @@ def cmd_stage(args):
             except BackendAuthError as e:
                 print(f'❌ {e}')
                 sys.exit(1)
+        elif sub == 'recover':
+            # 깨진 작품 링크를 다시 찾는다 (#28). 찾은 결과는 파일로 내고, 적재는 stage load 로 한다
+            from datetime import datetime
+            from config import OUTPUT_DIR
+            from crawler import report
+            from crawler.modes.recover import run_recover
+            report.reset()
+            summary = run_recover(store, args.platform, args.limit)
+            report.save(OUTPUT_DIR / datetime.now().strftime('%Y-%m-%d'), 'recover')
+            print(json.dumps(summary, ensure_ascii=False, indent=2))
+            if summary['files']:
+                print(f"   검수 적재: python cli.py stage load --env {target} "
+                      f"--input '{OUTPUT_DIR / datetime.now().strftime('%Y-%m-%d')}/*_recover.jsonl' --source recover")
         else:
             print(json.dumps(store.stats(), ensure_ascii=False, indent=2))
     finally:
@@ -350,6 +366,12 @@ def main():
     stage_import_p.add_argument('--yes', action='store_true', help='확인 없이 진행 (건수를 이미 확인한 경우)')
 
     stage_sub.add_parser('stats', parents=[env_p], help='상태별 건수 · 자동화율')
+
+    stage_recover_p = stage_sub.add_parser('recover', parents=[env_p],
+                                           help='상세 수집이 실패한 작품의 링크를 다시 찾는다 (크롬 사용)')
+    stage_recover_p.add_argument('--platform', choices=('NAVER_WEBTOON', 'NAVER_NOVEL', 'NAVER_SERIES',
+                                                        'KAKAO_PAGE', 'RIDIBOOKS'))
+    stage_recover_p.add_argument('--limit', type=int, default=50)
 
     args = parser.parse_args()
 

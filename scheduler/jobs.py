@@ -113,7 +113,7 @@ def _import_file(path: Path):
     `python cli.py stage import --run-id <런>` 으로 한다. 대상 환경은 STORIX_ENV.
     """
     from crawler import report
-    report.save(path.parent, path.stem)
+    report_path = report.save(path.parent, path.stem)
     failed = report.failed()
     report.reset()
     if failed:
@@ -125,13 +125,16 @@ def _import_file(path: Path):
         return
 
     from review.app import load_catalog
-    from review.service import load_run, read_jsonl
+    from review.service import load_run, read_jsonl, record_report_failures
     from review.store import StagingStore, connect, ensure_schema
 
     ensure_schema()
     conn = connect()
     try:
-        result = load_run(StagingStore(conn), load_catalog(), read_jsonl(path), f'scheduler_{path.stem}', str(path))
+        store = StagingStore(conn)
+        result = load_run(store, load_catalog(), read_jsonl(path), f'scheduler_{path.stem}', str(path))
         log.info('[stage] %s → %s', path.name, result)
+        # 상세 수집 실패를 작품별 수집 이력에 남긴다 (#28)
+        log.info('[stage] 수집 실패 이력 %s', record_report_failures(store, report_path))
     finally:
         conn.close()

@@ -67,3 +67,29 @@ CREATE TABLE IF NOT EXISTS review_decision (
     KEY idx_field (field),
     KEY idx_staging (staging_id)
 );
+
+-- 작품별 수집 이력 (#28). 플랫폼 작품 하나당 한 행. 어느 링크로 언제 수집됐고 실패했는지, BE 어느 작품에 붙었는지.
+-- 수집 상태 · 실패 횟수는 크롤러 운영 정보라 서비스 DB(works_platform) 가 아니라 여기 둔다
+CREATE TABLE IF NOT EXISTS works_source (
+    id                BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    platform          VARCHAR(50)  NOT NULL,              -- BE Platform enum name (링크에서 판정)
+    platform_work_id  VARCHAR(100) NOT NULL,
+    source_url        VARCHAR(768) NOT NULL,              -- 대표 링크 (review/landing.py)
+    works_id          BIGINT       NULL,                  -- import 결과로 연결된 BE 작품
+    title_snapshot    VARCHAR(255) NULL,
+    artist_snapshot   VARCHAR(255) NULL,
+    works_type        VARCHAR(20)  NULL,
+    search_keywords   JSON         NULL,                  -- 링크가 깨졌을 때 다시 찾을 검색어 (지금까지 수집된 제목들)
+    last_crawled_at   DATETIME     NULL,
+    last_success_at   DATETIME     NULL,
+    crawl_status      VARCHAR(30)  NULL,                  -- crawler/report.py 상태 코드 · RELINKED
+    crawl_fail_count  INT          NOT NULL DEFAULT 0,
+    last_error        TEXT         NULL,
+    relinked_to       VARCHAR(768) NULL,                  -- 링크 복구로 찾은 새 링크
+    fingerprint_hash  CHAR(64)     NULL,                  -- 수집 내용 해시. 같으면 다시 보내지 않는다
+    created_at        DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at        DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_platform_work (platform, platform_work_id),
+    KEY idx_works (works_id),
+    KEY idx_status (crawl_status)
+);

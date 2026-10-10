@@ -1,10 +1,11 @@
 """검수 흐름. API(review/app.py)와 CLI(cli.py review)가 같이 쓴다."""
 import json
+from datetime import datetime
 from pathlib import Path
 
 from review.catalog import EnumCatalog
 from review.rules import AUTO_PASS, ENUM_FIELDS, REJECTED, check_run, validate_item
-from review.store import APPROVED, StagingStore
+from review.store import APPROVED, MAX_SOURCE_FAILS, StagingStore
 
 
 class ReviewError(Exception):
@@ -39,6 +40,36 @@ def load_run(store: StagingStore, catalog: EnumCatalog, items: list[dict],
         counts[v.status] = counts.get(v.status, 0) + 1
     return {'run_id': run_id, 'items': len(items), 'by_status': counts,
             'held': bool(hold_reasons), 'hold_reasons': hold_reasons}
+
+
+# 수집 이력에 실패로 남기는 리포트 상태. 검색 실패(SEARCH_FAILED)는 대상이 제목이라 링크가 없다
+_SOURCE_FAILURES = ('DETAIL_NOT_FOUND',)
+
+
+def report_for(jsonl_path: Path) -> Path | None:
+    """수집 결과 파일과 같은 런의 수집 리포트. 'ridibooks_search_titles.jsonl' → 'search_titles_report.json'."""
+    for report in sorted(jsonl_path.parent.glob('*_report.json')):
+        mode = report.name[:-len('_report.json')]
+        if jsonl_path.stem == mode or jsonl_path.stem.endswith(f'_{mode}'):
+            return report
+    return None
+
+
+def record_report_failures(store: StagingStore, report_path: Path) -> dict:
+    """수집 리포트의 상세 수집 실패를 작품별 수집 이력(works_source)에 남긴다 (#28).
+    같은 리포트를 여러 번 읽어도 실패는 한 번만 센다 (store.record_source_failure)."""
+    data = json.loads(Path(report_path).read_text(encoding='utf-8'))
+    recorded = broken = 0
+    for f in data.get('failures') or []:
+        target = f.get('target') or ''
+        if f.get('status') not in _SOURCE_FAILURES or not target.startswith('http'):
+            continue
+        at = datetime.fromisoformat(f['at']) if f.get('at') else None
+        fails = store.record_source_failure(target, f['status'], f.get('detail') or '', at)
+        if fails is not None:
+            recorded += 1
+            broken += fails >= MAX_SOURCE_FAILS
+    return {'failures': recorded, 'link_broken': broken}
 
 
 def approve(store: StagingStore, catalog: EnumCatalog, staging_id: int,

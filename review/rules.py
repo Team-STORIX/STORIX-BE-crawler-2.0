@@ -68,8 +68,13 @@ PRE_CONTRACT_URL = re.compile(r'comic\.naver\.com/(?:challenge|bestChallenge)/|n
 _VOLUME_SUFFIX = re.compile(r'\s*(?:\d+\s*[~\-]\s*\d+\s*권|\d+\s*권|[(\[]\s*\d+(?:\s*[~\-]\s*\d+)?\s*권\s*[)\]])\s*$')
 
 
+# 판매 형태 라벨. 작품명이 아니므로 뗀다 ('마도조사 [19세 완전판][단행본]' → '마도조사 [19세 완전판]').
+# 판본 표기([19세 완전판] · [개정판])는 BE 가 다른 작품으로 보므로 남긴다
+_FORMAT_LABEL = re.compile(r'\s*\[(?:단행본|e북|연재)\]')
+
+
 def strip_volume_suffix(name: str) -> str:
-    stripped = _VOLUME_SUFFIX.sub('', name or '').strip()
+    stripped = _VOLUME_SUFFIX.sub('', _FORMAT_LABEL.sub('', name or '')).strip()
     return stripped or (name or '')
 
 

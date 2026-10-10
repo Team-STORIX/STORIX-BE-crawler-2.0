@@ -93,6 +93,20 @@ def run_import(store: StagingStore, client: BackendClient, limit: int = 500, run
     log.info('import 시작 base=%s run_id=%s requested=%d',
              getattr(getattr(client, '_session', None), 'base_url', '?'), run_id or 'ALL', len(rows))
 
+    # 생성 필수값(연령 · 장르 등)이 비어 거절된 건은 나머지를 다 보낸 뒤 한 번 더 보낸다.
+    # 같은 작품의 다른 플랫폼 행(값이 있는)이 뒤에서 작품을 만들면 그때는 UPDATED 로 붙는다
+    retry = _send(store, client, rows, summary, final=False)
+    if retry and not summary['locked']:
+        log.info('생성 필수값이 비어 거절된 %d건 재전송', len(retry))
+        _send(store, client, retry, summary, final=True)
+
+    log.info('import 끝 %s', summary)
+    return summary
+
+
+def _send(store: StagingStore, client: BackendClient, rows: list[dict], summary: dict, final: bool) -> list[dict]:
+    """rows 를 청크로 보내고 결과를 staging 에 반영한다. final=False 면 생성 필수값 거절 건을 돌려준다(재전송용)."""
+    retry: list[dict] = []
     for start in range(0, len(rows), CHUNK_SIZE):
         chunk = rows[start:start + CHUNK_SIZE]
         payload = [to_request_item(r['id'], r['normalized']) for r in chunk]
@@ -121,6 +135,10 @@ def run_import(store: StagingStore, client: BackendClient, limit: int = 500, run
         for r in chunk:
             res = returned.get(r['id'])
             result = (res or {}).get('result') or 'NO_RESULT'
+            needs_value = result == 'FAILED' and CREATE_NEEDS_VALUE.search((res or {}).get('error') or '')
+            if needs_value and not final:
+                retry.append(r)  # 결과는 재전송 뒤에 센다
+                continue
             summary['results'][result] = summary['results'].get(result, 0) + 1
             if result in ('CREATED', 'UPDATED', 'UNCHANGED'):
                 store.mark_imported(r['id'], res.get('worksId'))
@@ -136,7 +154,7 @@ def run_import(store: StagingStore, client: BackendClient, limit: int = 500, run
                 store.mark_skipped(r['id'], candidates)
                 summary['skipped'] += 1
                 log.info('stagingId=%s %s candidates=%s %s', r['id'], result, candidates, _label(r))
-            elif result == 'FAILED' and CREATE_NEEDS_VALUE.search((res or {}).get('error') or ''):
+            elif needs_value:
                 # 새 작품을 만들어야 하는데 빈 값(연령 · 장르 등)이 있어 BE 가 만들지 않았다 → 사람이 채운다
                 store.mark_create_needs_value(r['id'], res['error'])
                 summary['needs_value'] = summary.get('needs_value', 0) + 1
@@ -147,5 +165,4 @@ def run_import(store: StagingStore, client: BackendClient, limit: int = 500, run
                 summary['failed'] += 1
                 log.warning('stagingId=%s %s error=%s %s', r['id'], result, error, _label(r))
 
-    log.info('import 끝 %s', summary)
-    return summary
+    return retry

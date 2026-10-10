@@ -192,6 +192,11 @@ def _crawl_for_type(crawler, candidates: list[dict], ttype: str | None, crawled:
     for c in mains[:MAX_TYPE_TRIES]:
         r = open_detail(c)
         if r:
+            if ttype == '웹소설' and c['type_hint'] == '단행본' and r.get('age_classification'):
+                # 연재판이 없어 e북으로 대신했다. e북 연령(권마다 다름, 예: 마도조사 4권 성인)이
+                # 같은 작품 웹소설 연령을 덮어쓰지 않게 비운다. 연령은 연재판이 있는 플랫폼에서 정한다
+                print(f"   ↳ e북으로 대신 — 연령({r['age_classification']})은 보내지 않음")
+                r = {**r, 'age_classification': ''}
             results.append(r)
             break
     for c in editions[:MAX_TYPE_TRIES]:

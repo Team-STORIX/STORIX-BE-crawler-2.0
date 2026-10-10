@@ -103,3 +103,36 @@ def test_edition_collected_with_main_side_story_not():
 
 def test_edition_title_is_its_own_match():
     assert BaseCrawler.title_match('천관사복', '천관사복 [19세 완전판]')[0] == 1  # 본편과 같은 제목이 아니다
+
+
+def test_ebook_age_not_sent_for_web_novel():
+    # 리디에 웹소설 연재판이 없어 e북을 대신 고르면 e북 연령(18세)이 웹소설 연령을 덮어쓰지 않게 비운다
+    cands = [{'url': 'ebook', 'text': '[e북] 마도조사', 'type_hint': '단행본', 'kind': '정확'}]
+
+    class Crawler:
+        def crawl_detail_with_retry(self, url):
+            return {'works_type': '웹소설', 'source_url': url, 'age_classification': '18세 이용가'}
+
+    crawled = {}
+    [r] = _crawl_for_type(Crawler(), cands, '웹소설', crawled)
+    assert r['age_classification'] == ''
+    assert crawled['ebook']['age_classification'] == '18세 이용가'  # 단행본 섹션에서 쓸 원본은 그대로
+    [r] = _crawl_for_type(Crawler(), cands, '단행본', crawled)
+    assert r['age_classification'] == '18세 이용가'
+
+
+@pytest.mark.parametrize('query,text', [
+    ('상수리나무 아래', '상수리나무 아래 4컷 만화'),       # 다른 작품 (2026-10 E2E)
+    ('아, 쫌 참으세요 영주님!', '아, 쫌 참으세요 영주님! 2부'),  # 시즌은 BE 가 다른 작품으로 본다
+])
+def test_prefix_followed_by_other_words_is_not_a_match(query, text):
+    assert BaseCrawler.title_match(query, text) is None
+
+
+@pytest.mark.parametrize('query,text', [
+    ('레지나레나', '레지나레나 - 용서받지 못한 그대에게'),
+    ('천관사복', '천관사복 [19세 완전판]'),
+    ('테이밍', '테이밍(The Taming)'),
+])
+def test_prefix_followed_by_subtitle_is_a_match(query, text):
+    assert BaseCrawler.title_match(query, text)[0] == 1

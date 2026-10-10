@@ -401,6 +401,16 @@ class StagingStore:
         )
         return cur.fetchall()
 
+    def rows_by_source_urls(self, urls: list[str]) -> list[dict]:
+        """작품 링크들의 staging 행 (판정 · import 결과). 노션 요청 처리 결과를 정할 때 쓴다 (#66)."""
+        urls = [canonical_landing_url(u) for u in urls if u]
+        if not urls:
+            return []
+        cur = self._cursor()
+        cur.execute('SELECT id, source_url, works_name, works_type, status, imported_works_id, import_error, violations '
+                    f'FROM works_staging WHERE source_url IN ({", ".join(["%s"] * len(urls))})', tuple(urls))
+        return [_loads(r, 'violations') for r in cur.fetchall()]
+
     def mark_imported(self, staging_id: int, works_id: int | None) -> None:
         cur = self._cursor()
         cur.execute('UPDATE works_staging SET status = %s, imported_works_id = %s, import_error = NULL '

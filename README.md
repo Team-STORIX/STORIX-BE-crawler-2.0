@@ -159,6 +159,19 @@ python cli.py stage load --env dev --input 'output/2026-10-10/*_recover.jsonl' -
 
 검수 API 에서도 조회할 수 있습니다: `GET /sources?status=broken`(복구 대상, 연속 실패 많은 순) · `GET /sources/{platform}/{platform_work_id}`(작품 하나의 이력과 같은 링크의 staging 상태).
 
+**노션 작품 추가 요청 자동 처리** (#66)
+
+랜딩 폼 '작품 추가 요청' DB 에서 '추가 여부' · '적재 검토 중' 이 둘 다 꺼진 요청(ID `NOTION_REQUEST_MIN_ID`~, 기본 441)을 읽어
+요청에 적힌 연재처 · 작품 형태로 검색 · 수집하고, 검수 적재 → BE 반영까지 한 뒤 노션에 결과를 표시합니다.
+BE 에 들어가면(새로 생성 · 기존 작품 갱신) '추가 여부', 못 찾았거나 검수 대기 · 중복 의심이면 '적재 검토 중' + '메모' 에 이유.
+
+```bash
+python cli.py requests --env prod --dry-run   # 수집 · 검수 적재까지만 (BE · 노션은 안 건드림)
+python cli.py requests --env prod             # 끝까지
+```
+`.env` 에 `NOTION_TOKEN` · `NOTION_REQUEST_DB_ID` 가 필요하고, 노션 통합을 DB 페이지에 연결(Connections)해야 읽힙니다.
+수집한 작품이 있으면 staging DB 에 붙으므로 로컬에서는 DB 터널이 열려 있어야 합니다.
+
 **스케줄러**
 ```bash
 python -m scheduler.runner
@@ -312,8 +325,9 @@ PR(`develop`/`main` 대상)과 `develop`/`main` 푸시 시 GitHub Actions(`.gith
 | new_works (카카오) | 매일 | 09:30 |
 | update_fields (네이버) | 매주 월요일 | 02:00 |
 | update_fields (카카오) | 매주 월요일 | 02:30 |
+| notion_requests (노션 작품 추가 요청) | 매일 | 10:00 |
 
-환경변수로 오버라이드 가능: `SCHED_NEW_WORKS_HOUR`, `SCHED_INITIAL_NAVER_HOUR`, `SCHED_INITIAL_RIDIBOOKS_HOUR` 등
+환경변수로 오버라이드 가능: `SCHED_NEW_WORKS_HOUR`, `SCHED_NOTION_REQUESTS_HOUR`, `SCHED_INITIAL_NAVER_HOUR`, `SCHED_INITIAL_RIDIBOOKS_HOUR` 등
 
 ---
 

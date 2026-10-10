@@ -227,6 +227,32 @@ def cmd_crawl(args):
         sys.exit(1)
 
 
+def cmd_requests(args):
+    """노션 '작품 추가 요청' 자동 처리 (#66)."""
+    import json
+    import os
+    from datetime import datetime
+
+    if args.env:
+        os.environ['STORIX_ENV'] = args.env  # review 모듈을 불러오기 전에 정한다
+    from config import OUTPUT_DIR
+    from crawler import report
+    from crawler.modes.requests import run_requests
+    from review import env as storix_env
+    from review.notion import NotionError
+
+    target = storix_env.target()
+    print(f'🎯 대상 {target.upper()} — BE {storix_env.api_base_url(target)}{" (dry-run)" if args.dry_run else ""}')
+    report.reset()
+    try:
+        summary = run_requests(target, args.min_id, args.dry_run, args.limit)
+    except NotionError as e:
+        print(f'❌ {e}')
+        sys.exit(1)
+    report.save(OUTPUT_DIR / datetime.now().strftime('%Y-%m-%d'), 'requests')
+    print(json.dumps(summary, ensure_ascii=False))
+
+
 def cmd_stage(args):
     """검수 파이프라인. JSONL → works_staging(Layer 1 · 1.5) → BE import API."""
     import json
@@ -386,6 +412,13 @@ def main():
                                                         'KAKAO_PAGE', 'RIDIBOOKS'))
     stage_recover_p.add_argument('--limit', type=int, default=50)
 
+    req_p = subparsers.add_parser('requests', help='노션 작품 추가 요청 자동 처리 (수집 → 검수 적재 → BE 반영 → 노션 표시)')
+    req_p.add_argument('--env', choices=('dev', 'prod'), help='BE 대상 환경 (기본 STORIX_ENV, 없으면 dev)')
+    req_p.add_argument('--min-id', type=int, dest='min_id', help='이 ID 부터 (기본 NOTION_REQUEST_MIN_ID, 없으면 441)')
+    req_p.add_argument('--limit', type=int, help='이번에 처리할 최대 요청 수')
+    req_p.add_argument('--dry-run', action='store_true', dest='dry_run',
+                       help='수집 · 검수 적재까지만. BE 반영 · 노션 표시는 하지 않는다')
+
     args = parser.parse_args()
 
     if args.command == 'login':
@@ -401,6 +434,8 @@ def main():
             sys.exit(1)  # 목록 0건 · 세션 만료 · 차단으로 멈춘 플랫폼이 있다 (#6)
     elif args.command == 'stage':
         cmd_stage(args)
+    elif args.command == 'requests':
+        cmd_requests(args)
     else:
         parser.print_help()
         sys.exit(1)

@@ -71,7 +71,11 @@ def run_search_titles(
     titles: list[tuple[str, str | None]],
     titles_file: str = None,
     parallel: int = 1,
+    mode: str = 'search_titles',
+    on_found=None,
 ) -> None:
+    """mode 는 출력 파일 이름(<플랫폼>_<mode>.jsonl). on_found(제목, 수집 결과)는 작품을 저장할 때마다 불린다
+    (노션 요청 처리가 요청 ↔ 수집 결과를 잇는 데 쓴다, #66)."""
     if not titles:
         print('⚠️  검색할 작품명이 없습니다.')
         return
@@ -97,7 +101,7 @@ def run_search_titles(
             label = _CRAWLER_MAP[p][1]
             print(f'\n⏭️  [{label}] 해당 타입 작품이 없어 스킵')
             return
-        _search_and_write(wanted, p, found)
+        _search_and_write(wanted, p, found, mode, on_found)
 
     # 한 플랫폼(로그인 실패 등)의 오류는 나머지 플랫폼 · 파일 정리를 막지 않는다 (run_platforms 가 격리)
     run_platforms(targets, run, parallel)
@@ -240,6 +244,8 @@ def _search_and_write(
     wanted: dict[str, set[str | None]],
     platform: str,
     found: set[tuple[str, str | None]],
+    mode: str = 'search_titles',
+    on_found=None,
 ) -> set[tuple[str, str | None]]:
     """wanted(제목 → 그 제목이 나온 섹션 타입들)를 순회하며 검색·크롤·저장.
     성공한 (제목, 타입) 을 in-place 로 found 에 추가한다.
@@ -255,7 +261,7 @@ def _search_and_write(
         if not crawler.login():
             raise AuthExpiredError(f'{label} 로그인 실패')
 
-        with JSONLWriter(platform, 'search_titles') as writer:
+        with JSONLWriter(platform, mode) as writer:
             ok_count = fail_count = skip_count = 0
             print(f'\n🔍 [{label}] {len(wanted)}개 작품 검색 시작')
 
@@ -283,6 +289,8 @@ def _search_and_write(
                             writer.write(result)
                             with _found_lock:
                                 found.update(_found_slots(title, types, result))
+                            if on_found:
+                                on_found(title, result)
                             ok_count += 1
                 except (RateLimitedError, AuthExpiredError):
                     # 차단이 계속되거나 재로그인이 실패했다 — 이 플랫폼은 여기서 멈춘다 (리포트는 crawl_detail_with_retry 가 남김)

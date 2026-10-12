@@ -253,3 +253,25 @@ def test_run_platforms_records_rate_limit():
 
     run_platforms(['ridibooks'], fn)
     assert report.summary()['by_platform'] == {'ridibooks': {'RATE_LIMITED': 1}}
+
+
+class _LoginDriver:
+    def __init__(self, url, cookies=(), source=''):
+        self.current_url, self._cookies, self.page_source = url, [{'name': n} for n in cookies], source
+
+    def get_cookies(self):
+        return self._cookies
+
+
+@pytest.mark.parametrize('url, cookies, source, done', [
+    ('https://ridibooks.com/', ['ridi-at'], '', True),                  # 로그인 뒤 메인으로 돌아옴
+    ('https://ridibooks.com/', ['PHPSESSID'], '', False),               # 아직 로그인 전
+    ('https://ridibooks.com/account/login', ['ridi-at'], '', False),    # 로그인 페이지에 머묾
+    ('https://ridibooks.com/account/myridi', [], '', True),             # 예전 조건도 그대로 감지
+    ('https://ridibooks.com/', [], '<a>로그아웃</a>', True),
+])
+def test_ridi_manual_login_detects_session_cookie(url, cookies, source, done):
+    from modules.crawler.ridibooks_crawler import RidibooksCrawler
+    crawler = RidibooksCrawler.__new__(RidibooksCrawler)
+    crawler.driver = _LoginDriver(url, cookies, source)
+    assert crawler._manual_login_done() is done

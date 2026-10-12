@@ -904,3 +904,49 @@ def test_suggestions_are_kept_until_applied(store):
     cur.execute('SELECT field, raw_value, decided_value, decided_by FROM review_decision')
     assert cur.fetchall() == [{'field': 'genre', 'raw_value': '사극물', 'decided_value': 'HISTORICAL',
                                'decided_by': 'suggest:claude'}]
+
+
+# ---------------------------------------------------------------- Layer 3 매핑 (#70)
+
+def test_layer1_uses_mapping_only_for_unresolved_enum():
+    from review.rules import MAPPED
+    raw = item(genre='사극물', age_classification='15세 이용가')
+    assert validate_item(raw, CATALOG).status == NEEDS_REVIEW
+
+    v = validate_item(raw, CATALOG, {('genre', '사극물'): 'HISTORICAL'})
+    assert v.status == AUTO_PASS and v.normalized['genre'] == 'HISTORICAL'
+    assert {'field': 'genre', 'code': MAPPED, 'value': '사극물 → HISTORICAL', 'severity': 'INFO'} in v.violations
+
+    # 카탈로그에 없는 값으로 매핑돼 있으면 쓰지 않는다
+    assert validate_item(raw, CATALOG, {('genre', '사극물'): 'NOPE'}).status == NEEDS_REVIEW
+    # 카탈로그로 맞춰지는 값은 매핑이 있어도 카탈로그를 따른다
+    v = validate_item(item(genre='판타지'), CATALOG, {('genre', '판타지'): 'HISTORICAL'})
+    assert v.normalized['genre'] == 'FANTASY' and not any(x['code'] == MAPPED for x in v.violations)
+
+
+@needs_mysql
+def test_repeated_decisions_are_promoted_and_conflicts_demote(store, monkeypatch):
+    from review import service
+    monkeypatch.setattr(service, 'PROMOTE_MIN', 3)
+
+    def approve_new(url, decided):
+        service.load_run(store, CATALOG, [item(source_url=url, genre=' 사극물 ')], 'naver_test')
+        # 매핑이 생긴 뒤엔 바로 통과하므로 상태와 상관없이 링크로 찾는다
+        cur = store._cursor()
+        cur.execute('SELECT id FROM works_staging WHERE source_url = %s', (url,))
+        service.approve(store, CATALOG, cur.fetchone()['id'], {'genre': decided}, 'tester')
+
+    for n in range(3):
+        approve_new(f'https://x/m{n}', '무협')
+    assert store.mappings() == {}  # 아직 승격 전 (적재할 때 승격한다)
+
+    service.load_run(store, CATALOG, [item(source_url='https://x/new', genre='사극물')], 'naver_test')
+    assert store.mappings() == {('genre', '사극물'): 'HISTORICAL'}
+    new = next(r for r in store.queue(AUTO_PASS) if r['source_url'] == 'https://x/new')
+    assert new['normalized']['genre'] == 'HISTORICAL'
+    assert store.stats()['review_mappings'] == 1
+
+    # 다른 결론이 섞이면 내린다
+    approve_new('https://x/other', '판타지')
+    assert store.promote_mappings(3) == {'added': [], 'changed': [], 'removed': ['genre: 사극물'], 'total': 0}
+    assert store.mappings() == {}

@@ -277,8 +277,8 @@ def cmd_stage(args):
     from review.store import StagingStore, connect, ensure_schema
 
     sub = getattr(args, 'stage_command', None)
-    if sub not in ('load', 'import', 'stats', 'recover', 'queue', 'suggest'):
-        print('❌ stage 서브 명령이 없습니다. (load | import | stats | recover | queue | suggest)')
+    if sub not in ('load', 'import', 'stats', 'recover', 'queue', 'suggest', 'promote'):
+        print('❌ stage 서브 명령이 없습니다. (load | import | stats | recover | queue | suggest | promote)')
         sys.exit(1)
 
     from review.store import STAGING_DATABASE
@@ -362,6 +362,15 @@ def cmd_stage(args):
             except ReviewError as e:
                 print(f'❌ 제안 형식 오류 (아무것도 남기지 않음): {e}')
                 sys.exit(1)
+        elif sub == 'promote':
+            # 사람 판정을 매핑으로 승격하고 지금 매핑을 보여준다 (#70). 적재(load) 때도 자동으로 돈다
+            from review.service import PROMOTE_MIN
+            min_count = args.min_count or PROMOTE_MIN
+            result = store.promote_mappings(min_count)
+            print(f"🧭 승격 기준: 같은 판정 {min_count}회 이상 · 결론이 모두 같음")
+            print(json.dumps(result, ensure_ascii=False))
+            for m in store.list_mappings():
+                print(f"  {m['field']:<20} {m['raw_value']} → {m['decided_value']}  ({m['decision_count']}회)")
         elif sub == 'recover':
             # 깨진 작품 링크를 다시 찾는다 (#28). 찾은 결과는 파일로 내고, 적재는 stage load 로 한다
             from datetime import datetime
@@ -436,6 +445,11 @@ def main():
     stage_recover_p.add_argument('--platform', choices=('NAVER_WEBTOON', 'NAVER_NOVEL', 'NAVER_SERIES',
                                                         'KAKAO_PAGE', 'RIDIBOOKS'))
     stage_recover_p.add_argument('--limit', type=int, default=50)
+
+    stage_promote_p = stage_sub.add_parser('promote', parents=[env_p],
+                                           help='검수 판정을 매핑으로 승격하고 목록을 본다 (Layer 3, 적재 때도 자동)')
+    stage_promote_p.add_argument('--min', type=int, dest='min_count',
+                                 help='승격할 최소 판정 횟수 (기본 REVIEW_PROMOTE_MIN, 없으면 3)')
 
     stage_queue_p = stage_sub.add_parser('queue', parents=[env_p],
                                          help='검수 대기 행을 바깥 검수에 넘길 JSON 으로 낸다 (enum 값 목록 포함)')

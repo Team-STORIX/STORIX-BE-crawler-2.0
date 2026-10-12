@@ -54,10 +54,11 @@ def _tables():
 @needs_mysql
 def test_fresh_db_upgrades_to_head(staging):
     staging.ensure_schema()
-    assert _tables() == {'alembic_version', 'staging_run', 'works_staging', 'review_decision', 'works_source'}
-    assert _version() == [('0002',)]
+    assert _tables() == {'alembic_version', 'staging_run', 'works_staging', 'review_decision', 'works_source',
+                         'review_mapping'}
+    assert _version() == [('0003',)]
     staging.ensure_schema()  # 다시 불러도 그대로
-    assert _version() == [('0002',)]
+    assert _version() == [('0003',)]
 
 
 @needs_mysql
@@ -87,11 +88,11 @@ def test_db_made_before_alembic_is_stamped_then_upgraded(staging, legacy_tables,
     """Alembic 도입 전 DB(테이블은 있고 alembic_version 은 없음)는 있는 테이블로 기준 리비전을 찍고 올린다."""
     staging.ensure_schema()
     keep = set(legacy_tables)
-    _sql(*[f'DROP TABLE {t}' for t in ('alembic_version', 'works_source') if t not in keep], database=DB)
+    _sql(*[f'DROP TABLE {t}' for t in ('alembic_version', 'works_source', 'review_mapping') if t not in keep], database=DB)
     _sql("INSERT INTO staging_run (run_id, source) VALUES ('r1', 'legacy')", database=DB)
 
     staging.ensure_schema()
-    assert _version() == [('0002',)]
-    assert 'works_source' in _tables()
+    assert _version() == [('0003',)]
+    assert {'works_source', 'review_mapping'} <= _tables()
     # 기존 데이터는 그대로
     assert _sql("SELECT source FROM staging_run WHERE run_id = 'r1'", database=DB) == [('legacy',)]

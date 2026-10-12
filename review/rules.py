@@ -118,7 +118,12 @@ def _violation(field_name: str, code: str, value, severity: str) -> dict:
     return {'field': field_name, 'code': code, 'value': value, 'severity': severity}
 
 
-def validate_item(item: dict, catalog: EnumCatalog) -> Verdict:
+# Layer 3 매핑으로 고친 enum 값 (#70). 판정에는 영향이 없고 어떤 매핑을 썼는지 남긴다
+MAPPED = 'MAPPED'
+
+
+def validate_item(item: dict, catalog: EnumCatalog, mappings: dict[tuple[str, str], str] | None = None) -> Verdict:
+    """mappings: Layer 3 매핑 {(필드, 원문): enum name}. 카탈로그로 못 맞춘 원문에만 쓴다."""
     normalized: dict = {f: _clean(item.get(f)) for f in TEXT_FIELDS}
     # 작가명은 크롤러마다 형식이 달라 한 형식('a, b')으로 맞춘다 (역할 라벨 제거, 이름 단위 중복 제거)
     normalized.update(normalize_artists(item))
@@ -140,10 +145,16 @@ def validate_item(item: dict, catalog: EnumCatalog) -> Verdict:
         violations.append(_violation('works_name', 'NOT_A_TITLE', normalized['works_name'], REJECTED))
 
     for f, (kind, severity) in ENUM_FIELDS.items():
-        raw = _clean(item.get(f))
+        original = raw = _clean(item.get(f))
         if f == 'genre':
             raw = '' if raw in NOT_A_GENRE else GENRE_ALIASES.get(raw, raw)
         name = catalog.resolve(kind, raw)
+        if name is None and raw and mappings:
+            # 사람이 같은 원문을 같은 값으로 여러 번 승인한 매핑. 카탈로그에 있는 값일 때만 쓴다
+            mapped = mappings.get((f, original))
+            if mapped in catalog.names(kind):
+                name = mapped
+                violations.append(_violation(f, MAPPED, f'{original} → {mapped}', INFO))
         normalized[f] = name
         if not raw:
             violations.append(_violation(f, 'MISSING', None, INFO if f in OPTIONAL_ON_UPDATE else severity))

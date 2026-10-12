@@ -13,6 +13,9 @@ from urllib3.exceptions import ReadTimeoutError as _DriverTimeoutError
 from .base_crawler import PASS_THROUGH, BaseCrawler, HttpUnavailable, SessionExpiredError, pick_candidates
 from config import RIDIBOOKS_COOKIE_FILE, RIDIBOOKS_LOGIN_URL, RIDIBOOKS_ID, RIDIBOOKS_PW
 
+# 로그인하면 생기는 쿠키. 세션 등록 API(api/session_api.py)도 같은 쿠키로 로그인을 판단한다
+RIDI_SESSION_COOKIE = 'ridi-at'
+
 # 리디 브레드크럼 카테고리 텍스트 → 대표 장르(DB 표준값).
 # 위에서부터 먼저 매칭되는 것을 채택 → 로판/BL/무협을 로맨스·판타지보다 앞에 둔다.
 # (실제 리디 분류: 로판 e북/웹소설, BL 소설/웹소설/만화/웹툰, 무협 소설,
@@ -141,6 +144,16 @@ class RidibooksCrawler(BaseCrawler):
             print(f"⚠️ [리디북스] 자격증명 로그인 중 오류: {e}")
             return False
 
+    def _manual_login_done(self) -> bool:
+        """로그인 페이지를 벗어났고 로그인 쿠키(ridi-at)가 생겼으면 로그인된 것으로 본다.
+        로그인하면 메인으로 돌아가는데, 메인에는 '로그아웃' 문구가 없어 마이리디까지 눌러야 감지됐다."""
+        cur = self.driver.current_url
+        if "account/login" in cur:
+            return False
+        if any(c.get('name') == RIDI_SESSION_COOKIE for c in self.driver.get_cookies()):
+            return True
+        return "myridi" in cur or "로그아웃" in self.driver.page_source
+
     def _wait_for_manual_login(self, timeout_sec: int = 180) -> bool:
         print("\n" + "=" * 60)
         print("🔐 브라우저 창에서 직접 리디북스 로그인을 완료하세요.")
@@ -151,10 +164,8 @@ class RidibooksCrawler(BaseCrawler):
         while time.time() < deadline:
             time.sleep(3)
             try:
-                cur = self.driver.current_url
-                if "account/login" not in cur:
-                    if "로그아웃" in self.driver.page_source or "myridi" in cur:
-                        return True
+                if self._manual_login_done():
+                    return True
             except Exception:
                 pass
 

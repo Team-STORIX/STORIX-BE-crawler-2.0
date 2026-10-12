@@ -830,3 +830,77 @@ def test_still_empty_after_retry_goes_to_review():
         {'stagingId': 1, 'result': 'FAILED', 'error': 'genre 값이 비어 있습니다'}]))
     assert store.needs_value == {1: 'genre 값이 비어 있습니다'}
     assert summary['needs_value'] == 1 and summary['results'] == {'FAILED': 1}
+
+
+# ---------------------------------------------------------------- 바깥 검수 제안 (#68)
+
+def test_parse_suggestion_checks_shape():
+    from review import service
+
+    p = service.parse_suggestion({'staging_id': '7', 'action': 'approve', 'overrides': {'genre': '무협'},
+                                  'confidence': 0.9, 'reason': '네이버 장르 표기'})
+    assert p == {'staging_id': 7, 'confidence': 0.9, 'verdict': {
+        'action': 'approve', 'overrides': {'genre': '무협'}, 'target_works_id': None, 'create_new': False,
+        'reason': '네이버 장르 표기'}}
+
+    for bad in ({'action': 'approve'},                                      # staging_id 없음
+                {'staging_id': 1, 'action': 'merge'},                       # 모르는 action
+                {'staging_id': 1, 'action': 'approve', 'overrides': {'works_name': 'x'}},  # 작품을 특정하는 값
+                {'staging_id': 1, 'action': 'approve', 'confidence': 1.5},
+                {'staging_id': 1, 'action': 'approve', 'confidence': 'high'},
+                {'staging_id': 1, 'action': 'approve', 'target_works_id': 'abc'}):
+        with pytest.raises(service.ReviewError):
+            service.parse_suggestion(bad)
+
+
+@needs_mysql
+def test_suggestions_are_kept_until_applied(store):
+    from review import service
+
+    result = service.load_run(store, CATALOG, [
+        item(source_url='https://x/g1', genre='사극물'),        # 장르를 고치면 통과
+        item(source_url='https://x/g2', genre='사극물'),        # 거절 제안
+        item(source_url='https://x/g3', genre='사극물'),        # 고친 값도 틀림 → 검수 대기로 남음
+        item(source_url='https://x/g4', genre='사극물'),        # 제안 없음
+        item(source_url='https://x/ok'),
+    ], 'notion_requests')
+    run = result['run_id']
+    ids = {r['source_url']: r['id'] for r in store.review_rows([run])}
+    assert set(ids) == {'https://x/g1', 'https://x/g2', 'https://x/g3', 'https://x/g4'}
+
+    exported = service.review_export(store, CATALOG, [run])
+    assert exported['allowed_values']['genre'] == ['무협', '판타지', '로판', 'BL']
+    assert {r['genre'] for r in exported['rows']} == {'사극물'}
+
+    # 형식이 하나라도 틀리면 아무것도 남기지 않는다
+    with pytest.raises(service.ReviewError):
+        service.save_suggestions(store, [{'staging_id': ids['https://x/g1'], 'action': 'approve'},
+                                         {'staging_id': ids['https://x/g2'], 'action': 'nope'}], 'claude')
+    assert store.get(ids['https://x/g1'])['llm_verdict'] is None
+
+    saved = service.save_suggestions(store, [
+        {'staging_id': ids['https://x/g1'], 'action': 'approve', 'overrides': {'genre': '무협'}, 'confidence': 0.9},
+        {'staging_id': ids['https://x/g2'], 'action': 'reject', 'reason': '다른 작품'},
+        {'staging_id': ids['https://x/g3'], 'action': 'approve', 'overrides': {'genre': '사극'}},
+        {'staging_id': 999999, 'action': 'skip'},
+    ], 'claude')
+    assert saved == {'saved': 3, 'missed': [999999]}
+    # 제안만으로는 판정이 바뀌지 않는다
+    assert store.get(ids['https://x/g1'])['status'] == NEEDS_REVIEW
+    assert store.get(ids['https://x/g1'])['llm_verdict']['by'] == 'claude'
+
+    applied = service.apply_suggestions(store, CATALOG, [run])
+    assert (applied['approved'], applied['rejected'], applied['skipped']) == (1, 1, 0)
+    assert [f['id'] for f in applied['failed']] == [ids['https://x/g3']]
+
+    g1 = store.get(ids['https://x/g1'])
+    assert (g1['status'], g1['normalized']['genre'], g1['reviewed_by']) == ('APPROVED', 'HISTORICAL', 'suggest:claude')
+    assert store.get(ids['https://x/g2'])['status'] == REJECTED
+    assert store.get(ids['https://x/g3'])['status'] == NEEDS_REVIEW
+    assert store.get(ids['https://x/g4'])['status'] == NEEDS_REVIEW
+
+    # 제안에서 나온 판정도 Layer 3 재료로 남는다 (누가 냈는지 구분해서)
+    cur = store._cursor()
+    cur.execute('SELECT field, raw_value, decided_value, decided_by FROM review_decision')
+    assert cur.fetchall() == [{'field': 'genre', 'raw_value': '사극물', 'decided_value': 'HISTORICAL',
+                               'decided_by': 'suggest:claude'}]

@@ -411,6 +411,25 @@ class StagingStore:
                     f'FROM works_staging WHERE source_url IN ({", ".join(["%s"] * len(urls))})', tuple(urls))
         return [_loads(r, 'violations') for r in cur.fetchall()]
 
+    # ------------------------------------------------------------------ 바깥 검수 제안 (#68)
+
+    def review_rows(self, run_ids: list[str]) -> list[dict]:
+        """런들의 검수 대기 행. 바깥 검수(stage queue)로 내보낸다."""
+        if not run_ids:
+            return []
+        cur = self._cursor()
+        cur.execute(f'SELECT * FROM works_staging WHERE status = %s AND run_id IN ({", ".join(["%s"] * len(run_ids))}) '
+                    'ORDER BY id', (NEEDS_REVIEW, *run_ids))
+        return [_loads(r, 'raw', 'hashtags', 'normalized', 'violations', 'llm_verdict') for r in cur.fetchall()]
+
+    def save_suggestion(self, staging_id: int, verdict: dict, confidence: float | None) -> bool:
+        """검수 대기 행에 바깥 검수 제안을 남긴다. 판정은 바꾸지 않는다 — 반영은 사람이 따로 한다."""
+        cur = self._cursor()
+        cur.execute('UPDATE works_staging SET llm_verdict = %s, confidence = %s WHERE id = %s AND status = %s',
+                    (_dumps(verdict), confidence, staging_id, NEEDS_REVIEW))
+        self._conn.commit()
+        return cur.rowcount > 0
+
     def mark_imported(self, staging_id: int, works_id: int | None) -> None:
         cur = self._cursor()
         cur.execute('UPDATE works_staging SET status = %s, imported_works_id = %s, import_error = NULL '

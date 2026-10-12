@@ -107,6 +107,134 @@ def approve(store: StagingStore, catalog: EnumCatalog, staging_id: int,
     return {'id': staging_id, 'status': APPROVED, 'normalized': normalized}
 
 
+# ---------------------------------------------------------------------------
+# 바깥 검수 제안 (#68)
+#
+# Layer 1 이 못 정한 검수 대기 행에 레포 밖 도구(로컬 claude -p 등)가 낸 제안을 붙인다.
+# 제안은 llm_verdict 에 남기기만 하고, 사람이 apply_suggestions 를 돌릴 때 approve · reject 로 반영한다.
+#   {"staging_id": 12, "action": "approve", "overrides": {"genre": "판타지"}, "confidence": 0.9, "reason": "..."}
+#   action: approve(고친 값으로 승인) | reject(거절) | skip(사람이 직접 봄)
+# ---------------------------------------------------------------------------
+
+SUGGEST_ACTIONS = ('approve', 'reject', 'skip')
+# 제안으로 고칠 수 있는 값. 작품을 특정하는 값(작품명 · 플랫폼 · 링크)은 고치지 않는다
+SUGGEST_FIELDS = ('artist_name', 'author', 'illustrator', 'original_author', 'description', 'thumbnail_url',
+                  'genre', 'age_classification', 'works_type', 'hashtags')
+
+
+def parse_suggestion(raw: dict) -> dict:
+    """제안 하나를 검사해 llm_verdict 로 남길 형태로 바꾼다."""
+    if not isinstance(raw, dict):
+        raise ReviewError('제안은 객체여야 함')
+    try:
+        staging_id = int(raw['staging_id'])
+    except (KeyError, TypeError, ValueError):
+        raise ReviewError(f'staging_id 가 없거나 숫자가 아님: {raw.get("staging_id")!r}')
+    action = raw.get('action')
+    if action not in SUGGEST_ACTIONS:
+        raise ReviewError(f'#{staging_id} action 은 {" | ".join(SUGGEST_ACTIONS)} 중 하나: {action!r}')
+    overrides = raw.get('overrides') or {}
+    if not isinstance(overrides, dict):
+        raise ReviewError(f'#{staging_id} overrides 는 객체여야 함')
+    unknown = sorted(set(overrides) - set(SUGGEST_FIELDS))
+    if unknown:
+        raise ReviewError(f'#{staging_id} 고칠 수 없는 값: {", ".join(unknown)}')
+    confidence = raw.get('confidence')
+    if confidence is not None:
+        try:
+            confidence = float(confidence)
+        except (TypeError, ValueError):
+            raise ReviewError(f'#{staging_id} confidence 는 숫자: {confidence!r}')
+        if not 0 <= confidence <= 1:
+            raise ReviewError(f'#{staging_id} confidence 는 0~1: {confidence}')
+    try:
+        target = int(raw['target_works_id']) if raw.get('target_works_id') else None
+    except (TypeError, ValueError):
+        raise ReviewError(f'#{staging_id} target_works_id 는 숫자: {raw.get("target_works_id")!r}')
+    return {
+        'staging_id': staging_id,
+        'confidence': confidence,
+        'verdict': {
+            'action': action,
+            'overrides': overrides,
+            'target_works_id': target,
+            'create_new': bool(raw.get('create_new')),
+            'reason': str(raw.get('reason') or '')[:1000],
+        },
+    }
+
+
+def review_export(store: StagingStore, catalog: EnumCatalog, run_ids: list[str]) -> dict:
+    """런들의 검수 대기 행을 바깥 검수에 넘길 형태로. 고를 수 있는 enum 값과 제안 형식을 같이 싣는다."""
+    rows = []
+    for r in store.review_rows(run_ids):
+        raw = r.get('raw') or {}
+        rows.append({
+            'staging_id': r['id'],
+            'source_url': r['source_url'],
+            **{f: raw.get(f) for f in ('platform', 'works_name', 'artist_name', 'author', 'illustrator',
+                                       'original_author', 'works_type', 'genre', 'age_classification',
+                                       'thumbnail_url', 'hashtags')},
+            'description': (raw.get('description') or '')[:1500],
+            # 판정에 영향 없는 기록(INFO)은 뺀다
+            'violations': [v for v in (r.get('violations') or []) if v.get('severity') != 'INFO'],
+        })
+    return {
+        # 장르 · 연령 · 작품 유형은 이 값(dbValue) 중에서 고른다
+        'allowed_values': {kind: [v.get('dbValue') or v['name'] for v in catalog.raw[kind]['values']]
+                           for kind in ('genre', 'ageClassification', 'worksType')},
+        'suggestion_format': {
+            'staging_id': 'rows[].staging_id',
+            'action': ' | '.join(SUGGEST_ACTIONS),
+            'overrides': f'고칠 값만. 가능한 키: {", ".join(SUGGEST_FIELDS)}',
+            'confidence': '0~1',
+            'reason': '판단 근거',
+        },
+        'rows': rows,
+    }
+
+
+def save_suggestions(store: StagingStore, suggestions: list[dict], by: str) -> dict:
+    """제안을 검사해 검수 대기 행에 남긴다. 하나라도 형식이 틀리면 아무것도 남기지 않는다."""
+    parsed = [parse_suggestion(s) for s in suggestions]
+    saved, missed = 0, []
+    for p in parsed:
+        if store.save_suggestion(p['staging_id'], {**p['verdict'], 'by': by}, p['confidence']):
+            saved += 1
+        else:
+            missed.append(p['staging_id'])  # 없는 행이거나 이미 검수 대기가 아님
+    return {'saved': saved, 'missed': missed}
+
+
+def apply_suggestions(store: StagingStore, catalog: EnumCatalog, run_ids: list[str]) -> dict:
+    """런들의 검수 대기 행 중 제안이 붙은 것을 반영한다. 사람이 실행해야 한다 (requests --resume).
+    승인은 approve 를 그대로 타서 고친 값이 Layer 1 을 다시 통과해야 하고, 판정은 review_decision 에 남는다.
+    reviewer 는 'suggest:<제안 낸 도구>' 로 남겨 사람이 직접 판정한 것과 구분한다."""
+    summary: dict = {'approved': 0, 'rejected': 0, 'skipped': 0, 'failed': []}
+    for row in store.review_rows(run_ids):
+        verdict = row.get('llm_verdict')
+        if not verdict:
+            continue
+        reviewer = f"suggest:{verdict.get('by') or 'unknown'}"[:100]
+        action = verdict.get('action')
+        try:
+            if action == 'approve':
+                approve(store, catalog, row['id'], verdict.get('overrides') or {}, reviewer,
+                        verdict.get('target_works_id'), bool(verdict.get('create_new')))
+                summary['approved'] += 1
+            elif action == 'reject':
+                reject(store, row['id'], reviewer, verdict.get('reason') or '바깥 검수에서 거절')
+                summary['rejected'] += 1
+            else:
+                summary['skipped'] += 1
+        except ReviewError as e:
+            # 고친 값이 아직 Layer 1 을 못 넘으면 검수 대기로 남는다
+            codes = ', '.join(v.get('code') or '' for v in e.violations)
+            summary['failed'].append({'id': row['id'], 'works_name': row.get('works_name'),
+                                      'error': f'{e}{f" ({codes})" if codes else ""}'})
+    return summary
+
+
 def reject(store: StagingStore, staging_id: int, reviewer: str, reason: str) -> dict:
     row = store.get(staging_id)
     if not row:

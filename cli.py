@@ -237,19 +237,23 @@ def cmd_requests(args):
         os.environ['STORIX_ENV'] = args.env  # review 모듈을 불러오기 전에 정한다
     from config import OUTPUT_DIR
     from crawler import report
-    from crawler.modes.requests import run_requests
+    from crawler.modes.requests import resume_requests, run_requests
     from review import env as storix_env
     from review.notion import NotionError
 
     target = storix_env.target()
-    print(f'🎯 대상 {target.upper()} — BE {storix_env.api_base_url(target)}{" (dry-run)" if args.dry_run else ""}')
-    report.reset()
+    mode = ' (dry-run)' if args.dry_run else ' (이어받기)' if args.resume else ''
+    print(f'🎯 대상 {target.upper()} — BE {storix_env.api_base_url(target)}{mode}')
     try:
-        summary = run_requests(target, args.min_id, args.dry_run, args.limit)
+        if args.resume:
+            summary = resume_requests(target, args.state)
+        else:
+            report.reset()
+            summary = run_requests(target, args.min_id, args.dry_run, args.limit)
+            report.save(OUTPUT_DIR / datetime.now().strftime('%Y-%m-%d'), 'requests')
     except NotionError as e:
         print(f'❌ {e}')
         sys.exit(1)
-    report.save(OUTPUT_DIR / datetime.now().strftime('%Y-%m-%d'), 'requests')
     print(json.dumps(summary, ensure_ascii=False))
 
 
@@ -273,8 +277,8 @@ def cmd_stage(args):
     from review.store import StagingStore, connect, ensure_schema
 
     sub = getattr(args, 'stage_command', None)
-    if sub not in ('load', 'import', 'stats', 'recover'):
-        print('❌ stage 서브 명령이 없습니다. (load | import | stats | recover)')
+    if sub not in ('load', 'import', 'stats', 'recover', 'queue', 'suggest'):
+        print('❌ stage 서브 명령이 없습니다. (load | import | stats | recover | queue | suggest)')
         sys.exit(1)
 
     from review.store import STAGING_DATABASE
@@ -336,6 +340,27 @@ def cmd_stage(args):
                                  ensure_ascii=False))
             except BackendAuthError as e:
                 print(f'❌ {e}')
+                sys.exit(1)
+        elif sub == 'queue':
+            # 검수 대기 행을 바깥 검수(로컬 claude -p 등)에 넘길 JSON 으로 낸다 (#68)
+            from review.service import review_export
+            try:
+                catalog = load_catalog()
+            except (BackendAuthError, OSError, RuntimeError) as e:
+                print(f'❌ enum 카탈로그를 못 받았습니다: {e}')
+                sys.exit(1)
+            exported = review_export(store, catalog, args.run_ids)
+            Path(args.output).write_text(json.dumps(exported, ensure_ascii=False, indent=2), encoding='utf-8')
+            print(f"📤 검수 대기 {len(exported['rows'])}건 → {args.output}")
+        elif sub == 'suggest':
+            # 바깥 검수 제안을 llm_verdict 에 남긴다. 반영은 requests --resume 이 한다 (#68)
+            from review.service import ReviewError, save_suggestions
+            body = json.loads(Path(args.input).read_text(encoding='utf-8'))
+            items = body.get('suggestions', []) if isinstance(body, dict) else body
+            try:
+                print(f'🧾 {json.dumps(save_suggestions(store, items, args.by), ensure_ascii=False)}')
+            except ReviewError as e:
+                print(f'❌ 제안 형식 오류 (아무것도 남기지 않음): {e}')
                 sys.exit(1)
         elif sub == 'recover':
             # 깨진 작품 링크를 다시 찾는다 (#28). 찾은 결과는 파일로 내고, 적재는 stage load 로 한다
@@ -412,12 +437,27 @@ def main():
                                                         'KAKAO_PAGE', 'RIDIBOOKS'))
     stage_recover_p.add_argument('--limit', type=int, default=50)
 
+    stage_queue_p = stage_sub.add_parser('queue', parents=[env_p],
+                                         help='검수 대기 행을 바깥 검수에 넘길 JSON 으로 낸다 (enum 값 목록 포함)')
+    stage_queue_p.add_argument('--run-id', dest='run_ids', action='append', required=True, help='런 (여러 번 줄 수 있음)')
+    stage_queue_p.add_argument('--output', required=True, help='저장할 JSON 파일')
+
+    stage_suggest_p = stage_sub.add_parser('suggest', parents=[env_p],
+                                           help='바깥 검수 제안을 검수 대기 행에 남긴다 (반영은 requests --resume)')
+    stage_suggest_p.add_argument('--input', required=True,
+                                 help='제안 JSON: [{"staging_id", "action": approve|reject|skip, "overrides", "confidence", "reason"}]')
+    stage_suggest_p.add_argument('--by', default='claude', help='제안을 낸 도구 이름 (판정 기록에 suggest:<이름> 으로 남음)')
+
     req_p = subparsers.add_parser('requests', help='노션 작품 추가 요청 자동 처리 (수집 → 검수 적재 → BE 반영 → 노션 표시)')
     req_p.add_argument('--env', choices=('dev', 'prod'), help='BE 대상 환경 (기본 STORIX_ENV, 없으면 dev)')
     req_p.add_argument('--min-id', type=int, dest='min_id', help='이 ID 부터 (기본 NOTION_REQUEST_MIN_ID, 없으면 441)')
     req_p.add_argument('--limit', type=int, help='이번에 처리할 최대 요청 수')
-    req_p.add_argument('--dry-run', action='store_true', dest='dry_run',
-                       help='수집 · 검수 적재까지만. BE 반영 · 노션 표시는 하지 않는다')
+    req_mode = req_p.add_mutually_exclusive_group()
+    req_mode.add_argument('--dry-run', action='store_true', dest='dry_run',
+                          help='수집 · 검수 적재까지만. BE 반영 · 노션 표시는 하지 않고 이어받기 상태를 남긴다')
+    req_mode.add_argument('--resume', action='store_true',
+                          help='가장 최근 dry-run 을 이어받아 검수 제안 반영 → BE 반영 → 노션 표시 (다시 수집하지 않음)')
+    req_p.add_argument('--state', help='[--resume] 이어받을 상태 파일 (기본: 아직 반영 안 한 가장 최근 것)')
 
     args = parser.parse_args()
 

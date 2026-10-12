@@ -26,6 +26,9 @@ IMPORTABLE = (AUTO_PASS, APPROVED)
 STAGING_DATABASE = storix_env.staging_database(storix_env.target())
 ALEMBIC_INI = Path(__file__).resolve().parents[1] / 'alembic.ini'
 
+# Layer 3 (#70): 바깥 검수 제안을 승인한 판정은 사람이 직접 고친 판정의 절반으로 센다
+SUGGEST_WEIGHT = 0.5
+
 # 수집 이력 (works_source) 상태. 나머지는 crawler/report.py 상태 코드를 그대로 쓴다
 SOURCE_SUCCESS = 'SUCCESS'
 SOURCE_RELINKED = 'RELINKED'   # 링크 복구로 새 링크를 찾았다. 새 링크는 다음 적재 때 따로 한 행이 된다
@@ -383,17 +386,21 @@ class StagingStore:
 
     def promote_mappings(self, min_count: int) -> dict:
         """판정 기록(review_decision)에서 매핑을 다시 만든다.
-        같은 (필드, 원문) 판정이 min_count 번 이상이고 결론이 모두 같은 것만 올린다.
+        같은 (필드, 원문) 판정의 가중 횟수가 min_count 이상이고 결론이 모두 같은 것만 올린다.
+        사람이 직접 고친 판정은 1, 바깥 검수 제안을 승인한 판정(suggest:<도구>)은 SUGGEST_WEIGHT 로 센다
+        — 제안을 묶어서 승인하다 같은 실수가 반복돼 규칙이 되지 않게.
         결론이 갈리거나 횟수가 모자라게 된 매핑은 내린다 (사람 판정이 바뀌면 따라간다)."""
         cur = self._cursor()
         cur.execute(
             'SELECT field, TRIM(raw_value) AS raw_value, COUNT(*) AS n, COUNT(DISTINCT decided_value) AS kinds, '
+            "SUM(CASE WHEN decided_by LIKE 'suggest:%%' THEN %s ELSE 1 END) AS weight, "
             'MIN(decided_value) AS decided_value FROM review_decision '
             "WHERE raw_value IS NOT NULL AND TRIM(raw_value) <> '' AND decided_value IS NOT NULL "
-            'GROUP BY field, TRIM(raw_value)'
+            'GROUP BY field, TRIM(raw_value)',
+            (SUGGEST_WEIGHT,)
         )
         wanted = {(r['field'], r['raw_value']): (r['decided_value'], r['n']) for r in cur.fetchall()
-                  if r['kinds'] == 1 and r['n'] >= min_count and len(r['raw_value']) <= 255}
+                  if r['kinds'] == 1 and float(r['weight']) >= min_count and len(r['raw_value']) <= 255}
         current = self.mappings()
         added, changed, removed = [], [], []
         try:
@@ -418,18 +425,22 @@ class StagingStore:
 
     # ------------------------------------------------------------------ import
 
-    def _importable_where(self, run_id: str | None) -> tuple[str, tuple]:
+    def _importable_where(self, run_id: str | None, staging_ids: list[int] | None = None) -> tuple[str, tuple]:
         marks = ', '.join(['%s'] * len(IMPORTABLE))
         where = f'WHERE s.status IN ({marks}) AND NOT r.held'
         params: tuple = IMPORTABLE
         if run_id:
             where += ' AND s.run_id = %s'
             params = (*params, run_id)
+        if staging_ids is not None:
+            # 지정한 행만 (바깥 검수 제안으로 방금 승인한 건만 보낼 때, #72). 빈 목록이면 아무것도 안 보낸다
+            where += f' AND s.id IN ({", ".join(["%s"] * len(staging_ids))})' if staging_ids else ' AND FALSE'
+            params = (*params, *staging_ids)
         return where, params
 
-    def importable(self, limit: int = 500, run_id: str | None = None) -> list[dict]:
-        """보류되지 않은 런의 AUTO_PASS / APPROVED 건. run_id 를 주면 그 런만."""
-        where, params = self._importable_where(run_id)
+    def importable(self, limit: int = 500, run_id: str | None = None, staging_ids: list[int] | None = None) -> list[dict]:
+        """보류되지 않은 런의 AUTO_PASS / APPROVED 건. run_id 를 주면 그 런만, staging_ids 를 주면 그 행만."""
+        where, params = self._importable_where(run_id, staging_ids)
         cur = self._cursor()
         cur.execute(
             f'SELECT s.id, s.normalized FROM works_staging s '
@@ -462,13 +473,20 @@ class StagingStore:
 
     # ------------------------------------------------------------------ 바깥 검수 제안 (#68)
 
-    def review_rows(self, run_ids: list[str]) -> list[dict]:
-        """런들의 검수 대기 행. 바깥 검수(stage queue)로 내보낸다."""
-        if not run_ids:
+    def review_rows(self, run_ids: list[str] | None, limit: int | None = None) -> list[dict]:
+        """검수 대기 행. 바깥 검수(stage queue)로 내보낸다. run_ids 가 None 이면 런과 상관없이 전체 (#72)."""
+        if run_ids is not None and not run_ids:
             return []
+        where, params = 'status = %s', [NEEDS_REVIEW]
+        if run_ids is not None:
+            where += f' AND run_id IN ({", ".join(["%s"] * len(run_ids))})'
+            params += run_ids
+        sql = f'SELECT * FROM works_staging WHERE {where} ORDER BY id'
+        if limit:
+            sql += ' LIMIT %s'
+            params.append(limit)
         cur = self._cursor()
-        cur.execute(f'SELECT * FROM works_staging WHERE status = %s AND run_id IN ({", ".join(["%s"] * len(run_ids))}) '
-                    'ORDER BY id', (NEEDS_REVIEW, *run_ids))
+        cur.execute(sql, tuple(params))
         return [_loads(r, 'raw', 'hashtags', 'normalized', 'violations', 'llm_verdict') for r in cur.fetchall()]
 
     def save_suggestion(self, staging_id: int, verdict: dict, confidence: float | None) -> bool:

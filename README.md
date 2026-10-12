@@ -154,7 +154,7 @@ python cli.py stage import --env dev --run-id <런>
 
 - 승격은 `stage load` 때 자동으로 돌고, 결론이 갈리거나 횟수가 모자라게 된 매핑은 내려갑니다 (매번 판정 기록에서 다시 만듦)
 - 카탈로그로 맞춰지는 값은 매핑보다 카탈로그를 따르고, 카탈로그에 없는 값으로 승격된 매핑은 쓰지 않습니다
-- 바깥 검수 제안(`suggest:<도구>`)으로 승인된 판정도 사람이 `--resume` 으로 승인한 것이라 함께 셉니다
+- 바깥 검수 제안(`suggest:<도구>`)으로 승인된 판정은 **0.5번**으로 셉니다 (제안을 묶어 승인하다 같은 실수가 반복돼 규칙이 되지 않게). 사람이 직접 고친 판정은 1번
 
 ```bash
 python cli.py stage promote --env prod            # 승격하고 지금 매핑 목록 보기
@@ -196,6 +196,15 @@ python cli.py requests --env prod --resume                                    # 
 제안(`[{"staging_id", "action": "approve" | "reject" | "skip", "overrides", "confidence", "reason"}]`)은 레포 밖 도구가 만들고,
 `--resume` 을 실행할 때만 반영됩니다. 승인은 고친 값으로 Layer 1 을 다시 통과해야 하고, 판정은 `review_decision` 에 `suggest:<도구>` 로 남습니다.
 작품명 · 플랫폼 · 링크처럼 작품을 특정하는 값은 제안으로 고칠 수 없습니다.
+
+노션 요청과 상관없이 **검수 대기 전체**에도 같은 흐름을 쓸 수 있습니다 (#72).
+
+```bash
+python cli.py stage queue --env prod --all [--limit 200] --output queue.json   # 런과 상관없이 검수 대기 전체
+python cli.py stage suggest --env prod --input suggestions.json --by claude
+python cli.py stage apply --env prod --all --import                            # 제안 반영 → 이번에 승인한 건만 BE 반영
+```
+`--import` 는 이번에 제안으로 승인한 행만 보냅니다. 다른 AUTO_PASS 대기분은 같이 나가지 않습니다.
 
 `.env` 에 `NOTION_TOKEN` · `NOTION_REQUEST_DB_ID` 가 필요하고, 노션 통합을 DB 페이지에 연결(Connections)해야 읽힙니다.
 수집한 작품이 있으면 staging DB 에 붙으므로 로컬에서는 DB 터널이 열려 있어야 합니다.

@@ -950,3 +950,52 @@ def test_repeated_decisions_are_promoted_and_conflicts_demote(store, monkeypatch
     approve_new('https://x/other', '판타지')
     assert store.promote_mappings(3) == {'added': [], 'changed': [], 'removed': ['genre: 사극물'], 'total': 0}
     assert store.mappings() == {}
+
+
+@needs_mysql
+def test_suggestion_approvals_count_half(store, monkeypatch):
+    from review import service
+    monkeypatch.setattr(service, 'PROMOTE_MIN', 3)
+
+    def approve_new(url, reviewer):
+        service.load_run(store, CATALOG, [item(source_url=url, genre='역사물')], 'naver_test')
+        cur = store._cursor()
+        cur.execute('SELECT id FROM works_staging WHERE source_url = %s', (url,))
+        service.approve(store, CATALOG, cur.fetchone()['id'], {'genre': '무협'}, reviewer)
+
+    for n in range(3):
+        approve_new(f'https://x/s{n}', 'suggest:claude')
+    assert store.promote_mappings(3)['total'] == 0  # 제안 승인 3번 = 1.5
+    for n in range(3, 6):
+        approve_new(f'https://x/s{n}', 'suggest:claude')
+    assert store.promote_mappings(3)['added'] == ['genre: 역사물']  # 6번 = 3
+
+
+# ---------------------------------------------------------------- 검수 대기 전체 (#72)
+
+@needs_mysql
+def test_review_all_and_import_only_approved(store):
+    from review import service
+
+    r1 = service.load_run(store, CATALOG, [item(source_url='https://x/a1', genre='사극물'),
+                                           item(source_url='https://x/ok')], 'run_a')['run_id']
+    service.load_run(store, CATALOG, [item(source_url='https://x/b1', genre='사극물'),
+                                      item(source_url='https://x/b2', genre='사극물')], 'run_b')
+    every = store.review_rows(None)
+    assert [r['source_url'] for r in every] == ['https://x/a1', 'https://x/b1', 'https://x/b2']  # 런과 상관없이
+    assert len(store.review_rows(None, limit=2)) == 2
+    assert [r['source_url'] for r in store.review_rows([r1])] == ['https://x/a1']
+    assert store.review_rows([]) == []
+
+    ids = {r['source_url']: r['id'] for r in every}
+    service.save_suggestions(store, [
+        {'staging_id': ids['https://x/b1'], 'action': 'approve', 'overrides': {'genre': '무협'}},
+        {'staging_id': ids['https://x/b2'], 'action': 'skip'},
+    ], 'claude')
+    applied = service.apply_suggestions(store, CATALOG, None)
+    assert applied['approved_ids'] == [ids['https://x/b1']]
+
+    # 방금 승인한 행만 보낸다. 다른 AUTO_PASS(https://x/ok)는 같이 나가지 않는다
+    assert {r['id'] for r in store.importable()} >= {ids['https://x/b1']}
+    assert [r['id'] for r in store.importable(staging_ids=applied['approved_ids'])] == [ids['https://x/b1']]
+    assert store.importable(staging_ids=[]) == []

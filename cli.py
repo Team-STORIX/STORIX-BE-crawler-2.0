@@ -277,8 +277,8 @@ def cmd_stage(args):
     from review.store import StagingStore, connect, ensure_schema
 
     sub = getattr(args, 'stage_command', None)
-    if sub not in ('load', 'import', 'stats', 'recover', 'queue', 'suggest', 'promote'):
-        print('❌ stage 서브 명령이 없습니다. (load | import | stats | recover | queue | suggest | promote)')
+    if sub not in ('load', 'import', 'stats', 'recover', 'queue', 'suggest', 'promote', 'apply'):
+        print('❌ stage 서브 명령이 없습니다. (load | import | stats | recover | queue | suggest | promote | apply)')
         sys.exit(1)
 
     from review.store import STAGING_DATABASE
@@ -349,7 +349,10 @@ def cmd_stage(args):
             except (BackendAuthError, OSError, RuntimeError) as e:
                 print(f'❌ enum 카탈로그를 못 받았습니다: {e}')
                 sys.exit(1)
-            exported = review_export(store, catalog, args.run_ids)
+            if not args.all and not args.run_ids:
+                print('❌ --run-id 나 --all 중 하나가 필요합니다')
+                sys.exit(1)
+            exported = review_export(store, catalog, None if args.all else args.run_ids, args.limit)
             Path(args.output).write_text(json.dumps(exported, ensure_ascii=False, indent=2), encoding='utf-8')
             print(f"📤 검수 대기 {len(exported['rows'])}건 → {args.output}")
         elif sub == 'suggest':
@@ -371,6 +374,33 @@ def cmd_stage(args):
             print(json.dumps(result, ensure_ascii=False))
             for m in store.list_mappings():
                 print(f"  {m['field']:<20} {m['raw_value']} → {m['decided_value']}  ({m['decision_count']}회)")
+        elif sub == 'apply':
+            # 바깥 검수 제안을 승인 · 거절로 반영하고, --import 면 이번에 승인한 건만 BE 로 보낸다 (#72)
+            from review.importer import BackendClient, run_import
+            from review.service import apply_suggestions
+            if not args.all and not args.run_ids:
+                print('❌ --run-id 나 --all 중 하나가 필요합니다')
+                sys.exit(1)
+            if args.do_import and BACKEND is None:
+                print(f'❌ {BACKEND_MISSING}')
+                sys.exit(1)
+            try:
+                catalog = load_catalog()
+            except (BackendAuthError, OSError, RuntimeError) as e:
+                print(f'❌ enum 카탈로그를 못 받았습니다: {e}')
+                sys.exit(1)
+            applied = apply_suggestions(store, catalog, None if args.all else args.run_ids)
+            print(f'🧾 제안 반영: {json.dumps({k: v for k, v in applied.items() if k != "approved_ids"}, ensure_ascii=False)}')
+            if args.do_import:
+                ids = applied['approved_ids']
+                if not ids:
+                    print('보낼 작품이 없습니다 (이번에 승인된 건 없음)')
+                    return
+                try:
+                    print(f'📤 {json.dumps(run_import(store, BackendClient(BACKEND), len(ids), staging_ids=ids), ensure_ascii=False)}')
+                except BackendAuthError as e:
+                    print(f'❌ {e}')
+                    sys.exit(1)
         elif sub == 'recover':
             # 깨진 작품 링크를 다시 찾는다 (#28). 찾은 결과는 파일로 내고, 적재는 stage load 로 한다
             from datetime import datetime
@@ -453,7 +483,9 @@ def main():
 
     stage_queue_p = stage_sub.add_parser('queue', parents=[env_p],
                                          help='검수 대기 행을 바깥 검수에 넘길 JSON 으로 낸다 (enum 값 목록 포함)')
-    stage_queue_p.add_argument('--run-id', dest='run_ids', action='append', required=True, help='런 (여러 번 줄 수 있음)')
+    stage_queue_p.add_argument('--run-id', dest='run_ids', action='append', help='런 (여러 번 줄 수 있음)')
+    stage_queue_p.add_argument('--all', action='store_true', help='런과 상관없이 검수 대기 전체 (#72)')
+    stage_queue_p.add_argument('--limit', type=int, help='[--all] 최대 행 수 (오래된 것부터)')
     stage_queue_p.add_argument('--output', required=True, help='저장할 JSON 파일')
 
     stage_suggest_p = stage_sub.add_parser('suggest', parents=[env_p],
@@ -461,6 +493,12 @@ def main():
     stage_suggest_p.add_argument('--input', required=True,
                                  help='제안 JSON: [{"staging_id", "action": approve|reject|skip, "overrides", "confidence", "reason"}]')
     stage_suggest_p.add_argument('--by', default='claude', help='제안을 낸 도구 이름 (판정 기록에 suggest:<이름> 으로 남음)')
+
+    stage_apply_p = stage_sub.add_parser('apply', parents=[env_p],
+                                         help='바깥 검수 제안을 승인 · 거절로 반영 (--import 면 이번에 승인한 건만 BE 반영)')
+    stage_apply_p.add_argument('--run-id', dest='run_ids', action='append', help='런 (여러 번 줄 수 있음)')
+    stage_apply_p.add_argument('--all', action='store_true', help='런과 상관없이 제안이 붙은 검수 대기 전체')
+    stage_apply_p.add_argument('--import', action='store_true', dest='do_import', help='이번에 승인한 건을 BE 로 보낸다')
 
     req_p = subparsers.add_parser('requests', help='노션 작품 추가 요청 자동 처리 (수집 → 검수 적재 → BE 반영 → 노션 표시)')
     req_p.add_argument('--env', choices=('dev', 'prod'), help='BE 대상 환경 (기본 STORIX_ENV, 없으면 dev)')

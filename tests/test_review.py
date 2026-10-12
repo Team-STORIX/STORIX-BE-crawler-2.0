@@ -950,3 +950,22 @@ def test_repeated_decisions_are_promoted_and_conflicts_demote(store, monkeypatch
     approve_new('https://x/other', '판타지')
     assert store.promote_mappings(3) == {'added': [], 'changed': [], 'removed': ['genre: 사극물'], 'total': 0}
     assert store.mappings() == {}
+
+
+@needs_mysql
+def test_suggestion_approvals_count_half(store, monkeypatch):
+    from review import service
+    monkeypatch.setattr(service, 'PROMOTE_MIN', 3)
+
+    def approve_new(url, reviewer):
+        service.load_run(store, CATALOG, [item(source_url=url, genre='역사물')], 'naver_test')
+        cur = store._cursor()
+        cur.execute('SELECT id FROM works_staging WHERE source_url = %s', (url,))
+        service.approve(store, CATALOG, cur.fetchone()['id'], {'genre': '무협'}, reviewer)
+
+    for n in range(3):
+        approve_new(f'https://x/s{n}', 'suggest:claude')
+    assert store.promote_mappings(3)['total'] == 0  # 제안 승인 3번 = 1.5
+    for n in range(3, 6):
+        approve_new(f'https://x/s{n}', 'suggest:claude')
+    assert store.promote_mappings(3)['added'] == ['genre: 역사물']  # 6번 = 3

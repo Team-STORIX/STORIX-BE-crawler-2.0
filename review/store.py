@@ -367,6 +367,55 @@ class StagingStore:
             self._conn.rollback()
             raise
 
+    # ------------------------------------------------------------------ Layer 3 매핑 (#70)
+
+    def mappings(self) -> dict[tuple[str, str], str]:
+        """{(필드, 원문): enum name}. Layer 1 이 카탈로그로 못 맞춘 원문에 쓴다."""
+        cur = self._cursor()
+        cur.execute('SELECT field, raw_value, decided_value FROM review_mapping')
+        return {(r['field'], r['raw_value']): r['decided_value'] for r in cur.fetchall()}
+
+    def list_mappings(self) -> list[dict]:
+        cur = self._cursor()
+        cur.execute('SELECT field, raw_value, decided_value, decision_count, promoted_at FROM review_mapping '
+                    'ORDER BY field, decision_count DESC, raw_value')
+        return cur.fetchall()
+
+    def promote_mappings(self, min_count: int) -> dict:
+        """판정 기록(review_decision)에서 매핑을 다시 만든다.
+        같은 (필드, 원문) 판정이 min_count 번 이상이고 결론이 모두 같은 것만 올린다.
+        결론이 갈리거나 횟수가 모자라게 된 매핑은 내린다 (사람 판정이 바뀌면 따라간다)."""
+        cur = self._cursor()
+        cur.execute(
+            'SELECT field, TRIM(raw_value) AS raw_value, COUNT(*) AS n, COUNT(DISTINCT decided_value) AS kinds, '
+            'MIN(decided_value) AS decided_value FROM review_decision '
+            "WHERE raw_value IS NOT NULL AND TRIM(raw_value) <> '' AND decided_value IS NOT NULL "
+            'GROUP BY field, TRIM(raw_value)'
+        )
+        wanted = {(r['field'], r['raw_value']): (r['decided_value'], r['n']) for r in cur.fetchall()
+                  if r['kinds'] == 1 and r['n'] >= min_count and len(r['raw_value']) <= 255}
+        current = self.mappings()
+        added, changed, removed = [], [], []
+        try:
+            for key, (value, n) in wanted.items():
+                if key not in current:
+                    added.append(key)
+                elif current[key] != value:
+                    changed.append(key)
+                cur.execute(
+                    'INSERT INTO review_mapping (field, raw_value, decided_value, decision_count) VALUES (%s, %s, %s, %s) '
+                    'ON DUPLICATE KEY UPDATE decided_value = VALUES(decided_value), decision_count = VALUES(decision_count)',
+                    (*key, value, n))
+            for key in current.keys() - wanted.keys():
+                removed.append(key)
+                cur.execute('DELETE FROM review_mapping WHERE field = %s AND raw_value = %s', key)
+            self._conn.commit()
+        except Exception:
+            self._conn.rollback()
+            raise
+        fmt = lambda keys: [f'{f}: {raw}' for f, raw in keys]
+        return {'added': fmt(added), 'changed': fmt(changed), 'removed': fmt(removed), 'total': len(wanted)}
+
     # ------------------------------------------------------------------ import
 
     def _importable_where(self, run_id: str | None) -> tuple[str, tuple]:
@@ -479,6 +528,8 @@ class StagingStore:
         import_errors = cur.fetchone()['n']
         cur.execute('SELECT COUNT(*) AS n FROM review_decision')
         decisions = cur.fetchone()['n']
+        cur.execute('SELECT COUNT(*) AS n FROM review_mapping')
+        mappings = cur.fetchone()['n']
 
         # 자동화율 = 사람 손을 안 거친 비율. 판정이 끝난 건(REJECTED 제외)을 분모로 둔다
         auto = by_status.get(AUTO_PASS, 0)
@@ -491,6 +542,7 @@ class StagingStore:
             'automation_rate': round(auto / decided, 3) if decided else None,
             'import_errors': import_errors,
             'review_decisions': decisions,
+            'review_mappings': mappings,
         }
 
 

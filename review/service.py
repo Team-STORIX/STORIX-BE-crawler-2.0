@@ -1,11 +1,16 @@
 """검수 흐름. API(review/app.py)와 CLI(cli.py review)가 같이 쓴다."""
 import json
+import os
 from datetime import datetime
 from pathlib import Path
 
 from review.catalog import EnumCatalog
 from review.rules import AUTO_PASS, ENUM_FIELDS, REJECTED, check_run, validate_item
 from review.store import APPROVED, MAX_SOURCE_FAILS, StagingStore
+
+
+# Layer 3 (#70): 같은 (필드, 원문) 판정이 이만큼 모두 같은 결론이면 매핑으로 승격한다
+PROMOTE_MIN = int(os.getenv('REVIEW_PROMOTE_MIN') or 3)
 
 
 class ReviewError(Exception):
@@ -30,8 +35,11 @@ def read_jsonl(path: Path) -> list[dict]:
 
 def load_run(store: StagingStore, catalog: EnumCatalog, items: list[dict],
              source: str, source_file: str | None = None) -> dict:
-    """크롤 산출물 하나를 staging 에 넣고 Layer 1 · 1.5 판정까지 한다."""
-    verdicts = [validate_item(it, catalog) for it in items]
+    """크롤 산출물 하나를 staging 에 넣고 Layer 1 · 1.5 판정까지 한다.
+    판정 전에 쌓인 사람 판정을 매핑으로 승격해(Layer 3) Layer 1 이 쓰게 한다."""
+    store.promote_mappings(PROMOTE_MIN)
+    mappings = store.mappings()
+    verdicts = [validate_item(it, catalog, mappings) for it in items]
     hold_reasons = check_run(items, store.previous_count(source))
     run_id = store.save_run(source, source_file, items, verdicts, hold_reasons)
 
@@ -88,7 +96,7 @@ def approve(store: StagingStore, catalog: EnumCatalog, staging_id: int,
         raise ReviewError('staging 항목 없음')
 
     item = {**row['raw'], **{k: v for k, v in overrides.items() if v is not None}}
-    verdict = validate_item(item, catalog)
+    verdict = validate_item(item, catalog, store.mappings())
     if verdict.status != AUTO_PASS:
         raise ReviewError('고친 값이 아직 검증을 통과하지 못함', verdict.violations)
 

@@ -104,6 +104,20 @@ class ReviewDecision(Base):
     decided_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=CREATED_AT)
 
 
+class ReviewMapping(Base):
+    """Layer 3 매핑 (#70). 같은 (field, raw_value) 판정이 N회 이상 모두 같은 결론이면 승격한다.
+    Layer 1 이 카탈로그로 못 맞춘 enum 원문을 이걸로 고쳐 통과시킨다. review_decision 에서 매번 다시 만든다."""
+    __tablename__ = 'review_mapping'
+    __table_args__ = (UniqueConstraint('field', 'raw_value', name='uk_field_raw'),)
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    field: Mapped[str] = mapped_column(String(50), nullable=False)
+    raw_value: Mapped[str] = mapped_column(String(255), nullable=False)       # 앞뒤 공백을 뗀 원문
+    decided_value: Mapped[str] = mapped_column(String(100), nullable=False)   # BE enum name
+    decision_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    promoted_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=CREATED_AT)
+
+
 class WorksSource(Base):
     """작품별 수집 이력 (#28). 플랫폼 작품 하나당 한 행. 어느 링크로 언제 수집됐고 실패했는지, BE 어느 작품에 붙었는지.
     수집 상태 · 실패 횟수는 크롤러 운영 정보라 서비스 DB(works_platform) 가 아니라 여기 둔다."""

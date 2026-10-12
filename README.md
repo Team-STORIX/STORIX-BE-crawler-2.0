@@ -10,7 +10,7 @@ Selenium 병렬 워커 → JSONL 산출물 → 검수 staging(Layer 1 · 1.5) �
 - CLI 진입점 (`cli.py`) — `login` / `crawl` / `stage` 명령
 - JSONL 산출물 작성기 (`crawler/output/jsonl_writer.py`)
 - 크롤링 모드: initial (전체), new_works (신작), update_fields (필드 갱신), search_titles (작품명 검색), **custom_url (URL 기반)**
-- 검수 파이프라인 (`review/`): JSONL → staging DB → 규칙 검사(Layer 1) · 런 이상 차단(Layer 1.5) → 사람 검수 → BE import API. **크롤러는 서비스 DB에 직접 쓰지 않습니다**
+- 검수 파이프라인 (`review/`): JSONL → staging DB → 규칙 검사(Layer 1) · 런 이상 차단(Layer 1.5) → 사람 검수 → 반복 판정은 매핑으로 승격(Layer 3) → BE import API. **크롤러는 서비스 DB에 직접 쓰지 않습니다**
 - APScheduler 기반 자동 실행 (`scheduler/`)
 - 병렬 워커 풀 (`ThreadPoolExecutor` + `queue.Queue`, 워커 2개)
 - 환경변수 자격증명 자동 로그인 → 쿠키 로그인 → 브라우저 수동 로그인 순으로 폴백
@@ -145,6 +145,21 @@ python cli.py stage import --env dev --run-id <런>
 - 연령 · 장르가 비어도 막지 않습니다. 기존 작품에 붙으면 BE 가 빈 값을 무시하고, 새로 만들어야 하면 BE 가 거절해 그 건만 검수 대기가 됩니다(한 실행 안에서 마지막에 한 번 더 보내 다른 플랫폼 행이 만든 작품에 붙임)
 - 검수 대기 처리는 검수 API(`uvicorn review.app:app --port 8200`)의 `GET /review/queue` · `POST /review/{id}/approve`(`overrides`, 기존 작품에 붙일 `target_works_id`) · `POST /review/{id}/reject` 로 합니다
 - 수집 시각만 다르고 내용이 같으면 판정 · import 상태를 그대로 둬 BE 로 다시 보내지 않습니다
+
+**판정 매핑 승격 (Layer 3, #70)**
+
+검수에서 enum 값(장르 · 연령 · 작품 유형)을 고쳐 승인하면 `review_decision` 에 원문 → 결정값이 남습니다.
+같은 (필드, 원문) 판정이 `REVIEW_PROMOTE_MIN`(기본 3)번 이상이고 결론이 모두 같으면 `review_mapping` 으로 승격하고,
+다음 적재부터 Layer 1 이 카탈로그로 못 맞춘 원문을 그 매핑으로 고쳐 통과시킵니다 (판정 기록에 `MAPPED` INFO 로 남음).
+
+- 승격은 `stage load` 때 자동으로 돌고, 결론이 갈리거나 횟수가 모자라게 된 매핑은 내려갑니다 (매번 판정 기록에서 다시 만듦)
+- 카탈로그로 맞춰지는 값은 매핑보다 카탈로그를 따르고, 카탈로그에 없는 값으로 승격된 매핑은 쓰지 않습니다
+- 바깥 검수 제안(`suggest:<도구>`)으로 승인된 판정도 사람이 `--resume` 으로 승인한 것이라 함께 셉니다
+
+```bash
+python cli.py stage promote --env prod            # 승격하고 지금 매핑 목록 보기
+python cli.py stage promote --env prod --min 5    # 기준을 바꿔 보기
+```
 
 **작품별 수집 이력 · 링크 복구**
 
@@ -438,7 +453,7 @@ works_platform: { works_id: 1, platform: "NAVER_WEBTOON" }
 │
 ├── review/                         # 검수 파이프라인 (크롤러는 서비스 DB 에 직접 쓰지 않음)
 │   ├── env.py                      # BE 대상 dev · prod (주소 · 내부 API 키 · staging DB)
-│   ├── models.py · store.py        # staging DB 구조(엔티티) · 쿼리 (staging_run · works_staging · review_decision · works_source)
+│   ├── models.py · store.py        # staging DB 구조(엔티티) · 쿼리 (staging_run · works_staging · review_decision · review_mapping · works_source)
 │   ├── migrations/versions/        # 구조 변경 이력 (Alembic 리비전)
 │   ├── catalog.py                  # BE enum 카탈로그 (장르 · 연령 · 유형 · 플랫폼)
 │   ├── rules.py                    # Layer 1 규칙 검사 · Layer 1.5 런 이상 차단

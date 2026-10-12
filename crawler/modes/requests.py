@@ -2,6 +2,7 @@
 
     python cli.py requests --env prod                 # 수집 → 검수 적재 → BE 반영 → 노션 표시
     python cli.py requests --env prod --dry-run       # 수집 · 검수 적재까지만. BE · 노션은 건드리지 않는다
+    python cli.py requests --env prod --resume        # dry-run 을 이어받아 검수 제안 반영 → BE 반영 → 노션 표시 (#68)
 
 1. 노션에서 '추가 여부' · '적재 검토 중' 이 둘 다 꺼진 요청을 읽는다 (NOTION_REQUEST_MIN_ID 부터)
 2. 요청의 연재처 · 작품 형태로 작품명 검색 → 수집 (search_titles 흐름, 출력 <플랫폼>_requests.jsonl)
@@ -13,12 +14,12 @@
 import json
 import os
 from collections import defaultdict
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
 
 from config import OUTPUT_DIR
-from review.notion import DEFAULT_MIN_ID, NotionRequests, Request
+from review.notion import DEFAULT_MIN_ID, NotionError, NotionRequests, Request
 
 SOURCE = 'notion_requests'
 MODE = 'requests'
@@ -83,8 +84,7 @@ def decide(urls: list[str], rows: list[dict]) -> Outcome:
 
 def run_requests(target: str, min_id: int | None = None, dry_run: bool = False, limit: int | None = None) -> dict:
     from crawler.modes.search_titles import run_search_titles
-    from review.app import BACKEND, BACKEND_MISSING, load_catalog
-    from review.importer import BackendClient, run_import
+    from review.app import load_catalog
     from review.service import load_run, read_jsonl
     from review.store import StagingStore, connect, ensure_schema
 
@@ -124,27 +124,127 @@ def run_requests(target: str, min_id: int | None = None, dry_run: bool = False, 
                     store.release_run(result['run_id'], 'notion_requests')
                 summary['runs'].append(result['run_id'])
                 print(f'📥 {f.name}: {json.dumps(result, ensure_ascii=False)}')
-                if not dry_run:
-                    if BACKEND is None:
-                        raise RuntimeError(BACKEND_MISSING)
-                    imported = run_import(store, BackendClient(BACKEND), 500, result['run_id'])
-                    print(f'📤 {json.dumps(imported, ensure_ascii=False)}')
-
-        # 3) 노션 표시
-        for r in requests:
-            urls = list(dict.fromkeys(found.get(r.title, [])))
-            outcome = decide(urls, store.rows_by_source_urls(urls) if store and urls else [])
-            mark = '✅ 추가' if outcome.done else '🔎 검토'
-            print(f'{mark} #{r.id} {r.title} — {outcome.note}')
-            if dry_run:
-                continue
-            if outcome.done:
-                notion.mark_done(r)
-                summary['done'] += 1
-            else:
-                notion.mark_review(r, outcome.note)
-                summary['review'] += 1
+        if dry_run:
+            # 3) 미리 보기. --resume 이 다시 수집하지 않고 이어받도록 요청 · 수집 링크 · 런을 남긴다 (#68)
+            _report(store, requests, found)
+            summary['state'] = str(save_state(day_dir, target, min_id, requests, found, summary['runs']))
+            print(f"💾 이어받기 상태: {summary['state']}")
+            print(f'   반영: python cli.py requests --env {target} --resume')
+            return summary
+        _finish(store, notion, requests, found, summary)
     finally:
         if conn:
             conn.close()
     return summary
+
+
+def resume_requests(target: str, state_path: str | None = None) -> dict:
+    """dry-run 을 이어받아 반영한다 (#68). 다시 수집하지 않는다.
+    1) 붙은 검수 제안을 반영 (approve · reject)  2) BE 반영  3) 노션 표시. 노션에서 그사이 처리된 요청은 건너뛴다."""
+    from review.app import load_catalog
+    from review.service import apply_suggestions
+    from review.store import StagingStore, connect, ensure_schema
+
+    path = Path(state_path) if state_path else latest_state(target)
+    if not path:
+        raise NotionError(f'이어받을 dry-run 이 없습니다 ({target}). 먼저 --dry-run 을 실행하세요')
+    state = json.loads(path.read_text(encoding='utf-8'))
+    if state.get('target') != target:
+        raise NotionError(f"상태 파일 대상이 {state.get('target')} 입니다 (지금 {target}): {path}")
+    if state.get('resumed_at'):
+        raise NotionError(f"이미 반영한 dry-run 입니다 ({state['resumed_at']}): {path}")
+
+    notion = NotionRequests()
+    still_pending = {r.id for r in notion.pending(state['min_id'])}
+    requests = [r for r in (Request(**r) for r in state['requests']) if r.id in still_pending]
+    found = defaultdict(list, state['found'])
+    print(f"📂 {path} — 요청 {len(requests)}건 (그사이 처리된 {len(state['requests']) - len(requests)}건 제외), "
+          f"런 {len(state['runs'])}개")
+    summary = {'requests': len(requests), 'done': 0, 'review': 0, 'runs': state['runs']}
+
+    conn = store = None
+    try:
+        if state['runs']:
+            ensure_schema()
+            conn = connect()
+            store = StagingStore(conn)
+            suggested = apply_suggestions(store, load_catalog(), state['runs'])
+            summary['suggestions'] = suggested
+            print(f'🧾 검수 제안 반영: {json.dumps(suggested, ensure_ascii=False)}')
+        _finish(store, notion, requests, found, summary)
+    finally:
+        if conn:
+            conn.close()
+    state['resumed_at'] = datetime.now().isoformat(timespec='seconds')
+    path.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding='utf-8')
+    return summary
+
+
+def _finish(store, notion: NotionRequests, requests: list[Request], found: dict[str, list[str]], summary: dict) -> None:
+    """BE 반영 → 노션 표시."""
+    from review.app import BACKEND, BACKEND_MISSING
+    from review.importer import BackendClient, run_import
+
+    if store:
+        for run_id in summary['runs']:
+            if BACKEND is None:
+                raise RuntimeError(BACKEND_MISSING)
+            imported = run_import(store, BackendClient(BACKEND), 500, run_id)
+            print(f'📤 {json.dumps(imported, ensure_ascii=False)}')
+
+    for r, outcome in _report(store, requests, found):
+        if outcome.done:
+            notion.mark_done(r)
+            summary['done'] += 1
+        else:
+            notion.mark_review(r, outcome.note)
+            summary['review'] += 1
+
+
+def _report(store, requests: list[Request], found: dict[str, list[str]]) -> list[tuple[Request, Outcome]]:
+    """요청별 결과를 정하고 출력한다."""
+    out = []
+    for r in requests:
+        urls = list(dict.fromkeys(found.get(r.title, [])))
+        outcome = decide(urls, store.rows_by_source_urls(urls) if store and urls else [])
+        print(f"{'✅ 추가' if outcome.done else '🔎 검토'} #{r.id} {r.title} — {outcome.note}")
+        out.append((r, outcome))
+    return out
+
+
+# ---------------------------------------------------------------------------
+# dry-run 상태 파일 (#68). output/<날짜>/requests_state_<env>.json
+# ---------------------------------------------------------------------------
+
+def state_file(day_dir: Path, target: str) -> Path:
+    return Path(day_dir) / f'{MODE}_state_{target}.json'
+
+
+def save_state(day_dir: Path, target: str, min_id: int, requests: list[Request],
+               found: dict[str, list[str]], runs: list[str]) -> Path:
+    path = state_file(day_dir, target)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    titles = {r.title for r in requests}
+    path.write_text(json.dumps({
+        'target': target,
+        'created_at': datetime.now().isoformat(timespec='seconds'),
+        'min_id': min_id,
+        'requests': [asdict(r) for r in requests],
+        'found': {t: list(dict.fromkeys(u)) for t, u in found.items() if t in titles},
+        'runs': runs,
+        'resumed_at': None,
+    }, ensure_ascii=False, indent=2), encoding='utf-8')
+    return path
+
+
+def latest_state(target: str, output_dir: Path | None = None) -> Path | None:
+    """아직 반영하지 않은 가장 최근 dry-run 상태 파일."""
+    files = sorted(Path(output_dir or OUTPUT_DIR).glob(f'*/{MODE}_state_{target}.json'),
+                   key=lambda p: p.stat().st_mtime, reverse=True)
+    for f in files:
+        try:
+            if not json.loads(f.read_text(encoding='utf-8')).get('resumed_at'):
+                return f
+        except (OSError, json.JSONDecodeError):
+            continue
+    return None

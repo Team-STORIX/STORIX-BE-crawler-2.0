@@ -169,6 +169,19 @@ BE 에 들어가면(새로 생성 · 기존 작품 갱신) '추가 여부', 못 
 python cli.py requests --env prod --dry-run   # 수집 · 검수 적재까지만 (BE · 노션은 안 건드림)
 python cli.py requests --env prod             # 끝까지
 ```
+dry-run 결과를 확인하고 나서 반영하려면 `--resume` 으로 이어받습니다 (#68). 다시 수집하지 않고, dry-run 이 남긴
+상태 파일(`output/<날짜>/requests_state_<env>.json`)의 런을 BE 에 반영한 뒤 노션에 표시합니다. 그사이 노션에서 처리된 요청은 건너뜁니다.
+
+```bash
+python cli.py requests --env prod --dry-run                                   # 수집 · 검수 적재 + 상태 파일
+python cli.py stage queue --env prod --run-id <run_id> --output queue.json    # 검수 대기 행 내보내기 (enum 값 목록 포함)
+python cli.py stage suggest --env prod --input suggestions.json --by claude   # 바깥 검수 제안 기록 (llm_verdict)
+python cli.py requests --env prod --resume                                    # 제안 반영 → BE 반영 → 노션 표시
+```
+제안(`[{"staging_id", "action": "approve" | "reject" | "skip", "overrides", "confidence", "reason"}]`)은 레포 밖 도구가 만들고,
+`--resume` 을 실행할 때만 반영됩니다. 승인은 고친 값으로 Layer 1 을 다시 통과해야 하고, 판정은 `review_decision` 에 `suggest:<도구>` 로 남습니다.
+작품명 · 플랫폼 · 링크처럼 작품을 특정하는 값은 제안으로 고칠 수 없습니다.
+
 `.env` 에 `NOTION_TOKEN` · `NOTION_REQUEST_DB_ID` 가 필요하고, 노션 통합을 DB 페이지에 연결(Connections)해야 읽힙니다.
 수집한 작품이 있으면 staging DB 에 붙으므로 로컬에서는 DB 터널이 열려 있어야 합니다.
 

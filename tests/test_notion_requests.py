@@ -2,6 +2,8 @@
 import sys
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from crawler.modes.requests import FALLBACK_KEYS, decide, plan  # noqa: E402
@@ -82,3 +84,51 @@ def test_mark_review_keeps_requester_memo():
     props = n.calls[0][2]['properties']
     assert props['적재 검토 중'] == {'checkbox': True}
     assert props['메모']['rich_text'][0]['text']['content'] == '19금이에요\n[크롤러] 연재처에서 작품을 찾지 못했습니다'
+
+
+# ---------------------------------------------------------------- dry-run 이어받기 (#68)
+
+def test_state_round_trip_and_latest_unresumed(tmp_path):
+    import json
+    import os
+    from crawler.modes.requests import latest_state, save_state
+
+    reqs = [Request('a', 441, '혼불', ['웹소설'], ['리디북스'])]
+    old = save_state(tmp_path / '2026-10-11', 'prod', 441, reqs, {'혼불': ['u1', 'u1'], '다른 요청': ['x']}, ['r0'])
+    new = save_state(tmp_path / '2026-10-12', 'prod', 441, reqs, {'혼불': ['u2']}, ['r1'])
+    os.utime(old, (1, 1))
+    save_state(tmp_path / '2026-10-12', 'dev', 441, reqs, {}, [])
+
+    state = json.loads(new.read_text(encoding='utf-8'))
+    assert state['requests'][0] == {'page_id': 'a', 'id': 441, 'title': '혼불', 'types': ['웹소설'],
+                                    'platforms': ['리디북스'], 'memo': ''}
+    assert json.loads(old.read_text(encoding='utf-8'))['found'] == {'혼불': ['u1']}  # 요청 밖 제목 · 중복 링크는 뺀다
+
+    assert latest_state('prod', tmp_path) == new
+    state['resumed_at'] = '2026-10-12T10:00:00'
+    new.write_text(json.dumps(state), encoding='utf-8')
+    assert latest_state('prod', tmp_path) == old  # 이미 반영한 건 건너뛴다
+    assert latest_state('stage', tmp_path) is None
+
+
+def test_resume_marks_only_still_pending_requests(tmp_path, monkeypatch):
+    import json
+    from crawler.modes import requests as mode
+    from crawler.modes.requests import resume_requests, save_state
+    from review.notion import NotionError
+
+    reqs = [Request('p1', 441, '못 찾은 요청'), Request('p2', 442, '그사이 사람이 처리한 요청')]
+    path = save_state(tmp_path, 'prod', 441, reqs, {}, [])
+    fake = _Fake([page('p1', 441, '못 찾은 요청')])
+    monkeypatch.setattr(mode, 'NotionRequests', lambda: fake)
+
+    summary = resume_requests('prod', str(path))
+    assert (summary['requests'], summary['review']) == (1, 1)
+    patched = [c for c in fake.calls if c[0] == 'PATCH']
+    assert [c[1] for c in patched] == ['/pages/p1']
+    assert json.loads(path.read_text(encoding='utf-8'))['resumed_at']
+
+    with pytest.raises(NotionError):  # 같은 dry-run 을 두 번 반영하지 않는다
+        resume_requests('prod', str(path))
+    with pytest.raises(NotionError):  # 다른 환경 상태 파일은 받지 않는다
+        resume_requests('dev', str(save_state(tmp_path / 'x', 'prod', 441, reqs, {}, [])))

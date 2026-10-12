@@ -197,6 +197,15 @@ python cli.py requests --env prod --resume                                    # 
 `--resume` 을 실행할 때만 반영됩니다. 승인은 고친 값으로 Layer 1 을 다시 통과해야 하고, 판정은 `review_decision` 에 `suggest:<도구>` 로 남습니다.
 작품명 · 플랫폼 · 링크처럼 작품을 특정하는 값은 제안으로 고칠 수 없습니다.
 
+노션 요청과 상관없이 **검수 대기 전체**에도 같은 흐름을 쓸 수 있습니다 (#72).
+
+```bash
+python cli.py stage queue --env prod --all [--limit 200] --output queue.json   # 런과 상관없이 검수 대기 전체
+python cli.py stage suggest --env prod --input suggestions.json --by claude
+python cli.py stage apply --env prod --all --import                            # 제안 반영 → 이번에 승인한 건만 BE 반영
+```
+`--import` 는 이번에 제안으로 승인한 행만 보냅니다. 다른 AUTO_PASS 대기분은 같이 나가지 않습니다.
+
 `.env` 에 `NOTION_TOKEN` · `NOTION_REQUEST_DB_ID` 가 필요하고, 노션 통합을 DB 페이지에 연결(Connections)해야 읽힙니다.
 수집한 작품이 있으면 staging DB 에 붙으므로 로컬에서는 DB 터널이 열려 있어야 합니다.
 

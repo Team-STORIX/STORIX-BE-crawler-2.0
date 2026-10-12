@@ -85,9 +85,11 @@ class BackendClient:
         return self._session.request('POST', IMPORT_PATH, {'items': items}, timeout=self._timeout)
 
 
-def run_import(store: StagingStore, client: BackendClient, limit: int = 500, run_id: str | None = None) -> dict:
+def run_import(store: StagingStore, client: BackendClient, limit: int = 500, run_id: str | None = None,
+               staging_ids: list[int] | None = None) -> dict:
+    """staging_ids 를 주면 그 행만 보낸다 (바깥 검수 제안으로 방금 승인한 건만, #72)."""
     _ensure_file_log()
-    rows = store.importable(limit, run_id)
+    rows = store.importable(limit, run_id) if staging_ids is None else store.importable(limit, run_id, staging_ids=staging_ids)
     summary = {'requested': len(rows), 'imported': 0, 'suspected': 0, 'skipped': 0, 'failed': 0,
                'locked': False, 'results': {}}
     log.info('import 시작 base=%s run_id=%s requested=%d',

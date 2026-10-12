@@ -172,10 +172,11 @@ def parse_suggestion(raw: dict) -> dict:
     }
 
 
-def review_export(store: StagingStore, catalog: EnumCatalog, run_ids: list[str]) -> dict:
-    """런들의 검수 대기 행을 바깥 검수에 넘길 형태로. 고를 수 있는 enum 값과 제안 형식을 같이 싣는다."""
+def review_export(store: StagingStore, catalog: EnumCatalog, run_ids: list[str] | None, limit: int | None = None) -> dict:
+    """검수 대기 행을 바깥 검수에 넘길 형태로. run_ids 가 None 이면 전체 (#72).
+    고를 수 있는 enum 값과 제안 형식을 같이 싣는다."""
     rows = []
-    for r in store.review_rows(run_ids):
+    for r in store.review_rows(run_ids, limit):
         raw = r.get('raw') or {}
         rows.append({
             'staging_id': r['id'],
@@ -214,11 +215,11 @@ def save_suggestions(store: StagingStore, suggestions: list[dict], by: str) -> d
     return {'saved': saved, 'missed': missed}
 
 
-def apply_suggestions(store: StagingStore, catalog: EnumCatalog, run_ids: list[str]) -> dict:
-    """런들의 검수 대기 행 중 제안이 붙은 것을 반영한다. 사람이 실행해야 한다 (requests --resume).
+def apply_suggestions(store: StagingStore, catalog: EnumCatalog, run_ids: list[str] | None) -> dict:
+    """검수 대기 행 중 제안이 붙은 것을 반영한다. run_ids 가 None 이면 전체. 사람이 실행해야 한다 (requests --resume · stage apply).
     승인은 approve 를 그대로 타서 고친 값이 Layer 1 을 다시 통과해야 하고, 판정은 review_decision 에 남는다.
     reviewer 는 'suggest:<제안 낸 도구>' 로 남겨 사람이 직접 판정한 것과 구분한다."""
-    summary: dict = {'approved': 0, 'rejected': 0, 'skipped': 0, 'failed': []}
+    summary: dict = {'approved': 0, 'rejected': 0, 'skipped': 0, 'failed': [], 'approved_ids': []}
     for row in store.review_rows(run_ids):
         verdict = row.get('llm_verdict')
         if not verdict:
@@ -230,6 +231,7 @@ def apply_suggestions(store: StagingStore, catalog: EnumCatalog, run_ids: list[s
                 approve(store, catalog, row['id'], verdict.get('overrides') or {}, reviewer,
                         verdict.get('target_works_id'), bool(verdict.get('create_new')))
                 summary['approved'] += 1
+                summary['approved_ids'].append(row['id'])
             elif action == 'reject':
                 reject(store, row['id'], reviewer, verdict.get('reason') or '바깥 검수에서 거절')
                 summary['rejected'] += 1

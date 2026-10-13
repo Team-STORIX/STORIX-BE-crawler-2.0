@@ -4,6 +4,7 @@
 StagingStore 테스트는 REVIEW_TEST_MYSQL_HOST 가 있을 때만 돈다 (빈 MySQL 하나면 된다).
 """
 import os
+from datetime import datetime
 
 import pytest
 
@@ -969,6 +970,46 @@ def test_suggestion_approvals_count_half(store, monkeypatch):
     for n in range(3, 6):
         approve_new(f'https://x/s{n}', 'suggest:claude')
     assert store.promote_mappings(3)['added'] == ['genre: 역사물']  # 6번 = 3
+
+
+@needs_mysql
+def test_export_carries_unpromoted_decisions_as_examples(store, monkeypatch):
+    from review import service
+    monkeypatch.setattr(service, 'PROMOTE_MIN', 3)
+
+    def approve_new(url, raw_genre, decided, reviewer='tester'):
+        service.load_run(store, CATALOG, [item(source_url=url, genre=raw_genre)], 'naver_test')
+        cur = store._cursor()
+        cur.execute('SELECT id FROM works_staging WHERE source_url = %s', (url,))
+        service.approve(store, CATALOG, cur.fetchone()['id'], {'genre': decided}, reviewer)
+
+    approve_new('https://x/e1', '사극물', '무협')                       # 사람 1회
+    approve_new('https://x/e2', '역사물', '무협', 'suggest:claude')     # 제안 승인 2회
+    approve_new('https://x/e3', '역사물', '무협', 'suggest:claude')
+    approve_new('https://x/e4', '이세계', '판타지')                     # 결론이 갈림 → 예시에서 뺀다
+    approve_new('https://x/e5', '이세계', '로판')
+    for n in range(3):                                                  # 승격됨 → 예시에서 뺀다
+        approve_new(f'https://x/p{n}', '퓨전', '판타지')
+    store.promote_mappings(3)
+
+    examples = service.review_export(store, CATALOG, None)['examples']
+    # 사람 판정이 먼저, enum 은 제안과 같은 dbValue 로
+    assert [(e['raw_value'], e['decided_value'], e['count'], e['by_human']) for e in examples] == [
+        ('사극물', '무협', 1, True),
+        ('역사물', '무협', 2, False),
+    ]
+
+
+@needs_mysql
+def test_stats_has_weekly_automation_trend(store):
+    from review import service
+
+    service.load_run(store, CATALOG, [item(source_url='https://x/t1'), item(source_url='https://x/t2'),
+                                      item(source_url='https://x/t3', genre='사극물')], 'naver_test')
+    trend = store.stats()['automation_trend']
+    assert len(trend) == 1
+    assert trend[0]['total'] == 3 and trend[0]['auto'] == 2 and trend[0]['rate'] == 0.667
+    assert trend[0]['week'].startswith(str(datetime.now().isocalendar()[0]))
 
 
 # ---------------------------------------------------------------- 검수 대기 전체 (#72)

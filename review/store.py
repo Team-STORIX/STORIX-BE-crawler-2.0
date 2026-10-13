@@ -536,6 +536,23 @@ class StagingStore:
         cur.execute('UPDATE works_staging SET import_error = %s WHERE id = %s', (error[:2000], staging_id))
         self._conn.commit()
 
+    def decision_examples(self, limit: int) -> list[dict]:
+        """아직 매핑으로 승격 못 한 판정을 바깥 검수에 예시로 싣는다 (#10).
+        결론이 하나로 모인 (필드, 원문)만. 사람이 직접 한 판정이 있는 것 → 횟수 → 최근 순."""
+        cur = self._cursor()
+        cur.execute(
+            'SELECT d.field, TRIM(d.raw_value) AS raw_value, MIN(d.decided_value) AS decided_value, COUNT(*) AS n, '
+            "SUM(CASE WHEN d.decided_by LIKE 'suggest:%%' THEN 0 ELSE 1 END) AS by_human "
+            'FROM review_decision d LEFT JOIN review_mapping m '
+            'ON m.field = d.field AND m.raw_value = TRIM(d.raw_value) '
+            "WHERE m.id IS NULL AND d.raw_value IS NOT NULL AND TRIM(d.raw_value) <> '' AND d.decided_value IS NOT NULL "
+            'GROUP BY d.field, TRIM(d.raw_value) HAVING COUNT(DISTINCT d.decided_value) = 1 '
+            'ORDER BY by_human > 0 DESC, n DESC, MAX(d.decided_at) DESC LIMIT %s',
+            (limit,)
+        )
+        return [{'field': r['field'], 'raw_value': r['raw_value'], 'decided_value': r['decided_value'],
+                 'count': r['n'], 'by_human': int(r['by_human']) > 0} for r in cur.fetchall()]
+
     # ------------------------------------------------------------------ stats
 
     def stats(self) -> dict:
@@ -558,10 +575,26 @@ class StagingStore:
         return {
             'by_status': by_status,
             'automation_rate': round(auto / decided, 3) if decided else None,
+            'automation_trend': self.automation_trend(),
             'import_errors': import_errors,
             'review_decisions': decisions,
             'review_mappings': mappings,
         }
+
+    def automation_trend(self, weeks: int = 8) -> list[dict]:
+        """적재한 주별 자동화율 (#10). 매핑이 늘수록 최근 주가 올라가야 학습이 되는 것이다.
+        분모 · 분자는 automation_rate 와 같다 — 끝까지 판정 안 된 PENDING · NEEDS_REVIEW 도 분모에 든다."""
+        cur = self._cursor()
+        cur.execute(
+            # 형식 문자열은 파라미터로 넘긴다. 드라이버가 SQL 안의 %% 를 풀지 않는다
+            'SELECT DATE_FORMAT(created_at, %s) AS week, COUNT(*) AS total, '
+            'SUM(CASE WHEN status = %s OR (status = %s AND reviewed_by IS NULL) THEN 1 ELSE 0 END) AS auto '
+            'FROM works_staging WHERE status <> %s AND created_at >= DATE_SUB(CURDATE(), INTERVAL %s WEEK) '
+            'GROUP BY week ORDER BY week',
+            ('%x-W%v', AUTO_PASS, IMPORTED, REJECTED, weeks)
+        )
+        return [{'week': r['week'], 'total': r['total'], 'auto': int(r['auto']),
+                 'rate': round(int(r['auto']) / r['total'], 3)} for r in cur.fetchall()]
 
 
 def _raw_text(value) -> str | None:

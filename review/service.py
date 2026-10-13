@@ -172,9 +172,25 @@ def parse_suggestion(raw: dict) -> dict:
     }
 
 
+# 바깥 검수에 예시로 싣는 이전 판정 수 (#10)
+EXAMPLE_LIMIT = int(os.getenv('REVIEW_EXAMPLE_LIMIT') or 30)
+
+
+def _decision_examples(store: StagingStore, catalog: EnumCatalog) -> list[dict]:
+    """승격 못 한 판정을 제안 형식(dbValue)으로. 판정 기록은 enum 을 name 으로 남기지만 제안은 dbValue 로 받는다."""
+    db_values = {kind: {v['name']: v.get('dbValue') or v['name'] for v in catalog.raw[kind]['values']}
+                 for kind, _ in ENUM_FIELDS.values()}
+    examples = []
+    for e in store.decision_examples(EXAMPLE_LIMIT):
+        kind = ENUM_FIELDS.get(e['field'], (None,))[0]
+        decided = db_values[kind].get(e['decided_value'], e['decided_value']) if kind else e['decided_value']
+        examples.append({**e, 'decided_value': decided})
+    return examples
+
+
 def review_export(store: StagingStore, catalog: EnumCatalog, run_ids: list[str] | None, limit: int | None = None) -> dict:
     """검수 대기 행을 바깥 검수에 넘길 형태로. run_ids 가 None 이면 전체 (#72).
-    고를 수 있는 enum 값과 제안 형식을 같이 싣는다."""
+    고를 수 있는 enum 값과 제안 형식, 아직 매핑으로 승격 못 한 이전 판정(few-shot, #10)을 같이 싣는다."""
     rows = []
     for r in store.review_rows(run_ids, limit):
         raw = r.get('raw') or {}
@@ -199,6 +215,8 @@ def review_export(store: StagingStore, catalog: EnumCatalog, run_ids: list[str] 
             'confidence': '0~1',
             'reason': '판단 근거',
         },
+        # 사람이 이전에 같은 원문을 이렇게 정했다. 같은 원문이면 이 결론을 따른다 (by_human=false 는 제안을 승인한 것)
+        'examples': _decision_examples(store, catalog),
         'rows': rows,
     }
 

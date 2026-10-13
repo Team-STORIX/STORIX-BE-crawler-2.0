@@ -81,7 +81,7 @@ else
 fi
 registry=${ECR_IMAGE%%/*}
 if aws ecr get-login-password | docker login -u AWS --password-stdin "$registry" >/dev/null 2>&1 \
-   && docker pull -q "$ECR_IMAGE" >/dev/null; then
+   && docker pull -q "$ECR_IMAGE" >/dev/null 2>&1; then
   docker tag "$ECR_IMAGE" storix-crawler:latest
   log "이미지 $(docker image inspect -f '{{index .RepoDigests 0}}' "$ECR_IMAGE" | cut -c1-90)"
 elif docker image inspect storix-crawler:latest >/dev/null 2>&1 && [ "$before" = "$(git rev-parse HEAD)" ]; then

@@ -50,6 +50,7 @@ class WorksStaging(Base):
         UniqueConstraint('source_url', name='uk_source_url'),
         Index('idx_status', 'status'),
         Index('idx_run', 'run_id'),
+        Index('idx_imported_at', 'imported_at'),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
@@ -81,6 +82,9 @@ class WorksStaging(Base):
     reviewed_by: Mapped[str | None] = mapped_column(String(100))
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime)
     imported_works_id: Mapped[int | None] = mapped_column(BigInteger)
+    # BE 반영 결과(CREATED · UPDATED · UNCHANGED)와 시각(UTC). 주간 작품 추가 알림이 CREATED 만 고른다 (#77)
+    import_result: Mapped[str | None] = mapped_column(String(20))
+    imported_at: Mapped[datetime | None] = mapped_column(DateTime)
     import_error: Mapped[str | None] = mapped_column(Text)
 
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=CREATED_AT)

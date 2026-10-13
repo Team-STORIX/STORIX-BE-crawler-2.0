@@ -10,7 +10,7 @@ import pickle
 import re
 import time
 
-from .base_crawler import PASS_THROUGH, BaseCrawler, HttpUnavailable, SessionExpiredError
+from .base_crawler import PASS_THROUGH, BaseCrawler, HttpUnavailable, SessionExpiredError, manual_login_timeout
 from config import BOMTOON_COOKIE_FILE
 
 SITE = 'https://www.bomtoon.com'
@@ -234,7 +234,7 @@ class BomtoonCrawler(BaseCrawler):
         print('   성인 작품이 열리면 자동으로 감지합니다 (최대 5분).')
         print('=' * 60 + '\n')
         self.driver.get(SITE + '/user/login')
-        deadline = time.time() + 300
+        deadline = time.time() + manual_login_timeout(300)
         last = None
         while time.time() < deadline:
             time.sleep(4)

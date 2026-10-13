@@ -1,0 +1,24 @@
+# 크롤러 전용 슬랙 앱 (#77). api.slack.com/apps → Create New App → From a manifest 로 만든다.
+# 만든 뒤 Bot Token · Signing Secret · 알림 채널 · 버튼 누를 사람을 /storix/crawler/SLACK_* 에 넣고,
+# 알림 채널에 봇을 초대한다. request_url 은 deploy/lambda/slack_actions.py 의 Function URL 로 바꾼다.
+display_information:
+  name: STORIX Crawler
+  description: 크롤러 야간 실행 알림 · 세션 만료 시 폰에서 다시 로그인
+  background_color: "#1f2937"
+features:
+  bot_user:
+    display_name: STORIX Crawler
+    always_online: false
+oauth_config:
+  scopes:
+    bot:
+      - chat:write          # 알림 채널에 글 · 스레드 답글
+      - im:write            # 원격 로그인 링크는 누른 사람에게만 DM
+      - reactions:write     # 스레드 답글과 같은 이모지를 원글에 반응으로
+settings:
+  interactivity:
+    is_enabled: true
+    request_url: https://example.com/replace-with-lambda-function-url
+  org_deploy_enabled: false
+  socket_mode_enabled: false
+  token_rotation_enabled: false

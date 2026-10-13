@@ -11,7 +11,7 @@ Selenium 병렬 워커 → JSONL 산출물 → 검수 staging(Layer 1 · 1.5) �
 - JSONL 산출물 작성기 (`crawler/output/jsonl_writer.py`)
 - 크롤링 모드: initial (전체), new_works (신작), update_fields (필드 갱신), search_titles (작품명 검색), **custom_url (URL 기반)**
 - 검수 파이프라인 (`review/`): JSONL → staging DB → 규칙 검사(Layer 1) · 런 이상 차단(Layer 1.5) → 사람 검수 → 반복 판정은 매핑으로 승격(Layer 3) → BE import API. **크롤러는 서비스 DB에 직접 쓰지 않습니다**
-- APScheduler 기반 자동 실행 (`scheduler/`)
+- 서버(EC2) 야간 실행 — 자정에 켜서 노션 작품 요청만 처리하고 끈다. 세션 만료 · 실패는 슬랙 알림 (`deploy/`, #77)
 - 병렬 워커 풀 (`ThreadPoolExecutor` + `queue.Queue`, 워커 2개)
 - 환경변수 자격증명 자동 로그인 → 쿠키 로그인 → 브라우저 수동 로그인 순으로 폴백
 - **같은 작품 판정은 BE 가 담당** — 여러 플랫폼에서 들어온 같은 작품은 한 작품에 플랫폼 · 링크 · 해시태그가 합쳐짐 (연령은 올리기만, 해시태그는 합집합)
@@ -209,11 +209,6 @@ python cli.py stage apply --env prod --all --import                            #
 `.env` 에 `NOTION_TOKEN` · `NOTION_REQUEST_DB_ID` 가 필요하고, 노션 통합을 DB 페이지에 연결(Connections)해야 읽힙니다.
 수집한 작품이 있으면 staging DB 에 붙으므로 로컬에서는 DB 터널이 열려 있어야 합니다.
 
-**스케줄러**
-```bash
-python -m scheduler.runner
-```
-
 ---
 
 ### 로그인 및 세션 관리
@@ -275,32 +270,78 @@ python cli.py login --platform all
 
 ---
 
-### Docker
+### 서버 (EC2 야간 실행, #77)
 
-로컬 컴퓨터에서 스케줄러를 상시 운영할 때 편리합니다. 먼저 위의 로그인 세션 저장을 완료한 뒤 실행하세요.
+dev BE 서버처럼 꺼 두었다가 자정에 켜서 **노션 작품 요청 처리만** 한 번 돌리고 끕니다. 상주 스케줄러와 일일 · 월간 수집은 없습니다.
 
-```bash
-# 1단계: 로그인 세션 저장 (로컬 Python, 최초 1회 또는 쿠키 만료 시)
-python cli.py login --platform all
-
-# 2단계: 스케줄러 상시 실행 (백그라운드)
-docker compose --profile scheduler up -d   # 수집 결과를 staging 에 적재까지 함. BE 반영은 stage import 로 사람이 실행
-
-# DB만 실행 (로컬 개발용)
-docker compose up db -d
-
-# 크롤링 단발 실행
-docker compose --profile crawl up
+```
+EventBridge Scheduler 00:00 → EC2 StartInstances
+  → systemd storix-crawler-nightly (deploy/nightly.sh)
+      1) Parameter Store /storix/crawler/* → /run/storix-crawler.env (메모리, 끝나면 지움)
+      2) main 의 compose · 스크립트를 받고, 이미지는 ECR storix-crawler:latest 를 받음
+      3) S3 storix-crawler-sessions 에 더 새 쿠키가 있으면 받음
+      4) docker compose run --rm nightly  (= python cli.py requests --env prod)
+      5) shutdown -h now
+EventBridge Scheduler 01:00 → EC2 StopInstances   (멈췄을 때 안전망)
 ```
 
-쿠키가 만료되면 스케줄러가 자동 재로그인을 시도합니다. `.env`에 자격증명이 없거나 CAPTCHA가 발생한 경우에는 로컬에서 `python cli.py login --platform <platform>` 을 다시 실행한 뒤 컨테이너를 재시작하세요.
+**슬랙 알림** — 세션 만료(AUTH_EXPIRED) · 차단(RATE_LIMITED) · 수집 실패(PARSING_FAILED) · 예외로 멈춤을 `SLACK_BOT_TOKEN` · `SLACK_CHANNEL_ID`(BE 와 같은 봇)로 보냅니다. 둘이 없으면(로컬) 보내지 않습니다. **폰으로 다시 로그인** — 세션 만료 알림에 플랫폼마다 `[📱 다시 로그인]` 버튼이 붙습니다.
+
+```
+버튼 → Lambda deploy/lambda/slack_actions.py (슬랙 서명 · 누른 사람 확인) → 서버에 태그 crawler:mode=login 달고 켬
+  → nightly.sh 가 태그를 보고 crawler/remote_login.py 실행
+     Xvfb + x11vnc + noVNC + Cloudflare 임시 터널 → 원격 화면 링크를 누른 사람에게만 DM
+  → 폰에서 그 화면의 Chrome 으로 로그인 (캡차 · 2차 인증 · OTP 직접)
+  → 쿠키를 S3 에 올리고 알림 스레드에 ✅ → 서버 꺼짐
+```
+- 들어오는 포트는 열지 않습니다 (터널은 서버에서 나가는 연결). 링크는 무작위 주소 + 1회용 VNC 비밀번호, 한 기기만 접속, 30분 뒤 닫힘
+- 크롤러 전용 슬랙 앱(`deploy/slack-app-manifest.yml`)을 씁니다. Interactivity Request URL = Lambda Function URL
+- 서버가 켜져 있을 때(야간 실행 중)는 켜지 않고 "꺼진 뒤 다시 눌러 달라"고 답합니다
+
+맥에서는 직접 로그인해 올려도 됩니다 (서버가 꺼져 있어도 됨).
 
 ```bash
-docker compose --profile scheduler restart
+python cli.py login --platform kakao_page   # 로컬에서 다시 로그인
+deploy/push_sessions.sh kakao               # 그 쿠키만 S3 에 (인자 없으면 sessions/*.pkl 전부)
+```
+서버는 다음 자정 부팅 때 S3 쪽이 서버 파일보다 새 것만 받습니다. 만료된 플랫폼만 올려야 서버가 실행 중 다시 저장한 다른 쿠키를 덮지 않습니다.
+
+**주간 작품 추가 알림** — 월요일 자정 실행 때 지난주(월~일, 한국 시간)에 BE 에 새로 만든(CREATED) 작품을 보냅니다. 없으면 보내지 않습니다. 직접 보기: `python cli.py stage weekly --env prod [--date YYYY-MM-DD] [--send]`
+```
+*:bell: [10월 2주차] 크롤러 작품 추가 알림*
+
+<N건 추가>
+작품명1
+작품명2
+```
+스레드 답글(🔐 링크 보냄 · ✅ 완료 · ⚠️ · ❌)은 원글에도 같은 이모지로 반응을 답니다. 알림 목록만 봐도 결과가 보입니다.
+
+**Parameter Store `/storix/crawler/`** — 파라미터 이름이 곧 환경변수 이름입니다.
+
+| 이름 | 값 |
+|---|---|
+| `MYSQL_DATABASE_HOST` · `MYSQL_DATABASE_PORT` | staging RDS 주소 · 3306 |
+| `STAGING_DB_USERNAME` · `STAGING_DB_PASSWORD` | staging 계정 (기존 값. `MYSQL_DATABASE_USER` · `MYSQL_DATABASE_PASSWORD` 로도 넘긴다) |
+| `NOTION_TOKEN` · `NOTION_REQUEST_DB_ID` | 노션 작품 요청 DB |
+
+BE 와 같이 쓰는 값은 복사하지 않고 `/storix/prod/env/` 에서 읽습니다: `INTERNAL_API_KEY`(→ `STORIX_PROD_INTERNAL_API_KEY`) · `SLACK_BOT_TOKEN` · `SLACK_CHANNEL_ID`.
+
+**처음 한 번 (서버)**
+```bash
+sudo git clone https://github.com/Team-STORIX/STORIX-BE-crawler-2.0.git /opt/storix-crawler
+sudo cp /opt/storix-crawler/deploy/storix-crawler-nightly.service /etc/systemd/system/
+sudo systemctl enable storix-crawler-nightly
+# 쿠키는 로컬에서 deploy/push_sessions.sh 로 S3 에 올린다
 ```
 
+- 인스턴스: `t3a.small` · CPU 크레딧 standard(추가 과금 없음), RDS 와 같은 VPC. Google Chrome 이 리눅스 ARM 판이 없어 t4g 는 못 쓴다. EIP 는 쓰지 않는다 (들어오는 연결이 없음)
+- IAM 역할 `StorixCrawlerRole`: `/storix/crawler/*` 읽기, `/storix/prod/env/` 의 위 세 값 읽기, S3 `storix-crawler-sessions` 읽기, ECR `storix-crawler` 받기, SSM 접속(`AmazonSSMManagedInstanceCore`)
+- 처음 확인할 때: `hold` 를 둔 채 `sudo NIGHTLY_ARGS='python cli.py requests --env prod --dry-run' /opt/storix-crawler/deploy/nightly.sh` (BE · 노션에 반영하지 않음)
+- 들어가서 고칠 때: `sudo mkdir -p /etc/storix-crawler && sudo touch /etc/storix-crawler/hold` 면 실행 뒤 끄지 않는다. 다 고치면 지운다
+- 로그: `journalctl -u storix-crawler-nightly`, 수집 리포트는 `output/<날짜>/requests_report.json`
+
+> 로컬에서는 docker 대신 `python cli.py ...` 로 직접 실행합니다 (로그인 창이 필요해서).
 > Apple Silicon(M1/M2/M3) Mac에서는 Dockerfile에 `--platform=linux/amd64`가 설정되어 있습니다.
-> Chrome + MySQL을 동시에 실행하면 메모리 부족이 발생할 수 있으니, 로컬에서는 `docker compose up db`만 사용하고 크롤러는 Python으로 직접 실행하세요.
 
 ---
 
@@ -347,7 +388,9 @@ PR(`develop`/`main` 대상)과 `develop`/`main` 푸시 시 GitHub Actions(`.gith
 - **Test**: Python 3.11, MySQL 8.0 서비스 컨테이너로 `pytest` 실행 (+ 전체 모듈 컴파일 확인)
 - **Docker build**: 이미지가 빌드되는지만 확인 (푸시·배포 없음)
 
-배포 워크플로우는 없습니다. 크롤링은 로컬(또는 `docker compose`)에서 수동 실행합니다.
+- **CD**(`.github/workflows/cd.yml`): `main` 푸시 때 이미지를 ECR `storix-crawler`(`:latest` · `:<커밋>`)에 올립니다. GitHub OIDC 역할 `StorixCrawlerDeploy`(시크릿 `CRAWLER_DEPLOY_ROLE_ARN`)를 씁니다. 서버는 평소 꺼져 있어 배포 단계가 없고, 다음 자정 부팅 때 `:latest` 를 받습니다
+
+배포는 BE 와 같은 Release 방식입니다: `develop` 에 기능 PR 을 모은 뒤 `release/vX.Y.Z` → `main` Release PR 을 머지합니다.
 
 ---
 
@@ -430,10 +473,11 @@ works_platform: { works_id: 1, platform: "NAVER_WEBTOON" }
 ├── config.py                       # URL, DB, 경로, 로그인 자격증명 상수
 ├── requirements.txt
 ├── Dockerfile
-├── docker-compose.yml              # 로컬용 (db / crawl / scheduler / api 프로필)
+├── docker-compose.yml              # 서버 야간 실행용 (nightly / api 프로필)
 ├── .env.example                    # 환경변수 템플릿
 ├── .github/workflows/
-│   └── ci.yml                      # PR 검사 (pytest, docker build)
+│   ├── ci.yml                      # PR 검사 (pytest, docker build)
+│   └── cd.yml                      # main 푸시 → 이미지 ECR 에 올림
 │
 ├── sessions/                       # 쿠키 파일 저장소 (.gitignore 처리됨)
 │   ├── naver_cookies.pkl
@@ -447,6 +491,8 @@ works_platform: { works_id: 1, platform: "NAVER_WEBTOON" }
 │   │   ├── update_fields.py        # source_url 목록으로 필드 재크롤링
 │   │   ├── search_titles.py        # 작품명 리스트 → 플랫폼별 검색 → JSONL 저장, 성공분은 titles-file에서 자동 제거
 │   │   └── custom_url.py           # 임의 목록/상세 URL 기반 크롤링 (--url, --count)
+│   ├── notify.py                   # 세션 만료 · 실행 실패 슬랙 알림 (#77)
+│   ├── remote_login.py             # 폰 원격 로그인 (noVNC + Cloudflare 임시 터널)
 │   └── output/
 │       └── jsonl_writer.py         # 크롤 결과를 JSONL로 기록, platform_work_id 기준 중복 제거, artist_name 정규화
 │
@@ -470,9 +516,12 @@ works_platform: { works_id: 1, platform: "NAVER_WEBTOON" }
 │   ├── service.py · app.py         # 적재 · 승인 · 거절, 검수 API (FastAPI)
 │   └── importer.py · backend.py    # BE import API 호출 (X-Internal-Api-Key)
 │
-├── scheduler/
-│   ├── jobs.py                     # 크롤링 잡 함수 (7개: initial 3 / new_works 2 / update_fields 2) — 결과는 staging 적재까지
-│   └── runner.py                   # APScheduler BlockingScheduler 실행기
+├── deploy/
+│   ├── nightly.sh                  # 서버 야간 실행 (비밀값 → 코드 · 이미지 · 쿠키 갱신 → requests → 종료)
+│   ├── push_sessions.sh            # 로컬 로그인 쿠키를 S3 에 올림 (세션 만료 때)
+│   ├── lambda/slack_actions.py     # 슬랙 [다시 로그인] 버튼 → 서버를 원격 로그인 모드로 켬
+│   ├── slack-app-manifest.yml      # 크롤러 전용 슬랙 앱
+│   └── storix-crawler-nightly.service  # 부팅 때 nightly.sh 를 한 번 실행하는 systemd 유닛
 │
 ├── api/
 │   └── session_api.py              # 세션(쿠키) 등록 API (FastAPI, :8100)

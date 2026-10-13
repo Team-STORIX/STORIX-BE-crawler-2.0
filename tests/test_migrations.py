@@ -56,9 +56,9 @@ def test_fresh_db_upgrades_to_head(staging):
     staging.ensure_schema()
     assert _tables() == {'alembic_version', 'staging_run', 'works_staging', 'review_decision', 'works_source',
                          'review_mapping'}
-    assert _version() == [('0003',)]
+    assert _version() == [('0004',)]
     staging.ensure_schema()  # 다시 불러도 그대로
-    assert _version() == [('0003',)]
+    assert _version() == [('0004',)]
 
 
 @needs_mysql
@@ -89,10 +89,13 @@ def test_db_made_before_alembic_is_stamped_then_upgraded(staging, legacy_tables,
     staging.ensure_schema()
     keep = set(legacy_tables)
     _sql(*[f'DROP TABLE {t}' for t in ('alembic_version', 'works_source', 'review_mapping') if t not in keep], database=DB)
+    # 0004 전 works_staging 에는 BE 반영 결과 · 시각 칼럼이 없었다
+    _sql('ALTER TABLE works_staging DROP INDEX idx_imported_at, DROP COLUMN import_result, DROP COLUMN imported_at',
+         database=DB)
     _sql("INSERT INTO staging_run (run_id, source) VALUES ('r1', 'legacy')", database=DB)
 
     staging.ensure_schema()
-    assert _version() == [('0003',)]
+    assert _version() == [('0004',)]
     assert {'works_source', 'review_mapping'} <= _tables()
     # 기존 데이터는 그대로
     assert _sql("SELECT source FROM staging_run WHERE run_id = 'r1'", database=DB) == [('legacy',)]

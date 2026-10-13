@@ -497,10 +497,11 @@ class StagingStore:
         self._conn.commit()
         return cur.rowcount > 0
 
-    def mark_imported(self, staging_id: int, works_id: int | None) -> None:
+    def mark_imported(self, staging_id: int, works_id: int | None, result: str | None = None) -> None:
         cur = self._cursor()
-        cur.execute('UPDATE works_staging SET status = %s, imported_works_id = %s, import_error = NULL '
-                    'WHERE id = %s', (IMPORTED, works_id, staging_id))
+        cur.execute('UPDATE works_staging SET status = %s, imported_works_id = %s, import_error = NULL, '
+                    'import_result = %s, imported_at = UTC_TIMESTAMP() WHERE id = %s',
+                    (IMPORTED, works_id, result, staging_id))
         if works_id:
             # 수집 이력에 BE 작품을 연결한다
             cur.execute('UPDATE works_source ws JOIN works_staging s ON s.source_url = ws.source_url '
@@ -535,6 +536,17 @@ class StagingStore:
         cur = self._cursor()
         cur.execute('UPDATE works_staging SET import_error = %s WHERE id = %s', (error[:2000], staging_id))
         self._conn.commit()
+
+    def created_works(self, start_utc, end_utc) -> list[dict]:
+        """[start, end) 사이 BE 에 새로 만든(CREATED) 작품. 같은 작품이 여러 플랫폼으로 들어와도 한 번만 (#77)."""
+        cur = self._cursor()
+        cur.execute(
+            'SELECT imported_works_id AS works_id, MIN(works_name) AS works_name, MIN(imported_at) AS imported_at '
+            "FROM works_staging WHERE import_result = 'CREATED' AND imported_at >= %s AND imported_at < %s "
+            'AND imported_works_id IS NOT NULL GROUP BY imported_works_id ORDER BY MIN(imported_at)',
+            (start_utc, end_utc)
+        )
+        return cur.fetchall()
 
     def decision_examples(self, limit: int) -> list[dict]:
         """아직 매핑으로 승격 못 한 판정을 바깥 검수에 예시로 싣는다 (#10).

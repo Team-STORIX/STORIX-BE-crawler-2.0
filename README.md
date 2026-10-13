@@ -313,6 +313,7 @@ sudo systemctl enable storix-crawler-nightly
 
 - 인스턴스: `t3a.small` · CPU 크레딧 standard(추가 과금 없음), RDS 와 같은 VPC. Google Chrome 이 리눅스 ARM 판이 없어 t4g 는 못 쓴다. EIP 는 쓰지 않는다 (들어오는 연결이 없음)
 - IAM 역할 `StorixCrawlerRole`: `/storix/crawler/*` 읽기, `/storix/prod/env/` 의 위 세 값 읽기, S3 `storix-crawler-sessions` 읽기, ECR `storix-crawler` 받기, SSM 접속(`AmazonSSMManagedInstanceCore`)
+- 처음 확인할 때: `hold` 를 둔 채 `sudo NIGHTLY_ARGS='python cli.py requests --env prod --dry-run' /opt/storix-crawler/deploy/nightly.sh` (BE · 노션에 반영하지 않음)
 - 들어가서 고칠 때: `sudo mkdir -p /etc/storix-crawler && sudo touch /etc/storix-crawler/hold` 면 실행 뒤 끄지 않는다. 다 고치면 지운다
 - 로그: `journalctl -u storix-crawler-nightly`, 수집 리포트는 `output/<날짜>/requests_report.json`
 

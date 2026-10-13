@@ -104,7 +104,9 @@ done
 
 # 4) 실행
 log '노션 작품 요청 처리 시작'
-docker compose run --rm nightly
+# NIGHTLY_ARGS 로 명령을 바꿀 수 있다 (첫 확인: NIGHTLY_ARGS='python cli.py requests --env prod --dry-run')
+# shellcheck disable=SC2086
+docker compose run --rm nightly ${NIGHTLY_ARGS:-}
 code=$?
 log "끝 (종료 코드 $code)"
 if [ "$code" -ne 0 ] && [ "$code" -ne 1 ]; then

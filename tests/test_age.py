@@ -1,0 +1,89 @@
+"""크롤러 연령 판정 (리디 parse_ridi_age, 네이버 시리즈 _parse_info)."""
+import pytest
+
+pytest.importorskip('selenium')
+from modules.crawler.ridibooks_crawler import parse_ridi_age  # noqa: E402
+
+
+def page(book_id='100', adult='false', limit='"0"', notices=''):
+    others = '{"id":"999","title":"다른 책","age_limit":"19","is_adult_only":true}'
+    return (f'[{others},{{"id":"{book_id}","title":"x","age_limit":{limit},"is_adult_only":{adult},"filesize":"1"}}]'
+            f' "notice":{{"benefits":[]}},"notices":[{notices}],"preExclusive":null')
+
+
+def test_adult_only_is_18():
+    assert parse_ridi_age(page(adult='true'), '100') == '18세 이용가'
+
+
+def test_age_limit_19_is_18():
+    assert parse_ridi_age(page(limit='"19"'), '100') == '18세 이용가'
+
+
+@pytest.mark.parametrize('title,age', [('15세 이용가 안내', '15세 이용가'), ('12세 이용가 안내', '12세 이용가')])
+def test_notice_sets_age(title, age):
+    assert parse_ridi_age(page(notices=f'{{"content":"...","title":"{title}"}}'), '100') == age
+
+
+def test_no_notice_is_all_ages():
+    # 성인도 아니고 공지도 없으면 전체연령가 (BE 가 연령을 올리기만 해 다른 플랫폼 15세 · 18세를 내리지 않는다)
+    assert parse_ridi_age(page(), '100') == '전체연령가'
+
+
+def test_other_books_on_page_are_ignored():
+    # 추천 · 연결 작품(id 999)의 성인 표시를 이 책 것으로 읽지 않는다
+    assert parse_ridi_age(page(notices='{"title":"15세 이용가 안내"}'), '100') == '15세 이용가'
+
+
+def test_unknown_book_id():
+    # 책 데이터를 못 읽으면 판정 실패(빈 값) — 공지 없음과 구분한다
+    assert parse_ridi_age(page(), '1') == ''
+    assert parse_ridi_age('', '100') == ''
+
+
+# ---------------------------------------------------------------- 네이버 시리즈 연령 (.end_info 줄)
+
+@pytest.mark.parametrize('lines,age', [
+    (['연재중', '무협', '글비가', '출판사러프미디어', '전체 이용가'], '전체연령가'),
+    (['연재중', '무협', '글비가', '그림ARCHE, LICO', '출판사네이버웹툰', '15세 이용가'], '15세 이용가'),
+    (['완결', 'BL', '글키마님', '청소년 이용불가'], '18세 이용가'),
+    (['연재중', '로판', '글누군가'], ''),   # 연령 줄이 없으면 판정하지 않는다
+])
+def test_series_age(lines, age):
+    from modules.crawler.naver_series_crawler import NaverSeriesCrawler
+    crawler = NaverSeriesCrawler.__new__(NaverSeriesCrawler)
+    assert crawler._parse_info(lines)['age_classification'] == age
+
+
+def test_ridi_adult_cover_replaced_with_real_cover():
+    from modules.crawler.ridibooks_crawler import ridi_real_cover
+    gate = 'https://static.ridicdn.net/books-backend/p/21d66d/books/dist/images/book_cover/cover_adult.png'
+    assert ridi_real_cover(gate, 'https://ridibooks.com/books/777063298') == \
+        'https://img.ridicdn.net/cover/777063298/xxlarge'
+    real = 'https://img.ridicdn.net/cover/4928002744/xxlarge#1'
+    assert ridi_real_cover(real, 'https://ridibooks.com/books/4928000826') == real
+
+
+def test_ridi_keywords_from_keyword_tab():
+    from modules.crawler.ridibooks_crawler import parse_ridi_keywords
+    src = ('<meta name="keywords" content="ebook,전자책,BL 웹툰,헤테로공,공벤"/>'
+           '"cell__BookDetailHomeKeywordTab":{"title":"이 작품의 키워드","genre":"bl","setId":17,"tabInfos":['
+           '{"tagId":3054,"name":"연재완결"},{"tagId":3817,"name":"헤테로공"},{"tagId":2457,"name":"연하공"},'
+           '{"tagId":1,"name":"개그/코믹BL"},{"tagId":2,"name":"별점1000개이상"},{"tagId":3,"name":"리뷰500개이상"},'
+           '{"tagId":4,"name":"평점4점이상"},{"tagId":5,"name":"소설원작"},{"tagId":6,"name":"연하공"},'
+           '{"tagId":7,"name":"1만원~2만원"},{"tagId":8,"name":"10000~15000원"},{"tagId":9,"name":"5권이상"},'
+           '{"tagId":10,"name":"기다리면무료"},{"tagId":11,"name":"연재"},{"tagId":12,"name":"고수위"}]}')
+    # 통계 · 상태 태그와 중복은 빼고, 메타 태그의 작가명 · 출판사는 쓰지 않는다
+    assert parse_ridi_keywords(src) == ['헤테로공', '연하공', '개그/코믹BL', '소설원작', '고수위']
+
+
+def test_ridi_keywords_fallback_to_buttons():
+    from modules.crawler.ridibooks_crawler import parse_ridi_keywords
+    src = '<span>#<!-- -->헤테로공</span><span>#<!-- -->연재완결</span><span>#<!-- -->연하공</span>'
+    assert parse_ridi_keywords(src) == ['헤테로공', '연하공']
+    assert parse_ridi_keywords('') == []
+
+
+def test_ridi_discount_keyword_is_not_hashtag():
+    from modules.crawler.ridibooks_crawler import RIDI_META_KEYWORDS
+    assert RIDI_META_KEYWORDS.match('10%할인') and RIDI_META_KEYWORDS.match('2만원초과')
+    assert not RIDI_META_KEYWORDS.match('다정공')

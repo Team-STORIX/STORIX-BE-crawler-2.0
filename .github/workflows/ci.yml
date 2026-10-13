@@ -1,0 +1,76 @@
+name: STORIX Crawler CI
+
+on:
+  pull_request:
+    branches:
+      - develop
+      - main
+  push:
+    branches:
+      - develop
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+
+    services:
+      # 검수 파이프라인 staging 테스트용 (tests/test_review.py)
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -ptest --silent"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+
+    env:
+      REVIEW_TEST_MYSQL_HOST: 127.0.0.1
+      REVIEW_TEST_MYSQL_PORT: 3306
+      REVIEW_TEST_MYSQL_PASSWORD: test
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt pytest httpx
+
+      - name: Compile check
+        run: python -m compileall -q cli.py config.py api crawler modules review
+
+      - name: Pytest
+        # 테스트가 하나도 없으면 pytest 가 5 로 끝난다. 그건 실패로 보지 않는다
+        run: |
+          set +e
+          python -m pytest -q
+          code=$?
+          [ "$code" -eq 0 ] || [ "$code" -eq 5 ]
+
+  docker:
+    name: Docker build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build image
+        run: docker build -t storix-crawler:ci .

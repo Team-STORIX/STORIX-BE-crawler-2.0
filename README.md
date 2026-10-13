@@ -308,7 +308,7 @@ deploy/push_sessions.sh kakao               # 그 쿠키만 S3 에 (인자 없�
 
 **주간 작품 추가 알림** — 월요일 자정 실행 때 지난주(월~일, 한국 시간)에 BE 에 새로 만든(CREATED) 작품을 보냅니다. 없으면 보내지 않습니다. 직접 보기: `python cli.py stage weekly --env prod [--date YYYY-MM-DD] [--send]`
 ```
-:bell: [10월 2주차] 크롤러 작품 추가 알림
+*:bell: [10월 2주차] 크롤러 작품 추가 알림*
 
 <N건 추가>
 작품명1

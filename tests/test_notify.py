@@ -36,7 +36,7 @@ def test_no_message_without_fatal_failures():
 def test_session_expiry_message_template():
     report.record('kakao_page', report.AUTH_EXPIRED, '플랫폼 중단', 'AuthExpiredError: 쿠키 만료')
     assert notify.report_message('requests') == (
-        ':rotating_light: 크롤러 인증 만료\n'
+        '*:rotating_light: 크롤러 인증 만료*\n'
         '• 플랫폼: kakao_page\n'
         '\n'
         '아래 버튼을 누르면 서버가 켜지고 원격 로그인 링크가 DM 으로 옵니다.')
@@ -47,8 +47,8 @@ def test_session_expiry_with_other_failures():
     report.record('naver_webtoon', report.AUTH_EXPIRED, '플랫폼 중단', 'AuthExpiredError: 쿠키 만료')
     report.record('ridibooks', report.RATE_LIMITED, '플랫폼 중단', 'RateLimitedError: 403')
     text = notify.report_message('requests')
-    assert text.startswith(':rotating_light: 크롤러 인증 만료\n• 플랫폼: kakao_page, naver_webtoon\n')
-    assert ':rotating_light: 크롤러 `requests` 실패' in text
+    assert text.startswith('*:rotating_light: 크롤러 인증 만료*\n• 플랫폼: kakao_page, naver_webtoon\n')
+    assert '*:rotating_light: 크롤러 `requests` 실패*' in text
     assert 'RATE_LIMITED: ridibooks' in text and 'RateLimitedError: 403' in text
     assert 'AuthExpiredError' not in text  # 인증 만료는 플랫폼 · 버튼 안내만
 

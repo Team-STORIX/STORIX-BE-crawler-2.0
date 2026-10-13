@@ -79,11 +79,11 @@ def report_message(mode: str, data: dict | None = None) -> str | None:
     others = [f for f in fatal if f['status'] != report.AUTH_EXPIRED]
     lines = []
     if expired:
-        lines += [':rotating_light: 크롤러 인증 만료', f"• 플랫폼: {', '.join(expired)}", '', RELOGIN_HINT]
+        lines += ['*:rotating_light: 크롤러 인증 만료*', f"• 플랫폼: {', '.join(expired)}", '', RELOGIN_HINT]
     if others:
         if lines:
             lines.append('')
-        lines.append(f':rotating_light: 크롤러 `{mode}` 실패')
+        lines.append(f'*:rotating_light: 크롤러 `{mode}` 실패*')
         for status in (report.RATE_LIMITED, report.PARSING_FAILED):
             platforms = sorted({f['platform'] for f in others if f['status'] == status})
             if platforms:
@@ -113,4 +113,4 @@ def notify_report(mode: str) -> bool:
 
 
 def notify_error(mode: str, error: BaseException) -> bool:
-    return slack(f':rotating_light: 크롤러 `{mode}` 가 오류로 멈췄습니다\n• {type(error).__name__}: {str(error)[:500]}')
+    return slack(f'*:rotating_light: 크롤러 `{mode}` 가 오류로 멈췄습니다*\n• {type(error).__name__}: {str(error)[:500]}')

@@ -14,8 +14,7 @@ from crawler import report
 SLACK_URL = 'https://slack.com/api/chat.postMessage'
 
 # 세션이 만료되면 할 일. 서버는 화면이 없어 로그인을 못 한다
-RELOGIN_HINT = ('아래 버튼을 누르면 서버가 켜지고 폰으로 원격 로그인 링크가 DM 으로 옵니다. '
-                '맥에서는 `python cli.py login --platform <플랫폼>` 뒤 `deploy/push_sessions.sh <쿠키 이름>` 도 됩니다.')
+RELOGIN_HINT = '아래 버튼을 누르면 서버가 켜지고 원격 로그인 링크가 DM 으로 옵니다.'
 RELOGIN_ACTION = 'relogin'
 
 
@@ -61,17 +60,21 @@ def report_message(mode: str, data: dict | None = None) -> str | None:
     fatal = [f for f in data['failures'] if f['status'] in report.FATAL]
     if not fatal:
         return None
-    lines = [f'🚨 크롤러 `{mode}` 실패']
     expired = sorted({f['platform'] for f in fatal if f['status'] == report.AUTH_EXPIRED})
+    others = [f for f in fatal if f['status'] != report.AUTH_EXPIRED]
+    lines = []
     if expired:
-        lines.append(f"• 세션 만료: {', '.join(expired)}")
-        lines.append(f'  {RELOGIN_HINT}')
-    for status in (report.RATE_LIMITED, report.PARSING_FAILED):
-        platforms = sorted({f['platform'] for f in fatal if f['status'] == status})
-        if platforms:
-            lines.append(f"• {status}: {', '.join(platforms)}")
-    for f in [f for f in fatal if f['status'] != report.AUTH_EXPIRED][:5]:
-        lines.append(f"  - {f['platform']} {f['target']} {f['detail']}".rstrip())
+        lines += [':rotating_light: 크롤러 인증 만료', f"• 플랫폼: {', '.join(expired)}", '', RELOGIN_HINT]
+    if others:
+        if lines:
+            lines.append('')
+        lines.append(f':rotating_light: 크롤러 `{mode}` 실패')
+        for status in (report.RATE_LIMITED, report.PARSING_FAILED):
+            platforms = sorted({f['platform'] for f in others if f['status'] == status})
+            if platforms:
+                lines.append(f"• {status}: {', '.join(platforms)}")
+        for f in others[:5]:
+            lines.append(f"  - {f['platform']} {f['target']} {f['detail']}".rstrip())
     return '\n'.join(lines)
 
 
@@ -95,4 +98,4 @@ def notify_report(mode: str) -> bool:
 
 
 def notify_error(mode: str, error: BaseException) -> bool:
-    return slack(f'🚨 크롤러 `{mode}` 가 오류로 멈췄습니다\n• {type(error).__name__}: {str(error)[:500]}')
+    return slack(f':rotating_light: 크롤러 `{mode}` 가 오류로 멈췄습니다\n• {type(error).__name__}: {str(error)[:500]}')

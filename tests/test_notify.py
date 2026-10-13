@@ -33,16 +33,24 @@ def test_no_message_without_fatal_failures():
     assert notify.report_message('requests') is None
 
 
-def test_session_expiry_message_names_platforms_and_relogin():
+def test_session_expiry_message_template():
+    report.record('kakao_page', report.AUTH_EXPIRED, '플랫폼 중단', 'AuthExpiredError: 쿠키 만료')
+    assert notify.report_message('requests') == (
+        ':rotating_light: 크롤러 인증 만료\n'
+        '• 플랫폼: kakao_page\n'
+        '\n'
+        '아래 버튼을 누르면 서버가 켜지고 원격 로그인 링크가 DM 으로 옵니다.')
+
+
+def test_session_expiry_with_other_failures():
     report.record('kakao_page', report.AUTH_EXPIRED, '플랫폼 중단', 'AuthExpiredError: 쿠키 만료')
     report.record('naver_webtoon', report.AUTH_EXPIRED, '플랫폼 중단', 'AuthExpiredError: 쿠키 만료')
     report.record('ridibooks', report.RATE_LIMITED, '플랫폼 중단', 'RateLimitedError: 403')
     text = notify.report_message('requests')
-    assert '세션 만료: kakao_page, naver_webtoon' in text
-    assert 'cli.py login' in text
-    assert 'RATE_LIMITED: ridibooks' in text
-    assert 'RateLimitedError: 403' in text
-    assert 'AuthExpiredError' not in text  # 세션 만료는 플랫폼 이름 · 할 일만 적는다
+    assert text.startswith(':rotating_light: 크롤러 인증 만료\n• 플랫폼: kakao_page, naver_webtoon\n')
+    assert ':rotating_light: 크롤러 `requests` 실패' in text
+    assert 'RATE_LIMITED: ridibooks' in text and 'RateLimitedError: 403' in text
+    assert 'AuthExpiredError' not in text  # 인증 만료는 플랫폼 · 버튼 안내만
 
 
 def test_slack_is_skipped_without_token(monkeypatch):
@@ -69,7 +77,7 @@ def test_slack_posts_to_channel(monkeypatch):
     assert sent[0].full_url == notify.SLACK_URL
     assert sent[0].get_header('Authorization') == 'Bearer xoxb-test'
     body = json.loads(sent[0].data)
-    assert body['channel'] == 'C123' and '세션 만료: kakao_page' in body['text']
+    assert body['channel'] == 'C123' and '• 플랫폼: kakao_page' in body['text']
 
 
 def test_slack_failure_does_not_raise(monkeypatch):

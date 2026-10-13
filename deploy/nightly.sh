@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # 크롤러 서버 야간 실행 (#77). 부팅 때 systemd(storix-crawler-nightly.service)가 한 번 부른다.
 #   1) Parameter Store /storix/crawler/ → 환경변수 파일 (메모리 위 /run, 디스크에 안 남김)
-#   2) main 을 받아 바뀌었으면 이미지를 다시 빌드
-#   3) 노션 작품 요청 처리 (cli.py requests --env prod). 세션 만료 · 실패 알림은 cli 가 슬랙으로 보낸다
-#   4) 서버 종료 — /etc/storix-crawler/hold 가 있으면 끄지 않는다 (들어가서 고칠 때)
+#   2) main 을 받아 compose · 스크립트 갱신, 이미지는 ECR 에서 받음 (main 푸시 때 cd.yml 이 올림)
+#   3) 로그인 쿠키: S3 에 더 새 것이 있으면 받음 (로컬에서 deploy/push_sessions.sh 로 올림)
+#   4) 노션 작품 요청 처리 (cli.py requests --env prod). 세션 만료 · 실패 알림은 cli 가 슬랙으로 보낸다
+#   5) 서버 종료 — /etc/storix-crawler/hold 가 있으면 끄지 않는다 (들어가서 고칠 때)
 set -uo pipefail
 
 # 아래에서 git 이 이 파일을 바꾸므로, 실행 중인 파일이 바뀌지 않게 사본으로 다시 시작한다
@@ -16,6 +17,8 @@ PARAM_PATH=${PARAM_PATH:-/storix/crawler/}
 DEPLOY_REF=${DEPLOY_REF:-main}  # 서버에 갈 브랜치. 릴리스 전 코드가 가지 않게 main
 ENV_FILE=/run/storix-crawler.env
 HOLD_FILE=/etc/storix-crawler/hold
+ECR_IMAGE=${ECR_IMAGE:-697629627444.dkr.ecr.ap-northeast-2.amazonaws.com/storix-crawler:latest}
+SESSIONS_BUCKET=${SESSIONS_BUCKET:-storix-crawler-sessions}
 
 log() { echo "[nightly] $*"; }
 
@@ -67,20 +70,39 @@ for pair in STAGING_DB_USERNAME:MYSQL_DATABASE_USER STAGING_DB_PASSWORD:MYSQL_DA
   [ -n "$line" ] && echo "$line" >> "$ENV_FILE"
 done
 
-# 2) 코드 갱신
+# 2) 코드(compose · 스크립트) 갱신. 이미지는 서버에서 빌드하지 않고 ECR 에서 받는다
 git() { command git -c safe.directory="$APP_DIR" "$@"; }  # root 로 돌아 소유자가 달라도 되게
-before=$(git rev-parse HEAD)
 if git fetch -q origin "$DEPLOY_REF" && git checkout -q --detach FETCH_HEAD; then
-  after=$(git rev-parse HEAD)
-  if [ "$before" != "$after" ] || ! docker image inspect storix-crawler:latest >/dev/null 2>&1; then
-    log "이미지 빌드 ${before:0:7} → ${after:0:7}"
-    docker compose build -q nightly || { slack "🚨 크롤러 이미지 빌드 실패 (${after:0:7})"; exit 1; }
-  fi
+  log "코드 $(git rev-parse --short HEAD) ($DEPLOY_REF)"
 else
   log "코드 갱신 실패 — 기존 코드로 진행"
 fi
+registry=${ECR_IMAGE%%/*}
+if aws ecr get-login-password | docker login -u AWS --password-stdin "$registry" >/dev/null 2>&1 \
+   && docker pull -q "$ECR_IMAGE" >/dev/null; then
+  docker tag "$ECR_IMAGE" storix-crawler:latest
+  log "이미지 $(docker image inspect -f '{{index .RepoDigests 0}}' "$ECR_IMAGE" | cut -c1-90)"
+elif docker image inspect storix-crawler:latest >/dev/null 2>&1; then
+  log 'ECR 에서 못 받음 — 기존 이미지로 진행'
+else
+  log 'ECR 에서 못 받고 이미지도 없음 — 직접 빌드'
+  docker compose build -q nightly || { slack '🚨 크롤러 이미지를 받지도 빌드하지도 못했습니다'; exit 1; }
+fi
 
-# 3) 실행
+# 3) 로그인 쿠키. S3 쪽이 서버 파일보다 새 것만 받는다 — 서버가 실행 중 다시 저장한 쿠키를 옛 것으로 덮지 않게
+mkdir -p sessions
+aws s3api list-objects-v2 --bucket "$SESSIONS_BUCKET" --prefix sessions/ \
+    --query 'Contents[].[Key,LastModified]' --output text 2>/dev/null | while read -r key modified; do
+  case "$key" in *.pkl) ;; *) continue ;; esac
+  file="sessions/${key##*/}"
+  remote=$(date -d "$modified" +%s) local_time=$(stat -c %Y "$file" 2>/dev/null || echo 0)
+  if [ "$remote" -gt "$local_time" ] && aws s3 cp --only-show-errors "s3://$SESSIONS_BUCKET/$key" "$file"; then
+    chmod 600 "$file"
+    log "쿠키 갱신 ${key##*/}"
+  fi
+done
+
+# 4) 실행
 log '노션 작품 요청 처리 시작'
 docker compose run --rm nightly
 code=$?

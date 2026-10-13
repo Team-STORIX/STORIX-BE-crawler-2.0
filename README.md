@@ -278,13 +278,20 @@ dev BE 서버처럼 꺼 두었다가 자정에 켜서 **노션 작품 요청 처
 EventBridge Scheduler 00:00 → EC2 StartInstances
   → systemd storix-crawler-nightly (deploy/nightly.sh)
       1) Parameter Store /storix/crawler/* → /run/storix-crawler.env (메모리, 끝나면 지움)
-      2) main 을 받아 바뀌었으면 이미지 다시 빌드
-      3) docker compose run --rm nightly  (= python cli.py requests --env prod)
-      4) shutdown -h now
+      2) main 의 compose · 스크립트를 받고, 이미지는 ECR storix-crawler:latest 를 받음
+      3) S3 storix-crawler-sessions 에 더 새 쿠키가 있으면 받음
+      4) docker compose run --rm nightly  (= python cli.py requests --env prod)
+      5) shutdown -h now
 EventBridge Scheduler 01:00 → EC2 StopInstances   (멈췄을 때 안전망)
 ```
 
-**슬랙 알림** — 세션 만료(AUTH_EXPIRED) · 차단(RATE_LIMITED) · 수집 실패(PARSING_FAILED) · 예외로 멈춤을 `SLACK_BOT_TOKEN` · `SLACK_CHANNEL_ID`(BE 와 같은 봇)로 보냅니다. 둘이 없으면(로컬) 보내지 않습니다. 세션 만료 알림이 오면 로컬에서 다시 로그인해 쿠키를 서버 `sessions/` 에 올립니다.
+**슬랙 알림** — 세션 만료(AUTH_EXPIRED) · 차단(RATE_LIMITED) · 수집 실패(PARSING_FAILED) · 예외로 멈춤을 `SLACK_BOT_TOKEN` · `SLACK_CHANNEL_ID`(BE 와 같은 봇)로 보냅니다. 둘이 없으면(로컬) 보내지 않습니다. 세션 만료 알림이 오면 서버가 꺼져 있어도 바로 올릴 수 있습니다.
+
+```bash
+python cli.py login --platform kakao_page   # 로컬에서 다시 로그인
+deploy/push_sessions.sh kakao               # 그 쿠키만 S3 에 (인자 없으면 sessions/*.pkl 전부)
+```
+서버는 다음 자정 부팅 때 S3 쪽이 서버 파일보다 새 것만 받습니다. 만료된 플랫폼만 올려야 서버가 실행 중 다시 저장한 다른 쿠키를 덮지 않습니다.
 
 **Parameter Store `/storix/crawler/`** — 파라미터 이름이 곧 환경변수 이름입니다.
 
@@ -301,11 +308,11 @@ BE 와 같이 쓰는 값은 복사하지 않고 `/storix/prod/env/` 에서 읽�
 sudo git clone https://github.com/Team-STORIX/STORIX-BE-crawler-2.0.git /opt/storix-crawler
 sudo cp /opt/storix-crawler/deploy/storix-crawler-nightly.service /etc/systemd/system/
 sudo systemctl enable storix-crawler-nightly
-# 로컬에서 python cli.py login --platform all 로 만든 sessions/*.pkl 을 /opt/storix-crawler/sessions/ 에 넣는다
+# 쿠키는 로컬에서 deploy/push_sessions.sh 로 S3 에 올린다
 ```
 
 - 인스턴스: `t3a.small` · CPU 크레딧 standard(추가 과금 없음), RDS 와 같은 VPC. Google Chrome 이 리눅스 ARM 판이 없어 t4g 는 못 쓴다. EIP 는 쓰지 않는다 (들어오는 연결이 없음)
-- IAM 역할 `StorixCrawlerRole`: `/storix/crawler/*` 읽기, `/storix/prod/env/` 의 위 세 값 읽기, SSM 접속(`AmazonSSMManagedInstanceCore`)
+- IAM 역할 `StorixCrawlerRole`: `/storix/crawler/*` 읽기, `/storix/prod/env/` 의 위 세 값 읽기, S3 `storix-crawler-sessions` 읽기, ECR `storix-crawler` 받기, SSM 접속(`AmazonSSMManagedInstanceCore`)
 - 들어가서 고칠 때: `sudo mkdir -p /etc/storix-crawler && sudo touch /etc/storix-crawler/hold` 면 실행 뒤 끄지 않는다. 다 고치면 지운다
 - 로그: `journalctl -u storix-crawler-nightly`, 수집 리포트는 `output/<날짜>/requests_report.json`
 
@@ -357,7 +364,9 @@ PR(`develop`/`main` 대상)과 `develop`/`main` 푸시 시 GitHub Actions(`.gith
 - **Test**: Python 3.11, MySQL 8.0 서비스 컨테이너로 `pytest` 실행 (+ 전체 모듈 컴파일 확인)
 - **Docker build**: 이미지가 빌드되는지만 확인 (푸시·배포 없음)
 
-배포 워크플로우는 없습니다. 서버는 켜질 때마다 `main` 을 받아 바뀌었으면 이미지를 다시 빌드합니다 (`deploy/nightly.sh`).
+- **CD**(`.github/workflows/cd.yml`): `main` 푸시 때 이미지를 ECR `storix-crawler`(`:latest` · `:<커밋>`)에 올립니다. GitHub OIDC 역할 `StorixCrawlerDeploy`(시크릿 `CRAWLER_DEPLOY_ROLE_ARN`)를 씁니다. 서버는 평소 꺼져 있어 배포 단계가 없고, 다음 자정 부팅 때 `:latest` 를 받습니다
+
+배포는 BE 와 같은 Release 방식입니다: `develop` 에 기능 PR 을 모은 뒤 `release/vX.Y.Z` → `main` Release PR 을 머지합니다.
 
 ---
 
@@ -443,7 +452,8 @@ works_platform: { works_id: 1, platform: "NAVER_WEBTOON" }
 ├── docker-compose.yml              # 서버 야간 실행용 (nightly / api 프로필)
 ├── .env.example                    # 환경변수 템플릿
 ├── .github/workflows/
-│   └── ci.yml                      # PR 검사 (pytest, docker build)
+│   ├── ci.yml                      # PR 검사 (pytest, docker build)
+│   └── cd.yml                      # main 푸시 → 이미지 ECR 에 올림
 │
 ├── sessions/                       # 쿠키 파일 저장소 (.gitignore 처리됨)
 │   ├── naver_cookies.pkl
@@ -482,7 +492,8 @@ works_platform: { works_id: 1, platform: "NAVER_WEBTOON" }
 │   └── importer.py · backend.py    # BE import API 호출 (X-Internal-Api-Key)
 │
 ├── deploy/
-│   ├── nightly.sh                  # 서버 야간 실행 (비밀값 → 코드 갱신 → requests → 종료)
+│   ├── nightly.sh                  # 서버 야간 실행 (비밀값 → 코드 · 이미지 · 쿠키 갱신 → requests → 종료)
+│   ├── push_sessions.sh            # 로컬 로그인 쿠키를 S3 에 올림 (세션 만료 때)
 │   └── storix-crawler-nightly.service  # 부팅 때 nightly.sh 를 한 번 실행하는 systemd 유닛
 │
 ├── api/

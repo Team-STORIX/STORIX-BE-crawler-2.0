@@ -1,0 +1,46 @@
+name: STORIX Crawler CD - Build & Push to ECR
+
+# main 에 머지되면(Release PR) 이미지를 ECR 에 올린다 (#77).
+# 서버는 평소 꺼져 있어 배포 단계가 없다 — 자정에 켜질 때 deploy/nightly.sh 가 :latest 를 받는다.
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: cd-main
+  cancel-in-progress: false
+
+jobs:
+  push:
+    name: Build and Push to ECR
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
+        with:
+          role-to-assume: ${{ secrets.CRAWLER_DEPLOY_ROLE_ARN }}
+          aws-region: ap-northeast-2
+
+      - name: Login to AWS ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@d539f0932e70871a027e9d5a9d8fc38589180a64 # v2.1.6
+
+      - name: Build & push storix-crawler image
+        env:
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        run: |
+          IMAGE="$REGISTRY/storix-crawler"
+          docker build --platform linux/amd64 -t "$IMAGE:latest" -t "$IMAGE:prod-${GITHUB_SHA::7}" .
+          docker push "$IMAGE:prod-${GITHUB_SHA::7}"
+          docker push "$IMAGE:latest"
+          echo "### 🚀 storix-crawler:prod-${GITHUB_SHA::7} → ECR (:latest)" >> "$GITHUB_STEP_SUMMARY"
+          echo "다음 자정 서버 부팅 때 반영됩니다." >> "$GITHUB_STEP_SUMMARY"

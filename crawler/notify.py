@@ -13,7 +13,8 @@ from crawler import report
 SLACK_URL = 'https://slack.com/api/chat.postMessage'
 
 # 세션이 만료되면 할 일. 서버는 화면이 없어 로그인을 못 한다
-RELOGIN_HINT = '로컬에서 `python cli.py login --platform <플랫폼>` 로 다시 로그인한 뒤 sessions/ 쿠키를 서버에 올려 주세요.'
+RELOGIN_HINT = ('로컬에서 `python cli.py login --platform <플랫폼>` 로 다시 로그인하고 '
+                '`deploy/push_sessions.sh <쿠키 이름>` 으로 올려 주세요. 다음 자정 실행부터 씁니다.')
 
 
 def slack(text: str) -> bool:

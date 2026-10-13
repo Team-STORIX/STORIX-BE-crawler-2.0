@@ -10,7 +10,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, InvalidSessionIdException
 from urllib3.exceptions import ReadTimeoutError as _DriverTimeoutError
 
-from .base_crawler import PASS_THROUGH, BaseCrawler, HttpUnavailable, SessionExpiredError, pick_candidates
+from .base_crawler import PASS_THROUGH, AuthExpiredError, BaseCrawler, HttpUnavailable, SessionExpiredError, pick_candidates
 from config import RIDIBOOKS_COOKIE_FILE, RIDIBOOKS_LOGIN_URL, RIDIBOOKS_ID, RIDIBOOKS_PW
 
 # 로그인하면 생기는 쿠키. 세션 등록 API(api/session_api.py)도 같은 쿠키로 로그인을 판단한다
@@ -185,7 +185,7 @@ class RidibooksCrawler(BaseCrawler):
 
         import os
         if os.environ.get("DOCKER_ENV") == "true":
-            raise RuntimeError(
+            raise AuthExpiredError(  # 서버(Docker)는 로그인 화면을 못 띄운다 — 세션 만료로 알린다 (#77)
                 "Docker 환경에서는 수동 로그인 불가.\n"
                 "RIDIBOOKS_ID/RIDIBOOKS_PW 환경변수를 설정하거나 sessions/ridibooks_cookies.pkl을 생성하세요."
             )

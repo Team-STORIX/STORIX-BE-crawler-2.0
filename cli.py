@@ -236,7 +236,7 @@ def cmd_requests(args):
     if args.env:
         os.environ['STORIX_ENV'] = args.env  # review 모듈을 불러오기 전에 정한다
     from config import OUTPUT_DIR
-    from crawler import report
+    from crawler import notify, report
     from crawler.modes.requests import resume_requests, run_requests
     from review import env as storix_env
     from review.notion import NotionError
@@ -251,10 +251,18 @@ def cmd_requests(args):
             report.reset()
             summary = run_requests(target, args.min_id, args.dry_run, args.limit)
             report.save(OUTPUT_DIR / datetime.now().strftime('%Y-%m-%d'), 'requests')
+            # 세션 만료 · 차단 · 런 실패는 슬랙으로 (#77). SLACK_* 가 없는 로컬 실행은 보내지 않는다
+            notify.notify_report('requests')
     except NotionError as e:
         print(f'❌ {e}')
+        notify.notify_error('requests', e)
         sys.exit(1)
+    except Exception as e:
+        notify.notify_error('requests', e)
+        raise
     print(json.dumps(summary, ensure_ascii=False))
+    if report.failed():
+        sys.exit(1)
 
 
 def cmd_stage(args):

@@ -25,3 +25,4 @@ titles*.txt
 # tools/build_exe.ps1 산출물
 tools/dist/
 tools/build/
+!deploy/*.sh

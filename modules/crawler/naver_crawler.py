@@ -10,7 +10,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import NoSuchElementException, InvalidSessionIdException
 from urllib3.exceptions import ReadTimeoutError as _DriverTimeoutError
 
-from .base_crawler import PASS_THROUGH, BaseCrawler, HttpUnavailable, SessionExpiredError
+from .base_crawler import PASS_THROUGH, AuthExpiredError, BaseCrawler, HttpUnavailable, SessionExpiredError
 
 from config import NAVER_COOKIE_FILE, NAVER_ID, NAVER_PW
 
@@ -177,7 +177,7 @@ class NaverCrawler(BaseCrawler):
 
         import os
         if os.environ.get("DOCKER_ENV") == "true":
-            raise RuntimeError(
+            raise AuthExpiredError(  # 서버(Docker)는 로그인 화면을 못 띄운다 — 세션 만료로 알린다 (#77)
                 "Docker 환경에서는 수동 로그인 불가.\n"
                 "NAVER_ID/NAVER_PW 환경변수를 설정하거나 sessions/naver_cookies.pkl을 생성하세요."
             )

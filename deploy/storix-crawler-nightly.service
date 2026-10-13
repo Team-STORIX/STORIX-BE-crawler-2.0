@@ -1,0 +1,18 @@
+# 부팅 때 노션 작품 요청 처리를 한 번 돌리고 서버를 끈다 (#77).
+# 설치: sudo cp deploy/storix-crawler-nightly.service /etc/systemd/system/ && sudo systemctl enable storix-crawler-nightly
+[Unit]
+Description=STORIX crawler nightly run
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+Environment=APP_DIR=/opt/storix-crawler
+Environment=AWS_REGION=ap-northeast-2
+ExecStart=/opt/storix-crawler/deploy/nightly.sh
+# 안전망: 오래 걸리면 끊는다. 서버 정지는 EventBridge 01:00 StopInstances 가 한 번 더 막는다
+TimeoutStartSec=50min
+
+[Install]
+WantedBy=multi-user.target

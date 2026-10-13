@@ -329,7 +329,7 @@ class FakeStore:
     def importable(self, limit, run_id=None):
         return self.rows[:limit]
 
-    def mark_imported(self, sid, works_id):
+    def mark_imported(self, sid, works_id, result=None):
         self.imported[sid] = works_id
 
     def mark_import_failed(self, sid, error):
@@ -999,3 +999,22 @@ def test_review_all_and_import_only_approved(store):
     assert {r['id'] for r in store.importable()} >= {ids['https://x/b1']}
     assert [r['id'] for r in store.importable(staging_ids=applied['approved_ids'])] == [ids['https://x/b1']]
     assert store.importable(staging_ids=[]) == []
+
+
+# ---------------------------------------------------------------- 주간 작품 추가 알림 (#77)
+
+@needs_mysql
+def test_created_works_only_counts_new_works_once(store):
+    from datetime import datetime, timedelta
+    from review import service
+
+    service.load_run(store, CATALOG, [item(source_url='https://x/c1'), item(source_url='https://x/c2'),
+                                      item(source_url='https://x/u1')], 'naver_test')
+    ids = {r['source_url']: r['id'] for r in store.queue(AUTO_PASS)}
+    store.mark_imported(ids['https://x/c1'], 501, result='CREATED')
+    store.mark_imported(ids['https://x/c2'], 501, result='CREATED')   # 같은 작품을 다른 플랫폼으로 → 한 번만
+    store.mark_imported(ids['https://x/u1'], 502, result='UPDATED')   # 갱신은 빼고
+    now = datetime.utcnow()
+    rows = store.created_works(now - timedelta(minutes=5), now + timedelta(minutes=5))
+    assert [r['works_id'] for r in rows] == [501]
+    assert store.created_works(now + timedelta(minutes=5), now + timedelta(minutes=10)) == []

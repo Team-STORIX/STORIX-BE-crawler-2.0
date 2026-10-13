@@ -285,8 +285,8 @@ def cmd_stage(args):
     from review.store import StagingStore, connect, ensure_schema
 
     sub = getattr(args, 'stage_command', None)
-    if sub not in ('load', 'import', 'stats', 'recover', 'queue', 'suggest', 'promote', 'apply'):
-        print('❌ stage 서브 명령이 없습니다. (load | import | stats | recover | queue | suggest | promote | apply)')
+    if sub not in ('load', 'import', 'stats', 'recover', 'queue', 'suggest', 'promote', 'apply', 'weekly'):
+        print('❌ stage 서브 명령이 없습니다. (load | import | stats | recover | queue | suggest | promote | apply | weekly)')
         sys.exit(1)
 
     from review.store import STAGING_DATABASE
@@ -422,6 +422,13 @@ def cmd_stage(args):
             if summary['files']:
                 print(f"   검수 적재: python cli.py stage load --env {target} "
                       f"--input '{OUTPUT_DIR / datetime.now().strftime('%Y-%m-%d')}/*_recover.jsonl' --source recover")
+        elif sub == 'weekly':
+            # 지난주(월~일) BE 에 새로 만든 작품을 슬랙으로 (#77). 서버는 월요일 자정 실행 때 --send 로 부른다
+            from datetime import date
+            from crawler import weekly
+            result = weekly.run(store, date.fromisoformat(args.date) if args.date else None, send=args.send)
+            print(result.pop('text') or '(지난주 새로 만든 작품 없음)')
+            print(json.dumps(result, ensure_ascii=False))
         else:
             print(json.dumps(store.stats(), ensure_ascii=False, indent=2))
     finally:
@@ -477,6 +484,10 @@ def main():
     stage_import_p.add_argument('--yes', action='store_true', help='확인 없이 진행 (건수를 이미 확인한 경우)')
 
     stage_sub.add_parser('stats', parents=[env_p], help='상태별 건수 · 자동화율')
+
+    stage_weekly_p = stage_sub.add_parser('weekly', parents=[env_p], help='지난주 새로 만든 작품 알림 (#77)')
+    stage_weekly_p.add_argument('--send', action='store_true', help='슬랙으로 보낸다 (없으면 출력만)')
+    stage_weekly_p.add_argument('--date', help='이 날짜가 속한 주의 직전 주 (YYYY-MM-DD, 기본 오늘)')
 
     stage_recover_p = stage_sub.add_parser('recover', parents=[env_p],
                                            help='상세 수집이 실패한 작품의 링크를 다시 찾는다 (크롬 사용)')

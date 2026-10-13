@@ -143,7 +143,7 @@ def _send(store: StagingStore, client: BackendClient, rows: list[dict], summary:
                 continue
             summary['results'][result] = summary['results'].get(result, 0) + 1
             if result in ('CREATED', 'UPDATED', 'UNCHANGED'):
-                store.mark_imported(r['id'], res.get('worksId'))
+                store.mark_imported(r['id'], res.get('worksId'), result=result)
                 summary['imported'] += 1
                 log.info('stagingId=%s %s worksId=%s %s', r['id'], result, res.get('worksId'), _label(r))
             elif result == 'SUSPECTED_DUPLICATE':

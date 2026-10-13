@@ -34,6 +34,16 @@ slack() {  # slack <글> [채널] [스레드]
     --data "$(python3 -c 'import json,sys; print(json.dumps({"channel": sys.argv[1], "text": sys.argv[2], **({"thread_ts": sys.argv[3]} if sys.argv[3] else {})}))' "$channel" "$1" "${3:-}")"
 }
 
+# 스레드 답글과 같은 이모지로 원글에 반응한다. react <이모지 이름> <채널> <원글 ts>
+react() {
+  local token
+  token=$(grep -s '^SLACK_BOT_TOKEN=' "$ENV_FILE" | cut -d= -f2-)
+  [ -n "$token" ] && [ -n "$2" ] && [ -n "$3" ] || return 0
+  curl -s -o /dev/null -X POST https://slack.com/api/reactions.add \
+    -H "Authorization: Bearer $token" -H 'Content-Type: application/json; charset=utf-8' \
+    --data "{\"channel\":\"$2\",\"timestamp\":\"$3\",\"name\":\"$1\"}"
+}
+
 finish() {
   rm -f "$ENV_FILE"
   if [ -e "$HOLD_FILE" ]; then
@@ -121,9 +131,11 @@ if [ "$mode" = login ]; then
   if [ "$code" -eq 0 ]; then
     case "$platform" in naver_*) cookie=naver ;; kakao_page) cookie=kakao ;; *) cookie=$platform ;; esac
     if aws s3 cp --only-show-errors --sse AES256 "sessions/${cookie}_cookies.pkl" "s3://$SESSIONS_BUCKET/sessions/${cookie}_cookies.pkl"; then
-      slack "✅ *$platform* 다시 로그인 완료 — 쿠키를 갱신했습니다. 다음 자정 실행부터 씁니다" "$channel" "$thread"
+      slack ":white_check_mark: *$platform* 다시 로그인 완료 — 쿠키를 갱신했습니다. 다음 자정 실행부터 씁니다" "$channel" "$thread"
+      react white_check_mark "$channel" "$thread"
     else
-      slack "⚠️ *$platform* 로그인은 됐지만 쿠키를 S3 에 못 올렸습니다. 서버 sessions/ 에는 있어 자정 실행은 됩니다" "$channel" "$thread"
+      slack ":warning: *$platform* 로그인은 됐지만 쿠키를 S3 에 못 올렸습니다. 서버 sessions/ 에는 있어 자정 실행은 됩니다" "$channel" "$thread"
+      react warning "$channel" "$thread"
     fi
   fi
   exit "$code"
@@ -135,6 +147,10 @@ log '노션 작품 요청 처리 시작'
 docker compose run --rm nightly ${NIGHTLY_ARGS:-}
 code=$?
 log "끝 (종료 코드 $code)"
+# 월요일(한국 시간)이면 지난주 새로 만든 작품을 슬랙으로. 없으면 보내지 않는다
+if [ "$(TZ=Asia/Seoul date +%u)" = 1 ] && [ -z "${NIGHTLY_ARGS:-}" ]; then
+  docker compose run --rm nightly python cli.py stage weekly --env prod --send || log '주간 작품 추가 알림 실패'
+fi
 if [ "$code" -ne 0 ] && [ "$code" -ne 1 ]; then
   # 1 은 런 실패라 cli 가 이미 알렸다. 그 밖(컨테이너가 못 뜸 · 강제 종료 등)은 여기서 알린다
   slack "🚨 크롤러 야간 실행이 비정상 종료했습니다 (종료 코드 $code). journalctl -u storix-crawler-nightly 를 확인하세요."

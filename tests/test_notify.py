@@ -143,3 +143,14 @@ def test_thread_reply_and_channel_override(monkeypatch):
                         lambda req, timeout: sent.append(json.loads(req.data)) or FakeResponse({'ok': True}))
     assert notify.slack('done', channel='C9', thread_ts='1.2') is True
     assert sent == [{'channel': 'C9', 'text': 'done', 'thread_ts': '1.2'}]
+
+
+def test_thread_reply_reacts_on_parent_with_same_emoji(monkeypatch):
+    monkeypatch.setenv('SLACK_BOT_TOKEN', 'xoxb-test')
+    calls = []
+    monkeypatch.setattr(notify.urllib.request, 'urlopen', lambda req, timeout: calls.append(
+        (req.full_url.rsplit('/', 1)[1], json.loads(req.data))) or FakeResponse({'ok': True}))
+    assert notify.thread_reply('closed_lock_with_key', '링크 보냄', 'C1', '111.222') is True
+    assert calls == [
+        ('chat.postMessage', {'channel': 'C1', 'text': ':closed_lock_with_key: 링크 보냄', 'thread_ts': '111.222'}),
+        ('reactions.add', {'channel': 'C1', 'timestamp': '111.222', 'name': 'closed_lock_with_key'})]

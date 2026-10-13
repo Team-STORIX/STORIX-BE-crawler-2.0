@@ -47,6 +47,21 @@ def slack(text: str, blocks: list | None = None, channel: str | None = None, thr
     return _api('chat.postMessage', body) is not None
 
 
+def react(channel: str, ts: str, emoji: str) -> bool:
+    """원글에 반응 이모지를 단다 (이미 달려 있으면 그대로 둔다)."""
+    if not channel or not ts:
+        return False
+    return _api('reactions.add', {'channel': channel, 'timestamp': ts, 'name': emoji}) is not None
+
+
+def thread_reply(emoji: str, text: str, channel: str | None, thread_ts: str | None) -> bool:
+    """스레드 답글은 :emoji: 로 시작하고, 원글에도 같은 이모지로 반응한다 — 알림 목록만 봐도 결과가 보이게."""
+    ok = slack(f':{emoji}: {text}', channel=channel, thread_ts=thread_ts)
+    if thread_ts:
+        react(channel or os.getenv('SLACK_CHANNEL_ID', ''), thread_ts, emoji)
+    return ok
+
+
 def dm(user: str, text: str) -> bool:
     """누른 사람에게만 보내는 메시지 (원격 로그인 링크)."""
     opened = _api('conversations.open', {'users': user})

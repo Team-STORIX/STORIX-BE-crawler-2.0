@@ -58,7 +58,7 @@ def _tunnel() -> tuple[subprocess.Popen, str]:
 def run(platform: str, user: str, channel: str, thread: str | None) -> int:
     login_platform = LOGIN_PLATFORM.get(platform)
     if not login_platform:
-        notify.slack(f'❌ 원격 로그인을 지원하지 않는 플랫폼: {platform}', channel=channel, thread_ts=thread)
+        notify.thread_reply('x', f'원격 로그인을 지원하지 않는 플랫폼: {platform}', channel, thread)
         return 2
 
     password = secrets.token_urlsafe(6)[:8]   # VNC 비밀번호는 8자까지
@@ -76,8 +76,8 @@ def run(platform: str, user: str, channel: str, thread: str | None) -> int:
         if not notify.dm(user, f'📱 *{platform}* 원격 로그인 (30분 유효, 한 기기만 접속)\n{link}\n'
                                '열리는 Chrome 창에서 로그인 · 인증을 마치면 자동으로 감지합니다.'):
             raise RuntimeError('원격 로그인 링크 DM 을 못 보냈습니다')
-        notify.slack(f'🔐 <@{user}> 님께 *{platform}* 원격 로그인 링크를 DM 으로 보냈습니다 (30분 유효)',
-                     channel=channel, thread_ts=thread)
+        notify.thread_reply('closed_lock_with_key', f'<@{user}> 님께 *{platform}* 원격 로그인 링크를 DM 으로 보냈습니다 (30분 유효)',
+                            channel, thread)
 
         # 기존 로그인 명령을 원격 화면에 띄운다. DOCKER_ENV 를 빼야 수동 로그인 화면을 연다
         env = {k: v for k, v in os.environ.items() if k != 'DOCKER_ENV'}
@@ -90,8 +90,8 @@ def run(platform: str, user: str, channel: str, thread: str | None) -> int:
         except subprocess.TimeoutExpired:
             ok = False
         if not ok:
-            notify.slack(f'❌ *{platform}* 원격 로그인이 끝나지 않았습니다 (시간 초과 또는 실패). 다시 누르면 새로 시작합니다',
-                         channel=channel, thread_ts=thread)
+            notify.thread_reply('x', f'*{platform}* 원격 로그인이 끝나지 않았습니다 (시간 초과 또는 실패). 다시 누르면 새로 시작합니다',
+                                channel, thread)
         return 0 if ok else 1
     finally:
         for p in reversed(procs):
@@ -108,7 +108,7 @@ def main() -> None:
     try:
         code = run(a.platform, a.user, a.channel, a.thread)
     except Exception as e:
-        notify.slack(f'❌ *{a.platform}* 원격 로그인 준비 실패: {e}', channel=a.channel, thread_ts=a.thread)
+        notify.thread_reply('x', f'*{a.platform}* 원격 로그인 준비 실패: {e}', a.channel, a.thread)
         code = 1
     sys.exit(code)
 

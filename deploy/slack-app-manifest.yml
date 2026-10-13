@@ -14,6 +14,7 @@ oauth_config:
     bot:
       - chat:write          # 알림 채널에 글 · 스레드 답글
       - im:write            # 원격 로그인 링크는 누른 사람에게만 DM
+      - reactions:write     # 스레드 답글과 같은 이모지를 원글에 반응으로
 settings:
   interactivity:
     is_enabled: true

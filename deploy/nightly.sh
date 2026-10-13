@@ -51,6 +51,14 @@ if ! aws ssm get-parameters-by-path --path "$PARAM_PATH" --with-decryption --rec
   log 'Parameter Store 를 못 읽었습니다'
   exit 1
 fi
+# BE 와 같이 쓰는 값은 복사하지 않고 BE 경로에서 읽는다 (키를 바꿔도 한 곳만 고치면 되게)
+SHARED_PATH=${SHARED_PATH:-/storix/prod/env/}
+for pair in INTERNAL_API_KEY:STORIX_PROD_INTERNAL_API_KEY SLACK_BOT_TOKEN:SLACK_BOT_TOKEN SLACK_CHANNEL_ID:SLACK_CHANNEL_ID; do
+  from=${pair%%:*} to=${pair##*:}
+  grep -q "^$to=" "$ENV_FILE" && continue
+  value=$(aws ssm get-parameter --name "$SHARED_PATH$from" --with-decryption --query Parameter.Value --output text 2>/dev/null) \
+    && [ -n "$value" ] && echo "$to=$value" >> "$ENV_FILE" || log "$SHARED_PATH$from 를 못 읽었습니다"
+done
 # staging 계정은 기존 이름(STAGING_DB_USERNAME · STAGING_DB_PASSWORD, storix-stage 스킬도 씀)으로 있다. 크롤러가 읽는 이름으로도 둔다
 for pair in STAGING_DB_USERNAME:MYSQL_DATABASE_USER STAGING_DB_PASSWORD:MYSQL_DATABASE_PASSWORD; do
   from=${pair%%:*} to=${pair##*:}

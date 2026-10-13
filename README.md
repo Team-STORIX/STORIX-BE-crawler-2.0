@@ -292,9 +292,9 @@ EventBridge Scheduler 01:00 → EC2 StopInstances   (멈췄을 때 안전망)
 |---|---|
 | `MYSQL_DATABASE_HOST` · `MYSQL_DATABASE_PORT` | staging RDS 주소 · 3306 |
 | `STAGING_DB_USERNAME` · `STAGING_DB_PASSWORD` | staging 계정 (기존 값. `MYSQL_DATABASE_USER` · `MYSQL_DATABASE_PASSWORD` 로도 넘긴다) |
-| `STORIX_PROD_INTERNAL_API_KEY` | BE 내부 API 키 |
 | `NOTION_TOKEN` · `NOTION_REQUEST_DB_ID` | 노션 작품 요청 DB |
-| `SLACK_BOT_TOKEN` · `SLACK_CHANNEL_ID` | 알림 |
+
+BE 와 같이 쓰는 값은 복사하지 않고 `/storix/prod/env/` 에서 읽습니다: `INTERNAL_API_KEY`(→ `STORIX_PROD_INTERNAL_API_KEY`) · `SLACK_BOT_TOKEN` · `SLACK_CHANNEL_ID`.
 
 **처음 한 번 (서버)**
 ```bash
@@ -304,8 +304,8 @@ sudo systemctl enable storix-crawler-nightly
 # 로컬에서 python cli.py login --platform all 로 만든 sessions/*.pkl 을 /opt/storix-crawler/sessions/ 에 넣는다
 ```
 
-- 인스턴스: `t3.small`(Chrome 때문에 2GB), RDS 와 같은 VPC. EIP 는 쓰지 않는다 (들어오는 연결이 없음)
-- IAM 역할: `ssm:GetParametersByPath` · `kms:Decrypt`(`/storix/crawler/*`), SSM 접속(`AmazonSSMManagedInstanceCore`)
+- 인스턴스: `t3a.small` · CPU 크레딧 standard(추가 과금 없음), RDS 와 같은 VPC. Google Chrome 이 리눅스 ARM 판이 없어 t4g 는 못 쓴다. EIP 는 쓰지 않는다 (들어오는 연결이 없음)
+- IAM 역할 `StorixCrawlerRole`: `/storix/crawler/*` 읽기, `/storix/prod/env/` 의 위 세 값 읽기, SSM 접속(`AmazonSSMManagedInstanceCore`)
 - 들어가서 고칠 때: `sudo mkdir -p /etc/storix-crawler && sudo touch /etc/storix-crawler/hold` 면 실행 뒤 끄지 않는다. 다 고치면 지운다
 - 로그: `journalctl -u storix-crawler-nightly`, 수집 리포트는 `output/<날짜>/requests_report.json`
 

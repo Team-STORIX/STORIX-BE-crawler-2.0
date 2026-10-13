@@ -38,13 +38,19 @@ def _api(method: str, body: dict) -> dict | None:
     return data
 
 
-def slack(text: str, blocks: list | None = None, channel: str | None = None, thread_ts: str | None = None) -> bool:
+def post(text: str, blocks: list | None = None, channel: str | None = None, thread_ts: str | None = None) -> str | None:
+    """메시지를 보내고 그 메시지의 ts 를 돌려준다 (스레드 답글을 달 때 쓴다). 못 보내면 None. 성공 여부는 응답의 ok 로 본다."""
     channel = channel or os.getenv('SLACK_CHANNEL_ID', '')
     if not channel:
-        return False
+        return None
     body = {'channel': channel, 'text': text, **({'blocks': blocks} if blocks else {}),
             **({'thread_ts': thread_ts} if thread_ts else {})}
-    return _api('chat.postMessage', body) is not None
+    data = _api('chat.postMessage', body)
+    return None if data is None else data.get('ts', '')
+
+
+def slack(text: str, blocks: list | None = None, channel: str | None = None, thread_ts: str | None = None) -> bool:
+    return post(text, blocks, channel, thread_ts) is not None
 
 
 def react(channel: str, ts: str, emoji: str) -> bool:

@@ -310,6 +310,7 @@ deploy/push_sessions.sh kakao               # 그 쿠키만 S3 에 (인자 없�
 ```
 :bell: [10월 2주차] 크롤러 작품 추가 알림
 
+<N건 추가>
 작품명1
 작품명2
 ```

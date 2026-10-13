@@ -2,6 +2,7 @@
 
     :bell: [10월 2주차] 크롤러 작품 추가 알림
 
+    <N건 추가>
     작품명1
     작품명2
 
@@ -40,7 +41,8 @@ def message(label: str, names: list[str]) -> str:
     lines = names[:MAX_LINES]
     if len(names) > MAX_LINES:
         lines.append(f'… 외 {len(names) - MAX_LINES}건')
-    return f':bell: [{label}] 크롤러 작품 추가 알림\n\n' + '\n'.join(lines)
+    # 슬랙은 <…> 를 링크로 읽어 글자가 사라진다. &lt; &gt; 로 보내면 <N건 추가> 로 보인다
+    return f':bell: [{label}] 크롤러 작품 추가 알림\n\n&lt;{len(names)}건 추가&gt;\n' + '\n'.join(lines)
 
 
 def run(store, today: date | None = None, send: bool = True) -> dict:

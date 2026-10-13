@@ -83,3 +83,55 @@ def test_slack_failure_does_not_raise(monkeypatch):
     assert notify.notify_error('requests', ValueError('x')) is False
     monkeypatch.setattr(notify.urllib.request, 'urlopen', lambda *a, **k: FakeResponse({'ok': False, 'error': 'not_in_channel'}))
     assert notify.slack('hi') is False
+
+
+def test_session_expiry_has_relogin_buttons(monkeypatch):
+    monkeypatch.setenv('SLACK_BOT_TOKEN', 'xoxb-test')
+    monkeypatch.setenv('SLACK_CHANNEL_ID', 'C123')
+    sent = []
+    monkeypatch.setattr(notify.urllib.request, 'urlopen',
+                        lambda req, timeout: sent.append(json.loads(req.data)) or FakeResponse({'ok': True}))
+    report.record('naver_series', report.AUTH_EXPIRED, '플랫폼 중단')
+    report.record('kakao_page', report.AUTH_EXPIRED, '플랫폼 중단')
+    report.record('ridibooks', report.RATE_LIMITED, '플랫폼 중단')   # 차단은 버튼 없음
+    assert notify.notify_report('requests') is True
+    buttons = sent[0]['blocks'][1]['elements']
+    assert [(b['action_id'], b['value']) for b in buttons] == [
+        ('relogin:kakao_page', 'kakao_page'), ('relogin:naver_series', 'naver_series')]
+
+
+def test_no_buttons_without_session_expiry(monkeypatch):
+    monkeypatch.setenv('SLACK_BOT_TOKEN', 'xoxb-test')
+    monkeypatch.setenv('SLACK_CHANNEL_ID', 'C123')
+    sent = []
+    monkeypatch.setattr(notify.urllib.request, 'urlopen',
+                        lambda req, timeout: sent.append(json.loads(req.data)) or FakeResponse({'ok': True}))
+    report.record('ridibooks', report.RATE_LIMITED, '플랫폼 중단')
+    notify.notify_report('requests')
+    assert 'blocks' not in sent[0]
+
+
+def test_dm_opens_conversation_then_posts(monkeypatch):
+    monkeypatch.setenv('SLACK_BOT_TOKEN', 'xoxb-test')
+    calls = []
+
+    def urlopen(req, timeout):
+        calls.append((req.full_url.rsplit('/', 1)[1], json.loads(req.data)))
+        if req.full_url.endswith('conversations.open'):
+            return FakeResponse({'ok': True, 'channel': {'id': 'D999'}})
+        return FakeResponse({'ok': True})
+
+    monkeypatch.setattr(notify.urllib.request, 'urlopen', urlopen)
+    assert notify.dm('U1', 'link') is True
+    assert calls == [('conversations.open', {'users': 'U1'}),
+                     ('chat.postMessage', {'channel': 'D999', 'text': 'link'})]
+
+
+def test_thread_reply_and_channel_override(monkeypatch):
+    monkeypatch.setenv('SLACK_BOT_TOKEN', 'xoxb-test')
+    monkeypatch.delenv('SLACK_CHANNEL_ID', raising=False)
+    sent = []
+    monkeypatch.setattr(notify.urllib.request, 'urlopen',
+                        lambda req, timeout: sent.append(json.loads(req.data)) or FakeResponse({'ok': True}))
+    assert notify.slack('done', channel='C9', thread_ts='1.2') is True
+    assert sent == [{'channel': 'C9', 'text': 'done', 'thread_ts': '1.2'}]

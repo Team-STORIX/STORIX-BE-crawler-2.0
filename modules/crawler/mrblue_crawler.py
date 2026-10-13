@@ -9,7 +9,7 @@ import pickle
 import re
 import time
 
-from .base_crawler import PASS_THROUGH, BaseCrawler, HttpUnavailable, SessionExpiredError
+from .base_crawler import PASS_THROUGH, BaseCrawler, HttpUnavailable, SessionExpiredError, manual_login_timeout
 from config import MRBLUE_COOKIE_FILE
 
 SITE = 'https://www.mrblue.com'
@@ -183,7 +183,7 @@ class MrblueCrawler(BaseCrawler):
         print('🔐 브라우저 창에서 미스터블루 로그인을 완료하세요 (성인 인증된 계정). 최대 5분')
         print('=' * 60 + '\n')
         self.driver.get(LOGIN_URL)
-        deadline = time.time() + 300
+        deadline = time.time() + manual_login_timeout(300)
         while time.time() < deadline:
             time.sleep(4)
             if self.is_login_page():

@@ -285,7 +285,20 @@ EventBridge Scheduler 00:00 → EC2 StartInstances
 EventBridge Scheduler 01:00 → EC2 StopInstances   (멈췄을 때 안전망)
 ```
 
-**슬랙 알림** — 세션 만료(AUTH_EXPIRED) · 차단(RATE_LIMITED) · 수집 실패(PARSING_FAILED) · 예외로 멈춤을 `SLACK_BOT_TOKEN` · `SLACK_CHANNEL_ID`(BE 와 같은 봇)로 보냅니다. 둘이 없으면(로컬) 보내지 않습니다. 세션 만료 알림이 오면 서버가 꺼져 있어도 바로 올릴 수 있습니다.
+**슬랙 알림** — 세션 만료(AUTH_EXPIRED) · 차단(RATE_LIMITED) · 수집 실패(PARSING_FAILED) · 예외로 멈춤을 `SLACK_BOT_TOKEN` · `SLACK_CHANNEL_ID`(BE 와 같은 봇)로 보냅니다. 둘이 없으면(로컬) 보내지 않습니다. **폰으로 다시 로그인** — 세션 만료 알림에 플랫폼마다 `[📱 다시 로그인]` 버튼이 붙습니다.
+
+```
+버튼 → Lambda deploy/lambda/slack_actions.py (슬랙 서명 · 누른 사람 확인) → 서버에 태그 crawler:mode=login 달고 켬
+  → nightly.sh 가 태그를 보고 crawler/remote_login.py 실행
+     Xvfb + x11vnc + noVNC + Cloudflare 임시 터널 → 원격 화면 링크를 누른 사람에게만 DM
+  → 폰에서 그 화면의 Chrome 으로 로그인 (캡차 · 2차 인증 · OTP 직접)
+  → 쿠키를 S3 에 올리고 알림 스레드에 ✅ → 서버 꺼짐
+```
+- 들어오는 포트는 열지 않습니다 (터널은 서버에서 나가는 연결). 링크는 무작위 주소 + 1회용 VNC 비밀번호, 한 기기만 접속, 30분 뒤 닫힘
+- 크롤러 전용 슬랙 앱(`deploy/slack-app-manifest.yml`)을 씁니다. Interactivity Request URL = Lambda Function URL
+- 서버가 켜져 있을 때(야간 실행 중)는 켜지 않고 "꺼진 뒤 다시 눌러 달라"고 답합니다
+
+맥에서는 직접 로그인해 올려도 됩니다 (서버가 꺼져 있어도 됨).
 
 ```bash
 python cli.py login --platform kakao_page   # 로컬에서 다시 로그인
@@ -469,6 +482,7 @@ works_platform: { works_id: 1, platform: "NAVER_WEBTOON" }
 │   │   ├── search_titles.py        # 작품명 리스트 → 플랫폼별 검색 → JSONL 저장, 성공분은 titles-file에서 자동 제거
 │   │   └── custom_url.py           # 임의 목록/상세 URL 기반 크롤링 (--url, --count)
 │   ├── notify.py                   # 세션 만료 · 실행 실패 슬랙 알림 (#77)
+│   ├── remote_login.py             # 폰 원격 로그인 (noVNC + Cloudflare 임시 터널)
 │   └── output/
 │       └── jsonl_writer.py         # 크롤 결과를 JSONL로 기록, platform_work_id 기준 중복 제거, artist_name 정규화
 │
@@ -495,6 +509,8 @@ works_platform: { works_id: 1, platform: "NAVER_WEBTOON" }
 ├── deploy/
 │   ├── nightly.sh                  # 서버 야간 실행 (비밀값 → 코드 · 이미지 · 쿠키 갱신 → requests → 종료)
 │   ├── push_sessions.sh            # 로컬 로그인 쿠키를 S3 에 올림 (세션 만료 때)
+│   ├── lambda/slack_actions.py     # 슬랙 [다시 로그인] 버튼 → 서버를 원격 로그인 모드로 켬
+│   ├── slack-app-manifest.yml      # 크롤러 전용 슬랙 앱
 │   └── storix-crawler-nightly.service  # 부팅 때 nightly.sh 를 한 번 실행하는 systemd 유닛
 │
 ├── api/

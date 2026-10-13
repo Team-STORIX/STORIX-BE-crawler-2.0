@@ -14,6 +14,14 @@ RUN apt-get update && apt-get install -y \
     && apt-get install -y google-chrome-stable \
     && rm -rf /var/lib/apt/lists/*
 
+# 폰 원격 로그인 (#77, crawler/remote_login.py): 가상 화면 · VNC · 웹 VNC · Cloudflare 임시 터널
+ARG CLOUDFLARED_VERSION=2024.8.2
+RUN apt-get update && apt-get install -y --no-install-recommends xvfb x11vnc novnc websockify \
+    && rm -rf /var/lib/apt/lists/* \
+    && curl -fsSL "https://github.com/cloudflare/cloudflared/releases/download/${CLOUDFLARED_VERSION}/cloudflared-linux-amd64" \
+       -o /usr/local/bin/cloudflared \
+    && chmod +x /usr/local/bin/cloudflared
+
 WORKDIR /app
 
 COPY requirements.txt .

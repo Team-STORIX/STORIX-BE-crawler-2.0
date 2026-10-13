@@ -8,7 +8,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, InvalidSessionIdException
 from urllib3.exceptions import ReadTimeoutError as _DriverTimeoutError
 
-from .base_crawler import PASS_THROUGH, AuthExpiredError, BaseCrawler, SessionExpiredError, pick_candidates
+from .base_crawler import PASS_THROUGH, AuthExpiredError, BaseCrawler, manual_login_timeout, SessionExpiredError, pick_candidates
 from config import KAKAO_COOKIE_FILE, KAKAO_LOGIN_URL, KAKAO_ID, KAKAO_PW
 
 class KakaoCrawler(BaseCrawler):
@@ -46,6 +46,7 @@ class KakaoCrawler(BaseCrawler):
 
     def _wait_for_manual_login(self, timeout_sec: int = 180) -> bool:
         """2단계 폴링: 1) kakao auth 이탈 감지 → 2) page.kakao.com에서 로그인 확인."""
+        timeout_sec = manual_login_timeout(timeout_sec)
         print("\n" + "=" * 60)
         print("🔐 브라우저 창에서 직접 카카오 로그인 & 성인 인증을 완료하세요.")
         print(f"   로그인 완료 시 자동으로 감지됩니다 (최대 {timeout_sec // 60}분).")

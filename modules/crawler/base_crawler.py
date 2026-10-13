@@ -83,6 +83,11 @@ def pick_candidates(candidates: list[dict], works_type: str | None) -> list[dict
     return same + unknown + extra
 
 
+def manual_login_timeout(default: int) -> int:
+    """수동 로그인을 기다리는 시간(초). 폰 원격 로그인(#77)은 LOGIN_WAIT_SEC 로 늘린다."""
+    return int(os.getenv('LOGIN_WAIT_SEC') or default)
+
+
 def _check_empty_list(fn):
     import functools
 
@@ -239,7 +244,8 @@ class BaseCrawler:
         label = "(headless)" if headless else ""
         print(f"🔧 브라우저를 시작합니다{label}...")
         options = Options()
-        options.add_argument("--window-size=1600,900")
+        # 폰 원격 로그인(#77)은 세로 화면에 맞춘다
+        options.add_argument(f"--window-size={os.getenv('CHROME_WINDOW_SIZE') or '1600,900'}")
         options.add_argument("--lang=ko-KR")
         options.add_argument("--no-sandbox")
         options.add_argument("--disable-dev-shm-usage")

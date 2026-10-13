@@ -10,7 +10,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import NoSuchElementException, InvalidSessionIdException
 from urllib3.exceptions import ReadTimeoutError as _DriverTimeoutError
 
-from .base_crawler import PASS_THROUGH, AuthExpiredError, BaseCrawler, HttpUnavailable, SessionExpiredError
+from .base_crawler import PASS_THROUGH, AuthExpiredError, BaseCrawler, manual_login_timeout, HttpUnavailable, SessionExpiredError
 
 from config import NAVER_COOKIE_FILE, NAVER_ID, NAVER_PW
 
@@ -79,6 +79,7 @@ class NaverCrawler(BaseCrawler):
 
     def _wait_for_manual_login(self, timeout_sec: int = 180) -> bool:
         """2단계 폴링: 1) nid.naver.com 이탈 감지 → 2) comic.naver.com에서 성인 인증 완료 대기."""
+        timeout_sec = manual_login_timeout(timeout_sec)
         print("\n" + "=" * 60)
         print("🔐 브라우저 창에서 직접 로그인 & 성인 인증을 완료하세요.")
         print(f"   로그인 완료 시 자동으로 감지됩니다 (최대 {timeout_sec // 60}분).")

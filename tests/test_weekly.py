@@ -1,6 +1,8 @@
 """주간 크롤러 작품 추가 알림 (#77)."""
 from datetime import date, datetime
 
+import pytest
+
 from crawler import weekly
 
 
@@ -21,10 +23,10 @@ def test_utc_bounds_shift_kst_midnight():
         datetime(2026, 10, 11, 15, 0), datetime(2026, 10, 18, 15, 0))
 
 
-def test_message_format_and_cap(monkeypatch):
-    assert weekly.message('10월 2주차', ['가', '나']) == '*:bell: [10월 2주차] 크롤러 작품 추가 알림*\n\n&lt;2건 추가&gt;\n가\n나'
-    monkeypatch.setattr(weekly, 'MAX_LINES', 2)
-    assert weekly.message('x', ['a', 'b', 'c']).endswith('&lt;3건 추가&gt;\na\nb\n… 외 1건')
+def test_headline_and_thread_chunks(monkeypatch):
+    assert weekly.headline('10월 2주차', 83) == '*:bell: [10월 2주차] 크롤러 작품 추가 알림*\n\n&lt;83건 추가&gt;'
+    monkeypatch.setattr(weekly, 'THREAD_CHUNK', 2)
+    assert weekly.chunks(['a', 'b', 'c']) == ['a\nb', 'c']
 
 
 class FakeStore:
@@ -36,19 +38,28 @@ class FakeStore:
         return self.rows
 
 
-def test_run_sends_last_week(monkeypatch):
-    sent = []
-    monkeypatch.setattr(weekly.notify, 'slack', lambda text: sent.append(text) or True)
+def test_run_posts_headline_then_names_in_thread(monkeypatch):
+    posted, replies = [], []
+    monkeypatch.setattr(weekly.notify, 'post', lambda text: posted.append(text) or '111.222')
+    monkeypatch.setattr(weekly.notify, 'slack', lambda text, thread_ts=None: replies.append((text, thread_ts)) or True)
+    monkeypatch.setattr(weekly, 'THREAD_CHUNK', 1)
     store = FakeStore([{'works_name': '작품1'}, {'works_name': '작품2'}])
     r = weekly.run(store, date(2026, 10, 19))
     assert store.asked == (datetime(2026, 10, 11, 15, 0), datetime(2026, 10, 18, 15, 0))
     assert r['week'] == '10월 3주차' and r['created'] == 2 and r['sent'] is True
-    assert sent == ['*:bell: [10월 3주차] 크롤러 작품 추가 알림*\n\n&lt;2건 추가&gt;\n작품1\n작품2']
+    assert posted == ['*:bell: [10월 3주차] 크롤러 작품 추가 알림*\n\n&lt;2건 추가&gt;']   # 원글에는 안내만
+    assert replies == [('작품1', '111.222'), ('작품2', '111.222')]                       # 목록은 스레드로
+
+
+def test_run_reports_not_sent_when_headline_fails(monkeypatch):
+    monkeypatch.setattr(weekly.notify, 'post', lambda text: None)
+    monkeypatch.setattr(weekly.notify, 'slack', lambda *a, **k: pytest.fail('원글이 없으면 답글도 안 단다'))
+    assert weekly.run(FakeStore([{'works_name': 'a'}]), date(2026, 10, 19))['sent'] is False
 
 
 def test_run_does_not_send_empty_week_or_without_flag(monkeypatch):
     sent = []
-    monkeypatch.setattr(weekly.notify, 'slack', lambda text: sent.append(text) or True)
+    monkeypatch.setattr(weekly.notify, 'post', lambda text: sent.append(text) or 'ts')
     assert weekly.run(FakeStore([]), date(2026, 10, 19))['sent'] is False
     assert weekly.run(FakeStore([{'works_name': 'a'}]), date(2026, 10, 19), send=False)['sent'] is False
     assert sent == []

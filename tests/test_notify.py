@@ -154,3 +154,12 @@ def test_thread_reply_reacts_on_parent_with_same_emoji(monkeypatch):
     assert calls == [
         ('chat.postMessage', {'channel': 'C1', 'text': ':closed_lock_with_key: 링크 보냄', 'thread_ts': '111.222'}),
         ('reactions.add', {'channel': 'C1', 'timestamp': '111.222', 'name': 'closed_lock_with_key'})]
+
+
+def test_post_returns_message_ts(monkeypatch):
+    monkeypatch.setenv('SLACK_BOT_TOKEN', 'xoxb-test')
+    monkeypatch.setenv('SLACK_CHANNEL_ID', 'C1')
+    monkeypatch.setattr(notify.urllib.request, 'urlopen', lambda req, timeout: FakeResponse({'ok': True, 'ts': '123.456'}))
+    assert notify.post('hi') == '123.456'
+    monkeypatch.setattr(notify.urllib.request, 'urlopen', lambda req, timeout: FakeResponse({'ok': False, 'error': 'x'}))
+    assert notify.post('hi') is None and notify.slack('hi') is False

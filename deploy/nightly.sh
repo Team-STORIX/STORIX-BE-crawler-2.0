@@ -6,9 +6,14 @@
 #   4) 서버 종료 — /etc/storix-crawler/hold 가 있으면 끄지 않는다 (들어가서 고칠 때)
 set -uo pipefail
 
+# 아래에서 git 이 이 파일을 바꾸므로, 실행 중인 파일이 바뀌지 않게 사본으로 다시 시작한다
+if [ -z "${NIGHTLY_COPY:-}" ]; then
+  cp "$0" /run/storix-crawler-nightly.sh && NIGHTLY_COPY=1 exec bash /run/storix-crawler-nightly.sh
+fi
+
 APP_DIR=${APP_DIR:-/opt/storix-crawler}
 PARAM_PATH=${PARAM_PATH:-/storix/crawler/}
-DEPLOY_REF=${DEPLOY_REF:-main}
+DEPLOY_REF=${DEPLOY_REF:-main}  # 서버에 갈 브랜치. 릴리스 전 코드가 가지 않게 main
 ENV_FILE=/run/storix-crawler.env
 HOLD_FILE=/etc/storix-crawler/hold
 
@@ -46,11 +51,13 @@ if ! aws ssm get-parameters-by-path --path "$PARAM_PATH" --with-decryption --rec
   log 'Parameter Store 를 못 읽었습니다'
   exit 1
 fi
-# staging 비밀번호는 기존 이름(STAGING_DB_PASSWORD, storix-stage 스킬도 씀)으로 있다. 크롤러가 읽는 이름으로도 둔다
-if ! grep -q '^MYSQL_DATABASE_PASSWORD=' "$ENV_FILE"; then
-  staging_pw=$(sed -n 's/^STAGING_DB_PASSWORD=/MYSQL_DATABASE_PASSWORD=/p' "$ENV_FILE")
-  [ -n "$staging_pw" ] && echo "$staging_pw" >> "$ENV_FILE"
-fi
+# staging 계정은 기존 이름(STAGING_DB_USERNAME · STAGING_DB_PASSWORD, storix-stage 스킬도 씀)으로 있다. 크롤러가 읽는 이름으로도 둔다
+for pair in STAGING_DB_USERNAME:MYSQL_DATABASE_USER STAGING_DB_PASSWORD:MYSQL_DATABASE_PASSWORD; do
+  from=${pair%%:*} to=${pair##*:}
+  grep -q "^$to=" "$ENV_FILE" && continue
+  line=$(sed -n "s/^$from=/$to=/p" "$ENV_FILE")
+  [ -n "$line" ] && echo "$line" >> "$ENV_FILE"
+done
 
 # 2) 코드 갱신
 git() { command git -c safe.directory="$APP_DIR" "$@"; }  # root 로 돌아 소유자가 달라도 되게

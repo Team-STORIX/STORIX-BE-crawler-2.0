@@ -290,8 +290,8 @@ EventBridge Scheduler 01:00 → EC2 StopInstances   (멈췄을 때 안전망)
 
 | 이름 | 값 |
 |---|---|
-| `MYSQL_DATABASE_HOST` · `MYSQL_DATABASE_PORT` · `MYSQL_DATABASE_USER` | staging RDS 주소 · 3306 · `storix_crawler` |
-| `STAGING_DB_PASSWORD` | staging 비밀번호 (기존 값. `MYSQL_DATABASE_PASSWORD` 로도 넘긴다) |
+| `MYSQL_DATABASE_HOST` · `MYSQL_DATABASE_PORT` | staging RDS 주소 · 3306 |
+| `STAGING_DB_USERNAME` · `STAGING_DB_PASSWORD` | staging 계정 (기존 값. `MYSQL_DATABASE_USER` · `MYSQL_DATABASE_PASSWORD` 로도 넘긴다) |
 | `STORIX_PROD_INTERNAL_API_KEY` | BE 내부 API 키 |
 | `NOTION_TOKEN` · `NOTION_REQUEST_DB_ID` | 노션 작품 요청 DB |
 | `SLACK_BOT_TOKEN` · `SLACK_CHANNEL_ID` | 알림 |

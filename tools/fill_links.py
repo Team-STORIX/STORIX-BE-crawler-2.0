@@ -56,8 +56,9 @@ def edition_of(name, cands, adult):
     """DB 이름에 판본 표기가 없는데 플랫폼엔 판본만 있을 때. 표기를 뗀 제목이 같고 연령에 맞는 판본만"""
     want = '완전판' if adult else '개정판'
     key = BaseCrawler._norm_title(strip_title_labels(name))
-    return [c for c in cands if is_edition(text_of(c)) and want in text_of(c)
-            and BaseCrawler._norm_title(strip_title_labels(EDITION_LABEL.sub('', text_of(c)))) == key]
+    # 원래 제목(raw)엔 시리즈 '(총 102화/완결)' 같은 꼬리가 붙어 있어, 라벨을 정리한 제목(text)으로 비교한다
+    return [c for c in cands if is_edition(c.get('text')) and want in c.get('text', '')
+            and BaseCrawler._norm_title(strip_title_labels(EDITION_LABEL.sub('', c['text']))) == key]
 
 
 def by_author(crawler, want_names, cands):

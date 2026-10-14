@@ -9,7 +9,7 @@ from selenium.common.exceptions import InvalidSessionIdException
 from urllib3.exceptions import ReadTimeoutError as _DriverTimeoutError
 
 from .naver_crawler import NaverCrawler
-from .base_crawler import PASS_THROUGH, BaseCrawler, SessionExpiredError, pick_candidates
+from .base_crawler import PASS_THROUGH, BaseCrawler, SessionExpiredError, is_edition, pick_candidates
 
 
 class NaverSeriesCrawler(NaverCrawler):
@@ -30,9 +30,11 @@ class NaverSeriesCrawler(NaverCrawler):
 
     @staticmethod
     def _clean_title(raw: str) -> str:
-        """'화산귀환 [독점]\\n(총 1939화/미완결)' → '화산귀환'."""
+        """'화산귀환 [독점]\\n(총 1939화/미완결)' → '화산귀환'.
+        판본 표기([19세 완전판] · [개정판])는 떼지 않는다 — BE 가 다른 작품으로 보고, 떼면 본편과 붙는다"""
         t = raw.split('\n')[0]
-        t = re.sub(r'\s*\[[^\]]*\]', '', t)      # [독점] [단행본] [완결] 등 제거
+        # [독점] [단행본] [완결] 등 제거
+        t = re.sub(r'\s*\[[^\]]*\]', lambda m: m.group(0) if is_edition(m.group(0)) else '', t)
         t = re.sub(r'\s*\(총[^)]*\)', '', t)      # (총 …화/…) 제거
         return t.strip()
 

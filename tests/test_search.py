@@ -107,6 +107,16 @@ def test_edition_title_is_its_own_match():
     assert BaseCrawler.title_match('천관사복', '천관사복 [19세 완전판]')[0] == 1  # 본편과 같은 제목이 아니다
 
 
+@pytest.mark.parametrize('raw, expected', [
+    ('화산귀환 [독점]\n(총 1939화/미완결)', '화산귀환'),
+    ('천관사복 [19세 완전판] [단행본]', '천관사복 [19세 완전판]'),
+    ('응급 플러팅 [개정판] [완결]', '응급 플러팅 [개정판]'),
+])
+def test_series_title_keeps_edition(raw, expected):
+    from modules.crawler.naver_series_crawler import NaverSeriesCrawler
+    assert NaverSeriesCrawler._clean_title(raw) == expected
+
+
 def test_ebook_age_not_sent_for_web_novel():
     # 리디에 웹소설 연재판이 없어 e북을 대신 고르면 e북 연령(18세)이 웹소설 연령을 덮어쓰지 않게 비운다
     cands = [{'url': 'ebook', 'text': '[e북] 마도조사', 'type_hint': '단행본', 'kind': '정확'}]

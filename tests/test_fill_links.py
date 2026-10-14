@@ -36,6 +36,18 @@ def test_book_used_when_no_serial():
     assert _decide('마도조사', '웹소설', '15세 이용가', [('1', '마도조사 [단행본]', '단행본')])[1] == K + '1'
 
 
+def test_series_edition_with_episode_tail():
+    """시리즈 원래 제목엔 '(총 N화/완결)' 이 붙는다. 정리한 제목으로 판본을 고른다"""
+    from modules.crawler.naver_series_crawler import NaverSeriesCrawler
+    url = 'https://series.naver.com/novel/detail.series?productNo=14384193'
+    raw = '두 공작이 탐한 백작영애 [개정판]\n(총 102화/완결)'
+    cands = BaseCrawler.rank_candidates('두 공작이 탐한 백작영애', [(url, NaverSeriesCrawler._clean_title(raw), '웹소설')])
+    for c in cands:
+        c['raw'], c['book'] = raw.replace('\n', ' '), False
+    r = {'platform': 'NAVER_SERIES', 'works_type': '웹소설', 'works_name': '두 공작이 탐한 백작영애', 'age': '전체연령가', 'works_id': 6475}
+    assert decide(None, r, cands, {})[:2] == ('OK', url)
+
+
 def test_link_of_other_work_is_not_taken():
     used = {K + '69067528': 4217}
     status, url, _, note = _decide('응급 플러팅', '웹툰', '15세 이용가', EUNGEUP, used, works_id=9999)

@@ -465,6 +465,12 @@ def clean_kakao_synopsis(text: str) -> str:
     return t.strip()
 
 
+# 검색 카드에서 작품명 뒤에 오는 정보 칸 (연령 · 기다무 · 유형 · 작가 · 조회수 · 연재 상태 등)
+_KAKAO_CARD_INFO = re.compile(
+    r'^(?:\d+세 연령 제한|전체 ?이용가|기다무|기다리면 무료|\d+시간마다 무료|무료|독점|선독점|오리지널|웹툰|웹소설|만화'
+    r'|작가 .*|조회수 .*|.*업데이트|완결|휴재|연재중?)$')
+
+
 def parse_kakao_search_card(text: str) -> tuple[str, str | None]:
     """검색 결과 카드 → (작품명, 유형 힌트).
 
@@ -475,10 +481,12 @@ def parse_kakao_search_card(text: str) -> tuple[str, str | None]:
     parts = [p.strip() for p in first.split(', ')]
     if len(parts) < 2 or parts[0] != '작품':
         return first.strip(), None
-    name = parts[1]
+    # 작품명에도 쉼표가 들어간다 ('천마, 리치왕의 무림을 부수다'). 정보 칸이 나오기 전까지가 작품명이다
+    end = next((i for i in range(2, len(parts)) if _KAKAO_CARD_INFO.match(parts[i])), len(parts))
+    name = ', '.join(parts[1:end])
     if '[단행본]' in name:
         return name, '단행본'
-    for p in parts[2:]:
+    for p in parts[end:]:
         if p in ('웹툰', '웹소설', '만화'):
             return name, p
     return name, None

@@ -99,61 +99,37 @@ def _parse_titles_file(path: Path) -> list[tuple[str, str | None]]:
 
 
 def cmd_login(args):
-    from config import (NAVER_COOKIE_FILE, KAKAO_COOKIE_FILE, RIDIBOOKS_COOKIE_FILE, BOMTOON_COOKIE_FILE,
-                        LEZHIN_COOKIE_FILE, MRBLUE_COOKIE_FILE)
-
-    cookie_files = {
-        'naver_webtoon': NAVER_COOKIE_FILE,
-        'kakao_page': KAKAO_COOKIE_FILE,
-        'ridibooks': RIDIBOOKS_COOKIE_FILE,
-        'bomtoon': BOMTOON_COOKIE_FILE,
-        'lezhin': LEZHIN_COOKIE_FILE,
-        'mrblue': MRBLUE_COOKIE_FILE,
-    }
+    from modules.crawler import platforms
 
     platform = args.platform
     targets = ['naver_webtoon', 'kakao_page', 'ridibooks'] if platform == 'all' else [platform]
 
-    for p in targets:
+    for name in targets:
+        try:
+            p = platforms.get(name)
+        except KeyError:
+            print(f'❌ 지원하지 않는 플랫폼: {name} ({" | ".join(x.key for x in platforms.PLATFORMS)})')
+            continue
+        # 네이버 웹소설 · 시리즈는 네이버 웹툰 로그인 쿠키를 같이 쓴다
+        p = platforms.get(p.login)
         print(f'\n{"="*60}')
-        print(f'🔐 [{p}] 로그인 세션 저장')
+        print(f'🔐 [{p.key}] 로그인 세션 저장')
         print(f'{"="*60}')
 
         # 기존 세션 초기화
-        cookie_file = cookie_files.get(p)
-        if cookie_file and cookie_file.exists():
+        cookie_file = platforms.cookie_file(p.key)
+        if cookie_file.exists():
             cookie_file.unlink()
             print(f'🗑️  기존 세션 파일 삭제: {cookie_file.name}')
 
-        if p == 'naver_webtoon':
-            from modules.crawler.naver_crawler import NaverCrawler
-            crawler = NaverCrawler()
-        elif p == 'kakao_page':
-            from modules.crawler.kakao_crawler import KakaoCrawler
-            crawler = KakaoCrawler()
-        elif p == 'ridibooks':
-            from modules.crawler.ridibooks_crawler import RidibooksCrawler
-            crawler = RidibooksCrawler()
-        elif p == 'bomtoon':
-            from modules.crawler.bomtoon_crawler import BomtoonCrawler
-            crawler = BomtoonCrawler()
-        elif p == 'lezhin':
-            from modules.crawler.lezhin_crawler import LezhinCrawler
-            crawler = LezhinCrawler()
-        elif p == 'mrblue':
-            from modules.crawler.mrblue_crawler import MrblueCrawler
-            crawler = MrblueCrawler()
-        else:
-            print(f'❌ 지원하지 않는 플랫폼: {p}')
-            continue
-
+        crawler = platforms.crawler_class(p.key)()
         crawler.block_images = False  # 보안문자 · 로그인 화면을 사람이 봐야 한다
         crawler.start_driver()
         try:
             if crawler.login():
-                print(f'✅ [{p}] 로그인 성공. 쿠키가 sessions/ 에 저장되었습니다.')
+                print(f'✅ [{p.key}] 로그인 성공. 쿠키가 sessions/ 에 저장되었습니다.')
             else:
-                print(f'❌ [{p}] 로그인 실패.')
+                print(f'❌ [{p.key}] 로그인 실패.')
         finally:
             crawler.close_driver()
 
@@ -461,7 +437,8 @@ def main():
 
     login_p = subparsers.add_parser('login', help='로그인 세션 저장 (Docker 실행 전 선행)')
     login_p.add_argument('--platform', required=True,
-                         help='naver_webtoon | kakao_page | ridibooks | bomtoon | lezhin | mrblue | all (bomtoon · lezhin · mrblue 는 all 에 안 들어감)')
+                         help='naver_webtoon | kakao_page | ridibooks | bomtoon | lezhin | mrblue | all (bomtoon · lezhin · mrblue 는 all 에 안 들어감). '
+                              'BE enum(KAKAO_PAGE) · 네이버 웹소설 · 시리즈도 받는다')
 
     stage_p = subparsers.add_parser('stage', help='검수 파이프라인 (works_staging → BE import API)')
     stage_sub = stage_p.add_subparsers(dest='stage_command')

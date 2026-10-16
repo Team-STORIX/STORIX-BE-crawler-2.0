@@ -184,7 +184,8 @@ class BaseCrawler:
             # 뒤에 붙은 부분이 부제 · 판본 표기일 때만 같은 작품 계열로 본다.
             # '상수리나무 아래 4컷 만화' 처럼 다른 말이 이어지면 다른 작품이다
             short, long_ = (q_raw, t_raw) if len(q) <= len(t) else (t_raw, q_raw)
-            rest = cls._rest_after_prefix(short, long_).lstrip()
+            # 짧은 쪽이 괄호로 끝나면('Deep(딥)') 나머지가 닫는 괄호부터 시작한다 → ' [개정판]'
+            rest = cls._rest_after_prefix(short, long_).lstrip(' )]）')
             if rest and rest[0] not in SUBTITLE_SEPARATORS:
                 return None
             return 1, min(len(q), len(t)) / max(len(q), len(t))

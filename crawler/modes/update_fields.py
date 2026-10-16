@@ -10,6 +10,7 @@ from modules.crawler import platforms
 from modules.crawler.base_crawler import AuthExpiredError
 from crawler.output.jsonl_writer import JSONLWriter
 from crawler.parallel import run_platforms
+from review.landing import platform_work_key
 from crawler.modes.initial import (
     _build_naver_workers,
     _build_kakao_workers,
@@ -19,16 +20,11 @@ from crawler.modes.initial import (
 
 WORKERS = 3
 
-PLATFORM_URL_PATTERNS = {
-    'naver_webtoon': 'comic.naver.com',
-    'kakao_page': 'page.kakao.com',
-    'ridibooks': 'ridibooks.com',
-    'bomtoon': 'bomtoon.com',
-    'lezhin': 'lezhin.com',
-    'mrblue': 'mrblue.com',
-}
 
-SUPPORTED_PLATFORMS = list(PLATFORM_URL_PATTERNS.keys())
+def platform_of_url(url: str) -> str | None:
+    """작품 주소 → 플랫폼 key. 링크 판정(review/landing)의 규칙과 등록부를 그대로 쓴다 (#105)"""
+    found = platform_work_key(url)
+    return platforms.get(found[0]).key if found else None
 
 
 def _load_source_urls(input_path: Path) -> dict[str, list[str]]:
@@ -44,7 +40,7 @@ def _load_source_urls(input_path: Path) -> dict[str, list[str]]:
     if not files:
         raise FileNotFoundError(f'JSONL 파일을 찾을 수 없습니다: {input_path}')
 
-    grouped: dict[str, list[str]] = {p: [] for p in PLATFORM_URL_PATTERNS}
+    grouped: dict[str, list[str]] = {p: [] for p in SUPPORTED_PLATFORMS}
     seen: set[str] = set()
 
     for f in files:
@@ -65,11 +61,8 @@ def _load_source_urls(input_path: Path) -> dict[str, list[str]]:
 
                 platform = rec.get('platform', '')
                 if platform not in grouped:
-                    platform = next(
-                        (p for p, pat in PLATFORM_URL_PATTERNS.items() if pat in url),
-                        None,
-                    )
-                if platform:
+                    platform = platform_of_url(url)
+                if platform in grouped:
                     grouped[platform].append(url)
 
     total = sum(len(v) for v in grouped.values())
@@ -206,6 +199,8 @@ _RECRAWL_MAP = {
     'lezhin': _recrawl_lezhin,
     'mrblue': _recrawl_mrblue,
 }
+# 재크롤 함수가 있는 플랫폼만 (cli 의 --platform 검사 · all)
+SUPPORTED_PLATFORMS = list(_RECRAWL_MAP)
 
 
 def run_update_fields(platform: str, input_path: str, parallel: int = 1) -> list[Path]:
@@ -213,7 +208,7 @@ def run_update_fields(platform: str, input_path: str, parallel: int = 1) -> list
     grouped = _load_source_urls(path)
     written_paths: list[Path] = []
 
-    targets = list(PLATFORM_URL_PATTERNS.keys()) if platform == 'all' else [platform]
+    targets = SUPPORTED_PLATFORMS if platform == 'all' else [platform]
 
     def run(p: str) -> None:
         urls = grouped.get(p, [])

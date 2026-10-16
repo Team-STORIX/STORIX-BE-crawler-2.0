@@ -1050,12 +1050,17 @@ def test_created_works_only_counts_new_works_once(store):
     from review import service
 
     service.load_run(store, CATALOG, [item(source_url='https://x/c1'), item(source_url='https://x/c2'),
-                                      item(source_url='https://x/u1')], 'naver_test')
-    ids = {r['source_url']: r['id'] for r in store.queue(AUTO_PASS)}
+                                      item(source_url='https://x/u1'),
+                                      item(source_url='https://x/l1', platform='LEZHIN')], 'naver_test')
+    cur = store._cursor()
+    cur.execute('SELECT source_url, id FROM works_staging')
+    ids = {r['source_url']: r['id'] for r in cur.fetchall()}
     store.mark_imported(ids['https://x/c1'], 501, result='CREATED')
     store.mark_imported(ids['https://x/c2'], 501, result='CREATED')   # 같은 작품을 다른 플랫폼으로 → 한 번만
     store.mark_imported(ids['https://x/u1'], 502, result='UPDATED')   # 갱신은 빼고
+    store.mark_imported(ids['https://x/l1'], 501, result='UPDATED')   # 만든 작품에 다른 플랫폼이 붙음 (#109)
     now = datetime.utcnow()
     rows = store.created_works(now - timedelta(minutes=5), now + timedelta(minutes=5))
     assert [r['works_id'] for r in rows] == [501]
+    assert rows[0]['works_type'] and rows[0]['platforms'] == 'LEZHIN,NAVER_WEBTOON'
     assert store.created_works(now + timedelta(minutes=5), now + timedelta(minutes=10)) == []

@@ -32,6 +32,13 @@ def test_main_edition_preferred_over_editions():
     assert _decide('X', '웹툰', '18세 이용가', raw)[1] == K + '2'
 
 
+@pytest.mark.parametrize('name, age, expected', [('Deep(딥)', '18세 이용가', '2'), ('Deep(딥)', '15세 이용가', '1')])
+def test_edition_of_title_ending_with_paren(name, age, expected):
+    """괄호로 끝나는 제목도 판본 후보로 본다 (#91)"""
+    raw = [('1', 'Deep(딥) [개정판]', '웹툰'), ('2', 'Deep(딥) [19세 완전판]', '웹툰')]
+    assert _decide(name, '웹툰', age, raw)[:2] == ('OK', K + expected)
+
+
 def test_book_used_when_no_serial():
     assert _decide('마도조사', '웹소설', '15세 이용가', [('1', '마도조사 [단행본]', '단행본')])[1] == K + '1'
 

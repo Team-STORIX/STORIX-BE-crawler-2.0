@@ -8,6 +8,9 @@
       └ *카카오페이지* (2)
         - [웹툰] 작품명1
         - [웹툰/웹소설] 작품명2      ← 같은 이름으로 웹툰 · 웹소설이 따로 추가됨
+        …
+        *여러 플랫폼에 등재* (1)     ← 마지막 답글. 두 곳 이상에 연결된 작품만
+        - [웹툰] 작품명3 — 네이버 웹툰 · 레진코믹스
 
 새로 만든 작품 = works_staging.import_result 가 CREATED. 갱신(UPDATED · UNCHANGED)은 넣지 않는다.
 노션 요청뿐 아니라 로컬 stage import 로 넣은 것도 같은 staging DB 를 거치므로 함께 잡힌다.
@@ -68,10 +71,32 @@ def sections(rows: list[dict]) -> list[tuple[str, list[str]]]:
     for enum in sorted(grouped, key=lambda e: (order.get(e, len(order)), e)):
         lines = []
         for name, types in grouped[enum].items():
-            ordered = sorted(types, key=lambda t: (TYPE_ORDER.index(t) if t in TYPE_ORDER else len(TYPE_ORDER), t))
+            ordered = _types(types)
             lines.append(f"- [{'/'.join(ordered)}] {name}" if ordered else f'- {name}')
         out.append((_platform_label(enum), lines))
     return out
+
+
+def _types(types: set[str]) -> list[str]:
+    return sorted(types, key=lambda t: (TYPE_ORDER.index(t) if t in TYPE_ORDER else len(TYPE_ORDER), t))
+
+
+def multi_platform(rows: list[dict]) -> list[str]:
+    """두 곳 이상에 연결된 작품 → ['- [웹툰] 작품명 — 네이버 웹툰 · 레진코믹스']. 이름 · 플랫폼이 같으면 유형을 합친다"""
+    order = {p.enum: i for i, p in enumerate(platforms.PLATFORMS)}
+    merged: dict[tuple[str, tuple[str, ...]], set[str]] = {}
+    for r in rows:
+        enums = sorted({e.strip() for e in (r.get('platforms') or '').split(',') if e.strip()},
+                       key=lambda e: (order.get(e, len(order)), e))
+        if len(enums) > 1:
+            types = merged.setdefault((r['works_name'], tuple(enums)), set())
+            if r.get('works_type'):
+                types.add(r['works_type'])
+    lines = []
+    for (name, enums), types in merged.items():
+        where = ' · '.join(_platform_label(e) for e in enums)
+        lines.append(f"- [{'/'.join(_types(types))}] {name} — {where}" if types else f'- {name} — {where}')
+    return lines
 
 
 def chunks(groups: list[tuple[str, list[str]]]) -> list[str]:
@@ -90,7 +115,8 @@ def run(store, today: date | None = None, send: bool = True) -> dict:
     label = week_label(start)
     rows = store.created_works(*utc_bounds(start, end))
     text = headline(label, len(rows))
-    replies = chunks(sections(rows))
+    multi = multi_platform(rows)
+    replies = chunks(sections(rows) + ([('여러 플랫폼에 등재', multi)] if multi else []))
     sent = False
     if rows and send:
         ts = notify.post(text)

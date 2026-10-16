@@ -13,17 +13,13 @@ from crawler import report
 from modules.crawler import platforms
 from crawler.output.jsonl_writer import JSONLWriter
 from modules.crawler.base_crawler import AuthExpiredError, BaseCrawler, RateLimitedError, pick_candidates
-from review.artists import normalize_artists
+from review.artists import artist_keys, normalize_artists
 from review.landing import canonical_landing_url
 
 # 복구하는 플랫폼 (이력의 BE enum name). 검색 후보를 내는 크롤러만
 RECOVER_PLATFORMS = ('NAVER_WEBTOON', 'NAVER_NOVEL', 'NAVER_SERIES', 'KAKAO_PAGE', 'RIDIBOOKS')
 # 검색어 하나에서 열어 볼 후보 수
 MAX_CANDIDATES = 3
-
-
-def _names(artist_name: str) -> set[str]:
-    return {''.join(n.split()) for n in (artist_name or '').split(',') if n.strip()}
 
 
 def matches_source(source: dict, keyword: str, result: dict) -> bool:
@@ -34,8 +30,8 @@ def matches_source(source: dict, keyword: str, result: dict) -> bool:
     want_type = source.get('works_type')
     if want_type and (result.get('works_type') or '').strip() != want_type:
         return False
-    known = _names(source.get('artist_snapshot'))
-    return not known or bool(known & _names(normalize_artists(result)['artist_name']))
+    known = artist_keys(source.get('artist_snapshot'))
+    return not known or bool(known & artist_keys(normalize_artists(result)['artist_name']))
 
 
 def _recover_one(crawler, source: dict) -> tuple[str, dict | None]:

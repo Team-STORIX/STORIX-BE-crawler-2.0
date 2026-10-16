@@ -126,3 +126,16 @@ def normalize_artists(item: dict) -> dict:
         'illustrator': ', '.join(illustrator),
         'original_author': ', '.join(original),
     }
+
+
+def artist_keys(names) -> set[str]:
+    """작가 비교용 키. 'A, B' 문자열 · 이름 목록 → 공백 · 괄호 속 표기('관우(觀雨)') · 대소문자를 무시한 이름들 (#98)"""
+    if isinstance(names, str):
+        names = names.split(',')
+    return {k for k in (_key(re.sub(r'\([^)]*\)', '', n or '')) for n in names or []) if k}
+
+
+def result_artist_keys(result: dict) -> set[str]:
+    """수집 결과(상세)의 작가 키. 역할 칸 · 원본 표기('글 A · 그림 B')를 normalize_artists 로 정리한 뒤 모은다"""
+    a = normalize_artists(result)
+    return set().union(*(artist_keys(a[k]) for k in ('artist_name', 'author', 'illustrator', 'original_author')))

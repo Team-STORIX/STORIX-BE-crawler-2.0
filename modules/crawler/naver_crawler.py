@@ -217,6 +217,20 @@ class NaverCrawler(BaseCrawler):
             print(f"⚠️ 워커 쿠키 로그인 실패: {e}")
             return False
 
+    def search_candidates(self, title: str) -> list[dict]:
+        """네이버 웹툰 검색 API → 후보 목록 (일치도 순). 브라우저를 쓰지 않는다."""
+        import json
+        import urllib.parse
+        import urllib.request
+
+        q = urllib.parse.quote(title.replace('%', ' ').strip())
+        req = urllib.request.Request(f'https://comic.naver.com/api/search/all?keyword={q}',
+                                     headers={'User-Agent': 'Mozilla/5.0'})
+        data = json.load(urllib.request.urlopen(req, timeout=10))
+        raw = [(f"https://comic.naver.com/webtoon/list?titleId={x.get('titleId')}", x.get('titleName') or '', '웹툰')
+               for x in data['searchWebtoonResult']['searchViewList']]
+        return self.rank_candidates(title, raw)
+
     def search_url_by_title(self, title: str) -> str | None:
         """제목으로 네이버 웹툰 URL 검색. 정확·부분·유사(≥임계값) 매칭 반환 (불일치 시 None)."""
         import urllib.parse

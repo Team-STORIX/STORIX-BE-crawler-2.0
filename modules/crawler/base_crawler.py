@@ -60,6 +60,14 @@ def is_edition(text: str) -> bool:
     return any(w in (text or '') for w in EDITION_WORDS)
 
 
+_EDITION_LABEL = re.compile(r'\s*[\[(][^\])]*(?:완전판|개정판)[^\])]*[\])]')
+
+
+def strip_edition_labels(title: str) -> str:
+    """'응급 플러팅 [19세 완전판]' → '응급 플러팅'. 판본끼리 · 본편과 같은 제목인지 비교할 때"""
+    return _EDITION_LABEL.sub('', title or '').strip()
+
+
 def strip_title_labels(title: str) -> str:
     return _TITLE_LABELS.sub('', title or '').strip()
 

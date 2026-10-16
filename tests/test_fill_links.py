@@ -39,6 +39,13 @@ def test_edition_of_title_ending_with_paren(name, age, expected):
     assert _decide(name, '웹툰', age, raw)[:2] == ('OK', K + expected)
 
 
+def test_edition_by_age_prefers_serial_over_book():
+    """연령으로 판본을 고를 때도 같은 판본의 단행본은 연재판이 없을 때만 (#96)"""
+    raw = [('1', '최악의 매칭 가이드 [19세 완전판]', '웹소설'), ('2', '최악의 매칭 가이드 [19세 완전판][단행본]', '단행본')]
+    assert _decide('최악의 매칭 가이드', '웹소설', '18세 이용가', raw)[:2] == ('OK', K + '1')
+    assert _decide('최악의 매칭 가이드', '웹소설', '18세 이용가', raw[1:])[:2] == ('OK', K + '2')
+
+
 def test_book_used_when_no_serial():
     assert _decide('마도조사', '웹소설', '15세 이용가', [('1', '마도조사 [단행본]', '단행본')])[1] == K + '1'
 

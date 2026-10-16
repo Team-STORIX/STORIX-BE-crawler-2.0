@@ -64,3 +64,42 @@ def test_naver_webtoon_search_api(monkeypatch):
     monkeypatch.setattr('urllib.request.urlopen', lambda *a, **k: io.BytesIO(json.dumps(body).encode()))
     got = NaverCrawler.__new__(NaverCrawler).search_candidates('김부장')
     assert [(x['url'], x['kind']) for x in got] == [('https://comic.naver.com/webtoon/list?titleId=1', '정확')]
+
+
+# ---- 레진코믹스 · 미스터블루 검색 (#107). 검색 화면 HTML 은 2026-10-16 실제 화면에서 줄인 것
+
+LEZHIN_PAGE = (
+    '<a class="flex w-full gap-x-14" href="/ko/comic/shadow_domain"><div class="desktop:py-8 py-4 flex flex-col">'
+    '<p class="lzTypography lzTypography-BodyLg text-default line-clamp-1 overflow-hidden"><em class="x">그림자의 영역</em></p>'
+    '<p class="lzTypography text-soft line-clamp-1">리런</p></div></a>'
+    '<a class="flex w-full gap-x-14" href="/ko/comic/shadow_domain_15"><div class="desktop:py-8 py-4 flex flex-col">'
+    '<p class="lzTypography lzTypography-BodyLg text-default line-clamp-1 overflow-hidden"><em class="x">그림자의 영역</em> [개정판]</p>'
+    '</div></a>'
+    '<a href="/ko/comic/candy_yumyum_15"><span>1</span>캔디 윰윰 [개정판]</a>'   # 인기 순위 카드는 결과가 아니다
+)
+MRBLUE_PAGE = '''
+<li data-pid="wt_bossbaby_wz" data-section="WT"><div class="img adultmark"><a href="/webtoon/wt_bossbaby_wz"></a></div>
+  <div class="txt-box"><span class="tit two-line">
+      <a href="/webtoon/wt_bossbaby_wz" title="보스 빗치 베이비"><span class="label-category mr5 webtoon">웹툰</span> 보스 빗치 베이비</a>
+  </span><span class="name"><a href="/author?id=3887" title="닥토">닥토</a></span></div></li>
+<li><a href="/webtoon/original">오리지널</a></li>
+<li data-pid="C000065505"><div class="txt-box"><span class="tit">
+  <a href="/comic/C000065505" title="보스 빗치 베이비 [단행본]">만화</a></span></div></li>
+<li data-pid="nv_1"><div class="txt-box"><span class="tit">
+  <a href="/novel/nv_1" title="톰 &amp; 제리">소설</a></span></div></li>
+'''
+
+
+def test_parse_lezhin_search():
+    from modules.crawler.lezhin_crawler import parse_lezhin_search
+    assert parse_lezhin_search(LEZHIN_PAGE) == [
+        ('https://www.lezhin.com/ko/comic/shadow_domain', '그림자의 영역', '웹툰'),
+        ('https://www.lezhin.com/ko/comic/shadow_domain_15', '그림자의 영역 [개정판]', '웹툰')]
+
+
+def test_parse_mrblue_search():
+    from modules.crawler.mrblue_crawler import parse_mrblue_search
+    assert parse_mrblue_search(MRBLUE_PAGE) == [
+        ('https://www.mrblue.com/webtoon/wt_bossbaby_wz', '보스 빗치 베이비', '웹툰'),
+        ('https://www.mrblue.com/comic/C000065505', '보스 빗치 베이비 [단행본]', '단행본'),
+        ('https://www.mrblue.com/novel/nv_1', '톰 & 제리', '웹소설')]

@@ -166,7 +166,13 @@ class KakaoCrawler(BaseCrawler):
             href = el.get_attribute('href') or ''
             if '/content/' not in href:
                 continue
-            name, type_hint = parse_kakao_search_card(el.get_attribute('title') or el.text or '')
+            # 작품명만 담긴 요소. 설명 문구에서 잘라 읽으면 새 표기('최신 회차 업데이트됨')가 작품명에 섞인다
+            shown = ''
+            try:
+                shown = el.find_element(By.CSS_SELECTOR, '.line-clamp-2').get_attribute('textContent') or ''
+            except Exception:
+                pass
+            name, type_hint = parse_kakao_search_card(el.get_attribute('title') or el.text or '', shown)
             if name:
                 raw.append((href, name, type_hint))
         return self.rank_candidates(title, raw)
@@ -472,19 +478,24 @@ _KAKAO_CARD_INFO = re.compile(
     r'|작가 .*|조회수 .*|.*업데이트|완결|휴재|연재중?)$')
 
 
-def parse_kakao_search_card(text: str) -> tuple[str, str | None]:
+def parse_kakao_search_card(text: str, shown: str = '') -> tuple[str, str | None]:
     """검색 결과 카드 → (작품명, 유형 힌트).
 
     카드 텍스트 첫 줄은 '작품, 넷카마 펀치!!! [완결], 15세 연령 제한, 웹소설, BL, 작가 키마님, …' 형식이다.
+    shown 은 카드에 따로 보이는 작품명 요소다. 있으면 작품명은 그것을 쓰고, 설명 문구는 유형을 찾는 데만 쓴다.
     제목에 [단행본] 이 붙으면 단행본, 아니면 '웹툰' · '웹소설' 표기를 유형으로 본다.
     """
     first = (text or '').strip().split('\n')[0]
     parts = [p.strip() for p in first.split(', ')]
+    shown = (shown or '').strip()
     if len(parts) < 2 or parts[0] != '작품':
-        return first.strip(), None
-    # 작품명에도 쉼표가 들어간다 ('천마, 리치왕의 무림을 부수다'). 정보 칸이 나오기 전까지가 작품명이다
-    end = next((i for i in range(2, len(parts)) if _KAKAO_CARD_INFO.match(parts[i])), len(parts))
-    name = ', '.join(parts[1:end])
+        return shown or first.strip(), None
+    if shown:
+        name, end = shown, 1 + len(shown.split(', '))
+    else:
+        # 작품명에도 쉼표가 들어간다 ('천마, 리치왕의 무림을 부수다'). 정보 칸이 나오기 전까지가 작품명이다
+        end = next((i for i in range(2, len(parts)) if _KAKAO_CARD_INFO.match(parts[i])), len(parts))
+        name = ', '.join(parts[1:end])
     if '[단행본]' in name:
         return name, '단행본'
     for p in parts[end:]:

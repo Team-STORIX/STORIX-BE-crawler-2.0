@@ -73,6 +73,19 @@ def test_kakao_search_card_title_with_comma(card, expected):
     assert parse_kakao_search_card(card) == expected
 
 
+@pytest.mark.parametrize('card, shown, expected', [
+    # 목록에 없는 표기가 작품명 뒤에 와도 작품명 요소를 쓴다 (#94)
+    ('작품, 수선계의 기물 수집가가 살아가는 법, 최신 회차 업데이트됨, 웹소설, 무협, 작가 관우(觀雨), 조회수 8.7만',
+     '수선계의 기물 수집가가 살아가는 법', ('수선계의 기물 수집가가 살아가는 법', '웹소설')),
+    ('작품, 천마, 리치왕의 무림을 부수다, 기다무, 웹툰, 무협, 작가 붕뎅,노도뱀',
+     '천마, 리치왕의 무림을 부수다', ('천마, 리치왕의 무림을 부수다', '웹툰')),
+    ('작품, 격투 챔피언, 무림에 가다 [단행본], 15세 연령 제한, 웹소설, 무협',
+     '격투 챔피언, 무림에 가다 [단행본]', ('격투 챔피언, 무림에 가다 [단행본]', '단행본')),
+])
+def test_kakao_search_card_shown_title(card, shown, expected):
+    assert parse_kakao_search_card(card, shown) == expected
+
+
 @pytest.mark.parametrize('card,hint', [
     ('[e북] 마도조사\n묵향동후 외 1명B-Lab(비랩)해외 소설\n총 9권', '단행본'),
     ('마도조사\n광풍취고당 외 1명B-Lab(비랩코믹스)BL 웹툰\n총 259화', '웹툰'),

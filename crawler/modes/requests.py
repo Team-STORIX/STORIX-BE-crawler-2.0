@@ -24,16 +24,18 @@ from review.notion import DEFAULT_MIN_ID, NotionError, NotionRequests, Request
 SOURCE = 'notion_requests'
 MODE = 'requests'
 
-# 노션 '연재처' → 크롤러 플랫폼. 검색을 못 하는 플랫폼(레진 · 미스터블루)은 다른 연재처로 찾는다
+# 노션 '연재처' → 크롤러 플랫폼 (선택지: 네이버 웹툰 · 네이버 시리즈 · 카카오페이지 · 리디북스 · 봄툰 · 레진코믹스 · 미스터블루 · 기타)
+# 카카오 웹툰은 카카오페이지로 합쳐져 선택지에서 빠졌다 (#107)
 PLATFORM_KEYS = {
     '네이버 웹툰': ['naver_webtoon'],
     '네이버 시리즈': ['naver_series'],
     '카카오페이지': ['kakao_page'],
-    '카카오 웹툰': ['kakao_page'],   # 카카오 웹툰 작품은 대부분 카카오페이지에도 있다
     '리디북스': ['ridibooks'],
     '봄툰': ['bomtoon'],
+    '레진코믹스': ['lezhin'],
+    '미스터블루': ['mrblue'],
 }
-# '기타' · 검색 못 하는 연재처만 적혔을 때 찾아볼 곳
+# '기타' 만 적혔을 때 찾아볼 곳
 FALLBACK_KEYS = ['naver_webtoon', 'naver_novel', 'naver_series', 'kakao_page', 'ridibooks']
 # 노션 '작품 형태' → 목록 섹션 (cli._TYPE_HEADERS). 단행본은 웹소설로 찾는다 (e북을 대신 고르는 규칙)
 TYPE_SECTIONS = {'웹툰': '웹툰', '웹소설': '웹소설', '단행본': '웹소설', '만화': '만화'}
@@ -48,7 +50,10 @@ def plan(requests: list[Request]) -> dict[str, list[tuple[str, str | None]]]:
         keys = []
         for p in r.platforms:
             keys += PLATFORM_KEYS.get(p, [])
-        keys = list(dict.fromkeys(keys)) or FALLBACK_KEYS
+        # '기타' 는 표에 없는 연재처라는 뜻이라, 다른 연재처와 같이 적혀도 전체에서 찾는다
+        if not keys or '기타' in r.platforms:
+            keys += FALLBACK_KEYS
+        keys = list(dict.fromkeys(keys))
         sections = [TYPE_SECTIONS[t] for t in r.types if t in TYPE_SECTIONS] or [None]
         for key in keys:
             for sec in dict.fromkeys(sections):

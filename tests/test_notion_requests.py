@@ -30,19 +30,34 @@ def test_plan_maps_platforms_and_types():
     reqs = [
         Request('a', 441, '혼불', ['웹소설'], ['리디북스']),
         Request('b', 442, '외모지상주의', ['웹툰'], ['네이버 웹툰', '네이버 시리즈']),
-        Request('c', 443, '블랙 스완', ['웹툰', '웹소설'], ['카카오 웹툰']),
+        Request('c', 443, '블랙 스완', ['웹툰', '웹소설'], ['카카오페이지']),
         Request('d', 444, '천관사복', ['단행본'], ['네이버 시리즈']),
     ]
     p = plan(reqs)
     assert p['ridibooks'] == [('혼불', '웹소설')]
     assert ('외모지상주의', '웹툰') in p['naver_webtoon'] and ('외모지상주의', '웹툰') in p['naver_series']
-    assert p['kakao_page'] == [('블랙 스완', '웹툰'), ('블랙 스완', '웹소설')]  # 카카오 웹툰 → 카카오페이지
+    assert p['kakao_page'] == [('블랙 스완', '웹툰'), ('블랙 스완', '웹소설')]
     assert ('천관사복', '웹소설') in p['naver_novel']  # 시리즈 웹소설 요청은 네이버 웹소설도 본다
 
 
-def test_plan_searches_everywhere_for_unsearchable_platforms():
-    p = plan([Request('a', 445, '타치바나 백작', ['웹툰'], ['레진코믹스', '기타'])])
-    assert set(p) == set(FALLBACK_KEYS)
+def test_plan_lezhin_mrblue_and_other():
+    """레진코믹스 · 미스터블루는 그 플랫폼에서 찾고, '기타' 가 같이 있으면 전체에서도 찾는다 (#107)"""
+    assert set(plan([Request('a', 445, '피옌피옌', ['웹툰'], ['레진코믹스'])])) == {'lezhin'}
+    assert set(plan([Request('b', 446, '보스 빗치 베이비', ['웹툰'], ['미스터블루'])])) == {'mrblue'}
+    p = plan([Request('c', 447, '타치바나 백작', ['웹툰'], ['레진코믹스', '기타'])])
+    assert set(p) == {'lezhin', *FALLBACK_KEYS}
+    assert set(plan([Request('d', 448, '어떤 작품', ['웹툰'], ['기타'])])) == set(FALLBACK_KEYS)
+
+
+def test_plan_platforms_are_registered():
+    """연재처 표의 플랫폼은 모두 등록부 · 제목 검색 수집이 아는 플랫폼"""
+    pytest.importorskip('selenium')
+    from crawler.modes.requests import PLATFORM_KEYS
+    from crawler.modes.search_titles import SUPPORTED_PLATFORMS
+    from modules.crawler import platforms
+    for keys in PLATFORM_KEYS.values():
+        for k in keys:
+            assert platforms.get(k).key == k and k in SUPPORTED_PLATFORMS
 
 
 def test_decide():

@@ -27,8 +27,8 @@ _DRIVER_ERRORS = (
     WebDriverException,
 )
 
-# bomtoon 은 성인 인증 세션이 필요해 all 에 넣지 않는다 (--platform bomtoon 으로 따로 돌린다)
-SUPPORTED_PLATFORMS = ['naver_webtoon', 'naver_novel', 'naver_series', 'kakao_page', 'ridibooks', 'bomtoon', 'all']
+# 봄툰 · 레진코믹스 · 미스터블루는 성인 인증 세션이 필요해 all 에 넣지 않는다 (--platform 으로 따로 · 노션 요청 연재처로 돌린다)
+SUPPORTED_PLATFORMS = ['naver_webtoon', 'naver_novel', 'naver_series', 'kakao_page', 'ridibooks', 'bomtoon', 'lezhin', 'mrblue', 'all']
 
 _ALL_TARGETS = ['naver_webtoon', 'naver_novel', 'naver_series', 'kakao_page', 'ridibooks']
 
@@ -42,6 +42,8 @@ _PLATFORM_TYPES = {
     'kakao_page': {'웹툰', '웹소설', '만화'},
     'ridibooks': {'웹툰', '웹소설', '만화'},
     'bomtoon': {'웹툰', '웹소설', '만화'},
+    'lezhin': {'웹툰'},
+    'mrblue': {'웹툰', '웹소설', '만화'},
 }
 
 # 목록 파일 섹션 → 찾을 유형. '전체' 는 웹툰 · 웹소설을 각각 찾아 있는 판을 다 수집한다

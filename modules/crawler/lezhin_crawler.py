@@ -4,6 +4,7 @@
 성인 작품은 성인 인증된 로그인 세션 쿠키가 있어야 열린다 (없으면 로그인 화면으로 이동).
 세션은 `python cli.py login --platform lezhin` 으로 사람이 브라우저에서 로그인해 sessions/ 에 저장한다.
 """
+import html
 import json
 import pickle
 import re
@@ -188,5 +189,28 @@ class LezhinCrawler(BaseCrawler):
         print('⏰ 레진 로그인 대기 시간 초과 (성인 인증이 안 된 계정이면 성인 작품이 열리지 않습니다).')
         return False
 
+    def search_candidates(self, title: str) -> list[dict]:
+        """레진 검색 결과 → 후보 목록 (일치도 순). 로그인 없이도 성인 작품까지 나온다 (#107)"""
+        import urllib.parse
+        self.driver.get(f'{SITE}/ko/search?q={urllib.parse.quote(title)}')
+        time.sleep(3)
+        return self.rank_candidates(title, parse_lezhin_search(self.driver.page_source))
+
     def search_url_by_title(self, title: str) -> str | None:
-        return None
+        candidates = self.search_candidates(title)
+        return candidates[0]['url'] if candidates else None
+
+
+# 검색 결과 카드 (결과가 없으면 같은 화면에 인기 순위가 나오는데, 그 카드는 이 모양이 아니다)
+_LEZHIN_CARD = re.compile(r'<a class="flex w-full[^"]*" href="(/ko/comic/[^"/?#]+)".*?<p class="[^"]*text-default[^"]*">(.*?)</p>', re.S)
+
+
+def parse_lezhin_search(page: str) -> list[tuple[str, str, str | None]]:
+    """검색 화면 HTML → (주소, 작품명, 유형 힌트). 작품명엔 판본 표기('[개정판]')가 붙어 온다"""
+    out = []
+    for path, name in _LEZHIN_CARD.findall(page or ''):
+        name = ' '.join(html.unescape(re.sub(r'<[^>]+>', '', name)).split())
+        if name:
+            out.append((SITE + path, name, '웹툰'))
+    return out
+

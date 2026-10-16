@@ -66,6 +66,10 @@ def parse_naver_title_info(info: dict, url: str) -> dict | None:
     }
 
 
+# 쿠키 로그인 확인용 성인 작품 (네이버 시리즈 「절대역」). 로그인 · 성인 인증이 안 되면 nid.naver.com 로 넘어간다
+ADULT_CHECK_URL = 'https://series.naver.com/novel/detail.series?productNo=9579028'
+
+
 class NaverCrawler(BaseCrawler):
     REPORT_PLATFORM = 'naver_webtoon'
     LOGIN_URL_MARKERS = ('nid.naver.com',)
@@ -205,10 +209,27 @@ class NaverCrawler(BaseCrawler):
                 if 'expiry' in c: del c['expiry']
                 c['domain'] = '.naver.com'
                 self.driver.add_cookie(c)
-            return self._is_logged_in()
+            # 넣은 쿠키라 NID_AUT 는 늘 있다. 성인 작품이 로그인 화면으로 넘어가지 않는지로 본다 (#98)
+            self.driver.get(ADULT_CHECK_URL)
+            time.sleep(2)
+            return not self.is_login_page()
         except Exception as e:
             print(f"⚠️ 워커 쿠키 로그인 실패: {e}")
             return False
+
+    def search_candidates(self, title: str) -> list[dict]:
+        """네이버 웹툰 검색 API → 후보 목록 (일치도 순). 브라우저를 쓰지 않는다."""
+        import json
+        import urllib.parse
+        import urllib.request
+
+        q = urllib.parse.quote(title.replace('%', ' ').strip())
+        req = urllib.request.Request(f'https://comic.naver.com/api/search/all?keyword={q}',
+                                     headers={'User-Agent': 'Mozilla/5.0'})
+        data = json.load(urllib.request.urlopen(req, timeout=10))
+        raw = [(f"https://comic.naver.com/webtoon/list?titleId={x.get('titleId')}", x.get('titleName') or '', '웹툰')
+               for x in data['searchWebtoonResult']['searchViewList']]
+        return self.rank_candidates(title, raw)
 
     def search_url_by_title(self, title: str) -> str | None:
         """제목으로 네이버 웹툰 URL 검색. 정확·부분·유사(≥임계값) 매칭 반환 (불일치 시 None)."""

@@ -11,6 +11,11 @@ from urllib3.exceptions import ReadTimeoutError as _DriverTimeoutError
 from .base_crawler import PASS_THROUGH, AuthExpiredError, BaseCrawler, manual_login_timeout, SessionExpiredError, pick_candidates
 from config import KAKAO_COOKIE_FILE, KAKAO_LOGIN_URL, KAKAO_ID, KAKAO_PW
 
+# 쿠키 로그인 확인용 성인 작품 (「최악의 매칭 가이드 [19세 완전판]」). 로그인 · 성인 인증이 안 되면 연령 확인 화면이 뜬다
+ADULT_CHECK_URL = 'https://page.kakao.com/content/65731967'
+_AGE_GATE_TEXTS = ('연령 확인이 필요', '로그인 후 이용해 주세요')
+
+
 class KakaoCrawler(BaseCrawler):
     REPORT_PLATFORM = 'kakao_page'
     LOGIN_URL_MARKERS = ('accounts.kakao.com', 'kauth.kakao.com')
@@ -35,14 +40,16 @@ class KakaoCrawler(BaseCrawler):
                 if 'expiry' in c: del c['expiry']
                 try: self.driver.add_cookie(c)
                 except Exception: pass
-            self.driver.get("https://page.kakao.com/main")
-            time.sleep(3)
-            if "accounts.kakao.com" in self.driver.current_url or "kauth.kakao.com" in self.driver.current_url:
-                return False
-            return any(txt in self.driver.page_source for txt in ["로그아웃", "마이페이지", "내 서재"])
+            return self._adult_session_ok()
         except Exception as e:
             print(f"⚠️ 워커 카카오 쿠키 로그인 실패: {e}")
             return False
+
+    def _adult_session_ok(self) -> bool:
+        """성인 작품 화면이 실제로 열리는지. 화면 글자('마이페이지' 등)는 로그아웃 상태에도 있어 만료된 쿠키도 통과했다 (#98)"""
+        self.driver.get(ADULT_CHECK_URL)
+        time.sleep(3)
+        return not self.is_login_page() and not any(t in self.driver.page_source for t in _AGE_GATE_TEXTS)
 
     def _wait_for_manual_login(self, timeout_sec: int = 180) -> bool:
         """2단계 폴링: 1) kakao auth 이탈 감지 → 2) page.kakao.com에서 로그인 확인."""
@@ -147,6 +154,8 @@ class KakaoCrawler(BaseCrawler):
         time.sleep(3)
         if self._wait_for_manual_login():
             print("✅ [카카오] 로그인 확인됨. 쿠키를 저장합니다.")
+            if not self._adult_session_ok():
+                print("⚠️ [카카오] 성인 작품이 열리지 않습니다 — 성인 인증을 마쳐야 성인 작품 상세를 읽습니다")
             self._save_cookies()
             return True
 
@@ -154,11 +163,23 @@ class KakaoCrawler(BaseCrawler):
         return False
 
     def search_candidates(self, title: str) -> list[dict]:
-        """카카오페이지 검색 결과 → 후보 목록 (일치도 순, 카드에 보이는 유형 힌트 포함)."""
+        """카카오페이지 검색 결과 → 후보 목록 (일치도 순, 카드에 보이는 유형 힌트 포함).
+
+        카카오 검색은 쉼표 · 기호가 든 검색어로 못 찾을 때가 있다. 정확 일치가 없으면 기호를 빼고 한 번 더 찾는다.
+        """
+        cands = self.rank_candidates(title, self._search_cards(title))
+        if not any(c['kind'] == '정확' for c in cands):
+            alt = ' '.join(re.sub(r'[,:;!?~·]', ' ', title).split())
+            if alt != title:
+                cands = self.rank_candidates(title, self._search_cards(alt)) or cands
+        return cands
+
+    def _search_cards(self, query: str) -> list[tuple[str, str, str | None]]:
+        """검색 결과 카드 → (주소, 작품명, 유형 힌트)."""
         import urllib.parse
 
         self.driver.get(
-            f"https://page.kakao.com/search/result?keyword={urllib.parse.quote(title)}&tab=content"
+            f"https://page.kakao.com/search/result?keyword={urllib.parse.quote(query)}&tab=content"
         )
         time.sleep(3)
         raw = []
@@ -166,10 +187,16 @@ class KakaoCrawler(BaseCrawler):
             href = el.get_attribute('href') or ''
             if '/content/' not in href:
                 continue
-            name, type_hint = parse_kakao_search_card(el.get_attribute('title') or el.text or '')
+            # 작품명만 담긴 요소. 설명 문구에서 잘라 읽으면 새 표기('최신 회차 업데이트됨')가 작품명에 섞인다
+            shown = ''
+            try:
+                shown = el.find_element(By.CSS_SELECTOR, '.line-clamp-2').get_attribute('textContent') or ''
+            except Exception:
+                pass
+            name, type_hint = parse_kakao_search_card(el.get_attribute('title') or el.text or '', shown)
             if name:
                 raw.append((href, name, type_hint))
-        return self.rank_candidates(title, raw)
+        return raw
 
     def search_url_by_title(self, title: str, works_type: str | None = None) -> str | None:
         """제목으로 카카오페이지 작품 URL 검색. 원하는 유형이 있으면 그 유형 후보를 먼저 고른다."""
@@ -472,19 +499,24 @@ _KAKAO_CARD_INFO = re.compile(
     r'|작가 .*|조회수 .*|.*업데이트|완결|휴재|연재중?)$')
 
 
-def parse_kakao_search_card(text: str) -> tuple[str, str | None]:
+def parse_kakao_search_card(text: str, shown: str = '') -> tuple[str, str | None]:
     """검색 결과 카드 → (작품명, 유형 힌트).
 
     카드 텍스트 첫 줄은 '작품, 넷카마 펀치!!! [완결], 15세 연령 제한, 웹소설, BL, 작가 키마님, …' 형식이다.
+    shown 은 카드에 따로 보이는 작품명 요소다. 있으면 작품명은 그것을 쓰고, 설명 문구는 유형을 찾는 데만 쓴다.
     제목에 [단행본] 이 붙으면 단행본, 아니면 '웹툰' · '웹소설' 표기를 유형으로 본다.
     """
     first = (text or '').strip().split('\n')[0]
     parts = [p.strip() for p in first.split(', ')]
+    shown = (shown or '').strip()
     if len(parts) < 2 or parts[0] != '작품':
-        return first.strip(), None
-    # 작품명에도 쉼표가 들어간다 ('천마, 리치왕의 무림을 부수다'). 정보 칸이 나오기 전까지가 작품명이다
-    end = next((i for i in range(2, len(parts)) if _KAKAO_CARD_INFO.match(parts[i])), len(parts))
-    name = ', '.join(parts[1:end])
+        return shown or first.strip(), None
+    if shown:
+        name, end = shown, 1 + len(shown.split(', '))
+    else:
+        # 작품명에도 쉼표가 들어간다 ('천마, 리치왕의 무림을 부수다'). 정보 칸이 나오기 전까지가 작품명이다
+        end = next((i for i in range(2, len(parts)) if _KAKAO_CARD_INFO.match(parts[i])), len(parts))
+        name = ', '.join(parts[1:end])
     if '[단행본]' in name:
         return name, '단행본'
     for p in parts[end:]:

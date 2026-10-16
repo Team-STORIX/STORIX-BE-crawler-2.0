@@ -22,6 +22,25 @@ class NaverNovelCrawler(NaverCrawler):
     _OFFICIAL_PATH = '/webnovel/list'
     _LEAGUE_PATHS = ('/best/list', '/challenge/list')
 
+    def search_candidates(self, title: str) -> list[dict]:
+        """네이버 웹소설 검색 결과 → 정식 웹소설 후보 목록 (일치도 순). 베스트 · 챌린지리그는 뺀다."""
+        import urllib.parse
+
+        self.driver.get(f"https://novel.naver.com/search?keyword={urllib.parse.quote(title)}")
+        time.sleep(2)
+        raw = []
+        for a in self.driver.find_elements(By.CSS_SELECTOR, ".component_section a[href*='novelId=']"):
+            href = a.get_attribute('href') or ''
+            if self._OFFICIAL_PATH not in href:
+                continue
+            try:
+                text = a.find_element(By.CSS_SELECTOR, '.title').text.strip()
+            except Exception:
+                text = (a.get_attribute('title') or a.text or '').strip()
+            if text:
+                raw.append((href, text, '웹소설'))
+        return self.rank_candidates(title, raw)
+
     def search_url_by_title(self, title: str) -> str | None:
         """제목으로 네이버 웹소설(novel.naver.com) URL 검색.
 

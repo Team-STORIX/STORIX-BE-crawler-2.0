@@ -39,19 +39,29 @@ class NaverSeriesCrawler(NaverCrawler):
         return t.strip()
 
     def search_candidates(self, title: str) -> list[dict]:
-        """네이버 시리즈 검색 결과 → 후보 목록 (일치도 순). 주소의 /novel/ · /comic/ 으로 유형을 안다."""
+        """네이버 시리즈 검색 결과 → 후보 목록 (일치도 순). 주소의 /novel/ · /comic/ 으로 유형을 안다.
+
+        후보의 raw 는 라벨을 떼기 전 원래 제목, book 은 단행본 여부('[단행본]' · '총 N권').
+        _clean_title 이 라벨을 떼서 text 로는 연재판 · 단행본을 못 가린다.
+        """
         self.driver.get(self._SEARCH_URL.format(urllib.parse.quote(title)))
         time.sleep(2)
-        raw = []
+        raw, full = [], {}
         # 제목 링크만 선택 (class 예: 'N=a:nov.title' / 'N=a:com.title'). 이미지 링크는 제외.
         for a in self.driver.find_elements(By.CSS_SELECTOR, "a[href*='detail.series'][class*='title']"):
             href = a.get_attribute('href') or ''
             if 'detail.series' not in href:
                 continue
-            text = self._clean_title((a.get_attribute('title') or a.text or '').strip())
+            original = (a.get_attribute('title') or a.text or '').strip()
+            text = self._clean_title(original)
             if text:
                 raw.append((href, text, '웹소설' if '/novel/' in href else '웹툰' if '/comic/' in href else None))
-        return self.rank_candidates(title, raw)
+                full[href] = original
+        cands = self.rank_candidates(title, raw)
+        for c in cands:
+            c['raw'] = full.get(c['url'], '').replace('\n', ' ')
+            c['book'] = '[단행본]' in c['raw'] or bool(re.search(r'총\s*\d+\s*권', c['raw']))
+        return cands
 
     def search_url_by_title(self, title: str, works_type: str | None = None) -> str | None:
         """제목으로 네이버 시리즈 상세 URL 검색. 원하는 유형이 없으면 웹소설(/novel/)을 우선한다."""

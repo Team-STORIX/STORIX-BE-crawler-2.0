@@ -10,26 +10,16 @@ BE 는 같은 작품으로 판정해 링크를 바꾼다. 못 찾으면 SEARCH_F
     python cli.py stage load --env dev --input './output/YYYY-MM-DD/*_recover.jsonl' --source recover
 """
 from crawler import report
-from crawler.modes.search_titles import _CRAWLER_MAP
+from modules.crawler import platforms
 from crawler.output.jsonl_writer import JSONLWriter
 from modules.crawler.base_crawler import AuthExpiredError, BaseCrawler, RateLimitedError, pick_candidates
-from review.artists import normalize_artists
+from review.artists import artist_keys, normalize_artists
 from review.landing import canonical_landing_url
 
-# 이력의 플랫폼(BE enum name) → 크롤러
-PLATFORM_KEYS = {
-    'NAVER_WEBTOON': 'naver_webtoon',
-    'NAVER_NOVEL': 'naver_novel',
-    'NAVER_SERIES': 'naver_series',
-    'KAKAO_PAGE': 'kakao_page',
-    'RIDIBOOKS': 'ridibooks',
-}
+# 복구하는 플랫폼 (이력의 BE enum name). 검색 후보를 내는 크롤러만
+RECOVER_PLATFORMS = ('NAVER_WEBTOON', 'NAVER_NOVEL', 'NAVER_SERIES', 'KAKAO_PAGE', 'RIDIBOOKS')
 # 검색어 하나에서 열어 볼 후보 수
 MAX_CANDIDATES = 3
-
-
-def _names(artist_name: str) -> set[str]:
-    return {''.join(n.split()) for n in (artist_name or '').split(',') if n.strip()}
 
 
 def matches_source(source: dict, keyword: str, result: dict) -> bool:
@@ -40,8 +30,8 @@ def matches_source(source: dict, keyword: str, result: dict) -> bool:
     want_type = source.get('works_type')
     if want_type and (result.get('works_type') or '').strip() != want_type:
         return False
-    known = _names(source.get('artist_snapshot'))
-    return not known or bool(known & _names(normalize_artists(result)['artist_name']))
+    known = artist_keys(source.get('artist_snapshot'))
+    return not known or bool(known & artist_keys(normalize_artists(result)['artist_name']))
 
 
 def _recover_one(crawler, source: dict) -> tuple[str, dict | None]:
@@ -74,14 +64,14 @@ def run_recover(store, platform: str | None = None, limit: int = 50) -> dict:
 
     by_platform: dict[str, list[dict]] = {}
     for s in sources:
-        if s['platform'] in PLATFORM_KEYS:
+        if s['platform'] in RECOVER_PLATFORMS:
             by_platform.setdefault(s['platform'], []).append(s)
 
     for enum_name, rows in by_platform.items():
-        key = PLATFORM_KEYS[enum_name]
-        CrawlerClass, label = _CRAWLER_MAP[key]
+        p = platforms.get(enum_name)
+        key, label = p.key, p.label
         print(f'\n🩹 [{label}] 깨진 링크 {len(rows)}건 복구 시작')
-        crawler = CrawlerClass()
+        crawler = platforms.crawler_class(key)()
         crawler.start_driver()
         try:
             if not crawler.login():

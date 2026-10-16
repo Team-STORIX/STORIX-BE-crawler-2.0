@@ -195,5 +195,29 @@ class MrblueCrawler(BaseCrawler):
         print('⏰ 미스터블루 로그인 대기 시간 초과 (성인 인증이 안 된 계정이면 성인 작품이 열리지 않습니다).')
         return False
 
+    def search_candidates(self, title: str) -> list[dict]:
+        """미스터블루 검색 결과 → 후보 목록 (일치도 순). 로그인 없이도 성인 작품까지 나온다 (#107)"""
+        import urllib.parse
+        self.driver.get(f'{SITE}/search?keyword={urllib.parse.quote(title)}')
+        time.sleep(3)
+        return self.rank_candidates(title, parse_mrblue_search(self.driver.page_source))
+
     def search_url_by_title(self, title: str) -> str | None:
-        return None
+        candidates = self.search_candidates(title)
+        return candidates[0]['url'] if candidates else None
+
+
+# 검색 결과의 작품 제목 링크. 주소의 webtoon · comic · novel 로 유형을 안다
+_MRBLUE_RESULT = re.compile(r'<span class="tit[^"]*">\s*<a href="(/(webtoon|comic|novel)/[A-Za-z0-9_]+)" title="([^"]*)"')
+_MRBLUE_TYPE = {'webtoon': '웹툰', 'comic': '만화', 'novel': '웹소설'}
+
+
+def parse_mrblue_search(page: str) -> list[tuple[str, str, str | None]]:
+    """검색 화면 HTML → (주소, 작품명, 유형 힌트). '[단행본]' 판은 단행본 (웹툰 단행본도 주소가 /comic/ 이라 만화로 보이지 않게)"""
+    out = []
+    for path, kind, name in _MRBLUE_RESULT.findall(page or ''):
+        name = html.unescape(name).strip()
+        if name:
+            out.append((SITE + path, name, '단행본' if '[단행본]' in name else _MRBLUE_TYPE[kind]))
+    return out
+

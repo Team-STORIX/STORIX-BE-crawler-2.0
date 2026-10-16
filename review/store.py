@@ -19,6 +19,8 @@ from review.rules import AUTO_PASS, NEEDS_REVIEW, REJECTED, Verdict
 
 APPROVED = 'APPROVED'
 IMPORTED = 'IMPORTED'
+# 운영 도구(storix-works)가 BE 에 바로 반영한 작품의 run_id (#112)
+DIRECT_RUN = 'storix-works'
 SKIPPED = 'SKIPPED'   # BE 가 만들지 않기로 한 건 (단행본인데 같은 웹소설이 이미 있음). 다시 보내지 않는다
 IMPORTABLE = (AUTO_PASS, APPROVED)
 
@@ -496,6 +498,26 @@ class StagingStore:
                     (_dumps(verdict), confidence, staging_id, NEEDS_REVIEW))
         self._conn.commit()
         return cur.rowcount > 0
+
+    def record_direct_import(self, item: dict, works_id: int, result: str, works_type: str | None = None,
+                             run_id: str = DIRECT_RUN) -> None:
+        """크롤러를 거치지 않고 BE 적재 API 로 바로 만든 · 갱신한 작품을 staging 에 남긴다 (#112).
+        주간 작품 추가 알림(created_works)이 크롤러 적재와 똑같이 잡게 한다. 검수는 사람이 이미 한 것으로 본다.
+
+        item 은 BE import 항목(worksName · platform · landingUrl …, enum 은 name), works_type 은 작품 유형 한글 값.
+        같은 링크가 이미 staging 에 있으면 반영 결과만 바꾼다. 링크가 없으면 작품 ID 로 자리 주소를 만든다."""
+        url = canonical_landing_url(item.get('landingUrl') or '') or f'storix-works://works/{works_id}'
+        cur = self._cursor()
+        cur.execute(
+            'INSERT INTO works_staging (run_id, source_url, platform, works_name, works_type, raw, normalized, status, '
+            'reviewed_by, reviewed_at, imported_works_id, import_result, imported_at) '
+            'VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, UTC_TIMESTAMP(), %s, %s, UTC_TIMESTAMP()) '
+            'ON DUPLICATE KEY UPDATE status = VALUES(status), imported_works_id = VALUES(imported_works_id), '
+            'import_result = VALUES(import_result), imported_at = VALUES(imported_at), import_error = NULL',
+            (run_id, url, item.get('platform'), item.get('worksName'), works_type,
+             json.dumps(item, ensure_ascii=False), json.dumps(item, ensure_ascii=False), IMPORTED,
+             run_id, works_id, result))
+        self._conn.commit()
 
     def mark_imported(self, staging_id: int, works_id: int | None, result: str | None = None) -> None:
         cur = self._cursor()

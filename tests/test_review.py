@@ -1045,6 +1045,27 @@ def test_review_all_and_import_only_approved(store):
 # ---------------------------------------------------------------- 주간 작품 추가 알림 (#77)
 
 @needs_mysql
+def test_direct_import_counts_as_created(store):
+    """BE 에 바로 만든 작품(storix-works create)도 주간 알림의 새 작품으로 잡힌다 (#112)"""
+    from datetime import datetime, timedelta
+
+    item = {'worksName': '피옌피옌', 'platform': 'LEZHIN', 'worksType': 'WEBTOON',
+            'landingUrl': 'https://www.lezhin.com/ko/comic/pianpian?utm=x'}
+    store.record_direct_import(item, 601, 'CREATED', works_type='웹툰')
+    store.record_direct_import({'worksName': '링크 없음', 'platform': 'MRBLUE'}, 602, 'CREATED', works_type='웹툰')
+    store.record_direct_import(item, 601, 'UPDATED', works_type='웹툰')   # 같은 링크 → 결과만 바뀜
+    now = datetime.utcnow()
+    rows = store.created_works(now - timedelta(minutes=5), now + timedelta(minutes=5))
+    assert [r['works_id'] for r in rows] == [602]
+    store.record_direct_import(item, 601, 'CREATED', works_type='웹툰')
+    rows = store.created_works(now - timedelta(minutes=5), now + timedelta(minutes=5))
+    assert {r['works_id']: r['works_name'] for r in rows} == {601: '피옌피옌', 602: '링크 없음'}
+    cur = store._cursor()
+    cur.execute('SELECT source_url, status, works_type FROM works_staging WHERE imported_works_id = 601')
+    assert cur.fetchall() == [{'source_url': 'https://www.lezhin.com/ko/comic/pianpian', 'status': 'IMPORTED', 'works_type': '웹툰'}]
+
+
+@needs_mysql
 def test_created_works_only_counts_new_works_once(store):
     from datetime import datetime, timedelta
     from review import service

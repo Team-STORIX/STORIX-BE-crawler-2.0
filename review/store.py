@@ -538,10 +538,12 @@ class StagingStore:
         self._conn.commit()
 
     def created_works(self, start_utc, end_utc) -> list[dict]:
-        """[start, end) 사이 BE 에 새로 만든(CREATED) 작품. 같은 작품이 여러 플랫폼으로 들어와도 한 번만 (#77)."""
+        """[start, end) 사이 BE 에 새로 만든(CREATED) 작품. 같은 작품이 여러 플랫폼으로 들어와도 한 번만 (#77).
+        platforms 는 그 작품을 만든 수집 플랫폼(BE enum, 쉼표로 이음), works_type 은 작품 유형 (#109)."""
         cur = self._cursor()
         cur.execute(
-            'SELECT imported_works_id AS works_id, MIN(works_name) AS works_name, MIN(imported_at) AS imported_at '
+            'SELECT imported_works_id AS works_id, MIN(works_name) AS works_name, MIN(works_type) AS works_type, '
+            'GROUP_CONCAT(DISTINCT platform ORDER BY platform) AS platforms, MIN(imported_at) AS imported_at '
             "FROM works_staging WHERE import_result = 'CREATED' AND imported_at >= %s AND imported_at < %s "
             'AND imported_works_id IS NOT NULL GROUP BY imported_works_id ORDER BY MIN(imported_at)',
             (start_utc, end_utc)

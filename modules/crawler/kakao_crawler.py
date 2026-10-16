@@ -11,6 +11,11 @@ from urllib3.exceptions import ReadTimeoutError as _DriverTimeoutError
 from .base_crawler import PASS_THROUGH, AuthExpiredError, BaseCrawler, manual_login_timeout, SessionExpiredError, pick_candidates
 from config import KAKAO_COOKIE_FILE, KAKAO_LOGIN_URL, KAKAO_ID, KAKAO_PW
 
+# 쿠키 로그인 확인용 성인 작품 (「최악의 매칭 가이드 [19세 완전판]」). 로그인 · 성인 인증이 안 되면 연령 확인 화면이 뜬다
+ADULT_CHECK_URL = 'https://page.kakao.com/content/65731967'
+_AGE_GATE_TEXTS = ('연령 확인이 필요', '로그인 후 이용해 주세요')
+
+
 class KakaoCrawler(BaseCrawler):
     REPORT_PLATFORM = 'kakao_page'
     LOGIN_URL_MARKERS = ('accounts.kakao.com', 'kauth.kakao.com')
@@ -35,14 +40,16 @@ class KakaoCrawler(BaseCrawler):
                 if 'expiry' in c: del c['expiry']
                 try: self.driver.add_cookie(c)
                 except Exception: pass
-            self.driver.get("https://page.kakao.com/main")
-            time.sleep(3)
-            if "accounts.kakao.com" in self.driver.current_url or "kauth.kakao.com" in self.driver.current_url:
-                return False
-            return any(txt in self.driver.page_source for txt in ["로그아웃", "마이페이지", "내 서재"])
+            return self._adult_session_ok()
         except Exception as e:
             print(f"⚠️ 워커 카카오 쿠키 로그인 실패: {e}")
             return False
+
+    def _adult_session_ok(self) -> bool:
+        """성인 작품 화면이 실제로 열리는지. 화면 글자('마이페이지' 등)는 로그아웃 상태에도 있어 만료된 쿠키도 통과했다 (#98)"""
+        self.driver.get(ADULT_CHECK_URL)
+        time.sleep(3)
+        return not self.is_login_page() and not any(t in self.driver.page_source for t in _AGE_GATE_TEXTS)
 
     def _wait_for_manual_login(self, timeout_sec: int = 180) -> bool:
         """2단계 폴링: 1) kakao auth 이탈 감지 → 2) page.kakao.com에서 로그인 확인."""
@@ -147,6 +154,8 @@ class KakaoCrawler(BaseCrawler):
         time.sleep(3)
         if self._wait_for_manual_login():
             print("✅ [카카오] 로그인 확인됨. 쿠키를 저장합니다.")
+            if not self._adult_session_ok():
+                print("⚠️ [카카오] 성인 작품이 열리지 않습니다 — 성인 인증을 마쳐야 성인 작품 상세를 읽습니다")
             self._save_cookies()
             return True
 

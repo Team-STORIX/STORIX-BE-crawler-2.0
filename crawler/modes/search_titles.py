@@ -14,12 +14,7 @@ from urllib3.exceptions import ReadTimeoutError as _DriverTimeoutError
 
 from crawler import report
 from modules.crawler.base_crawler import AuthExpiredError, RateLimitedError, SessionExpiredError, is_edition, pick_candidates
-from modules.crawler.naver_crawler import NaverCrawler
-from modules.crawler.naver_novel_crawler import NaverNovelCrawler
-from modules.crawler.naver_series_crawler import NaverSeriesCrawler
-from modules.crawler.kakao_crawler import KakaoCrawler
-from modules.crawler.ridibooks_crawler import RidibooksCrawler
-from modules.crawler.bomtoon_crawler import BomtoonCrawler
+from modules.crawler import platforms
 from crawler.output.jsonl_writer import JSONLWriter
 from crawler.parallel import run_platforms
 
@@ -34,15 +29,6 @@ _DRIVER_ERRORS = (
 
 # bomtoon 은 성인 인증 세션이 필요해 all 에 넣지 않는다 (--platform bomtoon 으로 따로 돌린다)
 SUPPORTED_PLATFORMS = ['naver_webtoon', 'naver_novel', 'naver_series', 'kakao_page', 'ridibooks', 'bomtoon', 'all']
-
-_CRAWLER_MAP = {
-    'naver_webtoon': (NaverCrawler, '네이버 웹툰'),
-    'naver_novel': (NaverNovelCrawler, '네이버 웹소설'),
-    'naver_series': (NaverSeriesCrawler, '네이버 시리즈'),
-    'kakao_page': (KakaoCrawler, '카카오'),
-    'ridibooks': (RidibooksCrawler, '리디북스'),
-    'bomtoon': (BomtoonCrawler, '봄툰'),
-}
 
 _ALL_TARGETS = ['naver_webtoon', 'naver_novel', 'naver_series', 'kakao_page', 'ridibooks']
 
@@ -99,7 +85,7 @@ def run_search_titles(
             if ttype is None or SECTION_TYPES.get(ttype, set()) & accepted:
                 wanted.setdefault(t, set()).add(ttype)
         if not wanted:
-            label = _CRAWLER_MAP[p][1]
+            label = platforms.get(p).label
             print(f'\n⏭️  [{label}] 해당 타입 작품이 없어 스킵')
             return
         _search_and_write(wanted, p, found, mode, on_found)
@@ -254,9 +240,9 @@ def _search_and_write(
     한 작품에서 드라이버가 멈추거나(타임아웃) 예외가 나도 그 작품만 건너뛰고
     나머지를 계속한다. 드라이버 이상이면 재시작 후 이어서 진행한다.
     """
-    CrawlerClass, label = _CRAWLER_MAP[platform]
+    label = platforms.get(platform).label
 
-    crawler = CrawlerClass()
+    crawler = platforms.crawler_class(platform)()
     crawler.start_driver()
     try:
         if not crawler.login():

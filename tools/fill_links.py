@@ -20,28 +20,14 @@
 """
 import json
 import os
-import re
 import sys
-import time
-import urllib.parse
-import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from modules.crawler import platforms  # noqa: E402
-from modules.crawler.base_crawler import BaseCrawler, is_edition, pick_candidates, strip_title_labels  # noqa: E402
+from modules.crawler.base_crawler import (BaseCrawler, is_edition, pick_candidates, strip_edition_labels,  # noqa: E402
+                                         strip_title_labels)
+from review.artists import artist_keys, result_artist_keys  # noqa: E402
 from review.landing import canonical_landing_url, platform_work_key  # noqa: E402
-
-EDITION_LABEL = re.compile(r'\s*[\[(][^\])]*(?:완전판|개정판)[^\])]*[\])]')
-LABEL = re.compile(r'\s*\[[^\]]*\]\s*$')
-
-
-def norm(s):
-    return ''.join((s or '').split()).lower()
-
-
-def name_key(n):
-    """작가명 비교용: 괄호 · 공백 · 대소문자 무시"""
-    return norm(re.sub(r'\([^)]*\)', '', n or ''))
 
 
 def is_adult(r):
@@ -59,12 +45,12 @@ def edition_of(name, cands, adult):
     key = BaseCrawler._norm_title(strip_title_labels(name))
     # 원래 제목(raw)엔 시리즈 '(총 102화/완결)' 같은 꼬리가 붙어 있어, 라벨을 정리한 제목(text)으로 비교한다
     return [c for c in cands if is_edition(c.get('text')) and want in c.get('text', '')
-            and BaseCrawler._norm_title(strip_title_labels(EDITION_LABEL.sub('', c['text']))) == key]
+            and BaseCrawler._norm_title(strip_title_labels(strip_edition_labels(c['text']))) == key]
 
 
 def by_author(crawler, want_names, cands):
     """후보 상세를 열어 DB 작가와 겹치는 후보만."""
-    want = {name_key(n) for n in want_names}
+    want = artist_keys(want_names)
     hit = []
     for c in cands:
         try:
@@ -72,11 +58,7 @@ def by_author(crawler, want_names, cands):
         except Exception as e:
             print('   상세 실패', c['url'], type(e).__name__, flush=True)
             continue
-        got = set()
-        for k in ('artist_name', 'author', 'illustrator', 'original_author'):
-            for n in (d.get(k) or '').split(','):
-                if n.strip():
-                    got.add(name_key(n))
+        got = result_artist_keys(d)
         if want & got:
             hit.append(c)
     return hit
@@ -123,76 +105,6 @@ def decide(crawler, r, cands, used, artists=None):
             return 'AMBIG', None, kept, f'이미 작품 {other} 의 링크'
         used[url] = r['works_id']
     return status, url, kept, note
-
-
-def naver_webtoon(name):
-    q = urllib.parse.quote(name.replace('%', ' ').strip())
-    req = urllib.request.Request(f'https://comic.naver.com/api/search/all?keyword={q}',
-                                 headers={'User-Agent': 'Mozilla/5.0'})
-    d = json.load(urllib.request.urlopen(req, timeout=10))
-    out = []
-    for x in d['searchWebtoonResult']['searchViewList']:
-        t = x.get('titleName') or ''
-        out.append({'kind': '정확' if norm(LABEL.sub('', t)) == norm(name) else '', 'type_hint': '웹툰', 'text': t,
-                    'url': f"https://comic.naver.com/webtoon/list?titleId={x.get('titleId')}"})
-    return out
-
-
-def naver_novel(c, name):
-    from selenium.webdriver.common.by import By
-    c.driver.get(f'https://novel.naver.com/search?keyword={urllib.parse.quote(name)}')
-    time.sleep(2)
-    raw = []
-    for a in c.driver.find_elements(By.CSS_SELECTOR, ".component_section a[href*='novelId=']"):
-        href = a.get_attribute('href') or ''
-        if '/webnovel/list' not in href:
-            continue
-        try:
-            text = a.find_element(By.CSS_SELECTOR, '.title').text.strip()
-        except Exception:
-            text = (a.get_attribute('title') or a.text or '').strip()
-        if text:
-            raw.append((href, text, '웹소설'))
-    return c.rank_candidates(name, raw)
-
-
-def naver_series(c, name):
-    """시리즈 검색. 원래 제목의 [단행본] · '총 ○권' 으로 단행본을 표시한다 (_clean_title 이 라벨을 떼서 못 본다)."""
-    from selenium.webdriver.common.by import By
-    c.driver.get(c._SEARCH_URL.format(urllib.parse.quote(name)))
-    time.sleep(2)
-    raw, raws = [], {}
-    for a in c.driver.find_elements(By.CSS_SELECTOR, "a[href*='detail.series'][class*='title']"):
-        href = a.get_attribute('href') or ''
-        full = (a.get_attribute('title') or a.text or '').strip()
-        text = c._clean_title(full)
-        if text:
-            raw.append((href, text, '웹소설' if '/novel/' in href else '웹툰' if '/comic/' in href else None))
-            raws[href] = full
-    cands = c.rank_candidates(name, raw)
-    for cand in cands:
-        full = raws.get(cand['url'], '')
-        cand['raw'] = full
-        cand['book'] = '[단행본]' in full or bool(re.search(r'총\s*\d+\s*권', full))
-    return cands
-
-
-def kakao(c, name):
-    cands = c.search_candidates(name)
-    if not any(x.get('kind') == '정확' for x in cands):
-        alt = ' '.join(re.sub(r'[,:;!?~·]', ' ', name).split())
-        if alt != name:
-            cands = c.rank_candidates(name, [(x['url'], x['text'], x['type_hint']) for x in c.search_candidates(alt)]) or cands
-    return cands
-
-
-# 플랫폼 → 검색 (후보 목록). 네이버 웹툰은 검색 API 라 브라우저를 띄우지 않는다
-SEARCH = {
-    'KAKAO_PAGE': kakao,
-    'NAVER_SERIES': naver_series,
-    'NAVER_NOVEL': naver_novel,
-    'RIDIBOOKS': lambda c, n: c.search_candidates(n),
-}
 
 
 def load_artists(path):
@@ -257,21 +169,14 @@ def main(argv):
         todo = capped
 
     for platform, items in todo.items():
-        if platform == 'NAVER_WEBTOON':
-            for r in items:
-                try:
-                    write(r, *decide(None, r, naver_webtoon(r['works_name']), used, artists))
-                except Exception as e:
-                    print('ERR', r['works_id'], e, flush=True)
-            continue
-        search = SEARCH.get(platform)
-        if search is None:
+        if platforms.crawler_class(platform).search_candidates is BaseCrawler.search_candidates:
+            print(f'⏭️  {platform}: 검색 후보를 내는 크롤러가 없어 건너뜀', flush=True)
             continue
         # 성인 작품 상세(작가 확인)는 로그인해야 열린다. 쿠키가 없거나 만료면 경고하고 비로그인으로 계속 (#98)
         with platforms.open_crawler(platform, headless=True, login='cookies', required=False) as c:
             for r in items:
                 try:
-                    write(r, *decide(c, r, search(c, r['works_name']), used, artists))
+                    write(r, *decide(c, r, c.search_candidates(r['works_name']), used, artists))
                 except Exception as e:
                     print('ERR', r['works_id'], type(e).__name__, str(e)[:120], flush=True)
                     if 'RateLimited' in type(e).__name__:
@@ -282,7 +187,6 @@ def main(argv):
                         platforms.log_in(c, platform, 'cookies')
                     except Exception:
                         pass
-
 
 if __name__ == '__main__':
     main(sys.argv)

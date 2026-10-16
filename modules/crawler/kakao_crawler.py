@@ -163,11 +163,23 @@ class KakaoCrawler(BaseCrawler):
         return False
 
     def search_candidates(self, title: str) -> list[dict]:
-        """카카오페이지 검색 결과 → 후보 목록 (일치도 순, 카드에 보이는 유형 힌트 포함)."""
+        """카카오페이지 검색 결과 → 후보 목록 (일치도 순, 카드에 보이는 유형 힌트 포함).
+
+        카카오 검색은 쉼표 · 기호가 든 검색어로 못 찾을 때가 있다. 정확 일치가 없으면 기호를 빼고 한 번 더 찾는다.
+        """
+        cands = self.rank_candidates(title, self._search_cards(title))
+        if not any(c['kind'] == '정확' for c in cands):
+            alt = ' '.join(re.sub(r'[,:;!?~·]', ' ', title).split())
+            if alt != title:
+                cands = self.rank_candidates(title, self._search_cards(alt)) or cands
+        return cands
+
+    def _search_cards(self, query: str) -> list[tuple[str, str, str | None]]:
+        """검색 결과 카드 → (주소, 작품명, 유형 힌트)."""
         import urllib.parse
 
         self.driver.get(
-            f"https://page.kakao.com/search/result?keyword={urllib.parse.quote(title)}&tab=content"
+            f"https://page.kakao.com/search/result?keyword={urllib.parse.quote(query)}&tab=content"
         )
         time.sleep(3)
         raw = []
@@ -184,7 +196,7 @@ class KakaoCrawler(BaseCrawler):
             name, type_hint = parse_kakao_search_card(el.get_attribute('title') or el.text or '', shown)
             if name:
                 raw.append((href, name, type_hint))
-        return self.rank_candidates(title, raw)
+        return raw
 
     def search_url_by_title(self, title: str, works_type: str | None = None) -> str | None:
         """제목으로 카카오페이지 작품 URL 검색. 원하는 유형이 있으면 그 유형 후보를 먼저 고른다."""

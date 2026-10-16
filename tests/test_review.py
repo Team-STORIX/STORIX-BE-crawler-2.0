@@ -1058,4 +1058,5 @@ def test_created_works_only_counts_new_works_once(store):
     now = datetime.utcnow()
     rows = store.created_works(now - timedelta(minutes=5), now + timedelta(minutes=5))
     assert [r['works_id'] for r in rows] == [501]
+    assert rows[0]['works_type'] and rows[0]['platforms']   # 알림에서 플랫폼 · 유형으로 묶는다 (#109)
     assert store.created_works(now + timedelta(minutes=5), now + timedelta(minutes=10)) == []

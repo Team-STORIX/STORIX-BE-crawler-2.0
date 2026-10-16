@@ -20,6 +20,7 @@ import sys
 import time
 
 from crawler import notify
+from modules.crawler import platforms
 
 DISPLAY = ':99'
 SCREEN = '900x1600x24'          # 폰 세로 화면
@@ -27,13 +28,6 @@ WINDOW = '900,1600'
 LIMIT_SEC = 30 * 60
 VNC_PORT, WEB_PORT = 5900, 6080
 TUNNEL_URL = re.compile(r'https://[a-z0-9-]+\.trycloudflare\.com')
-
-# 알림에 쓰는 플랫폼 이름 → cli login 플랫폼 (네이버 웹툰 · 시리즈 · 웹소설은 쿠키 하나)
-LOGIN_PLATFORM = {
-    'naver_webtoon': 'naver_webtoon', 'naver_series': 'naver_webtoon', 'naver_novel': 'naver_webtoon',
-    'kakao_page': 'kakao_page', 'ridibooks': 'ridibooks', 'bomtoon': 'bomtoon', 'lezhin': 'lezhin', 'mrblue': 'mrblue',
-}
-
 
 def _start(cmd: list[str], **kw) -> subprocess.Popen:
     return subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, **kw)
@@ -56,8 +50,9 @@ def _tunnel() -> tuple[subprocess.Popen, str]:
 
 
 def run(platform: str, user: str, channel: str, thread: str | None) -> int:
-    login_platform = LOGIN_PLATFORM.get(platform)
-    if not login_platform:
+    try:
+        login_platform = platforms.get(platform).login   # 네이버 웹툰 · 시리즈 · 웹소설은 쿠키 하나
+    except KeyError:
         notify.thread_reply('x', f'원격 로그인을 지원하지 않는 플랫폼: {platform}', channel, thread)
         return 2
 

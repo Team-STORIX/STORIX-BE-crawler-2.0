@@ -6,9 +6,7 @@ from pathlib import Path
 from modules.crawler.naver_crawler import NaverCrawler
 from modules.crawler.kakao_crawler import KakaoCrawler
 from modules.crawler.ridibooks_crawler import RidibooksCrawler
-from modules.crawler.bomtoon_crawler import BomtoonCrawler
-from modules.crawler.lezhin_crawler import LezhinCrawler
-from modules.crawler.mrblue_crawler import MrblueCrawler
+from modules.crawler import platforms
 from modules.crawler.base_crawler import AuthExpiredError
 from crawler.output.jsonl_writer import JSONLWriter
 from crawler.parallel import run_platforms
@@ -189,15 +187,15 @@ def _recrawl_logged_in(CrawlerClass, label: str, urls: list[str], writer: JSONLW
 
 
 def _recrawl_bomtoon(urls: list[str], writer: JSONLWriter):
-    _recrawl_logged_in(BomtoonCrawler, '봄툰', urls, writer)
+    _recrawl_logged_in(platforms.crawler_class('bomtoon'), platforms.get('bomtoon').label, urls, writer)
 
 
 def _recrawl_lezhin(urls: list[str], writer: JSONLWriter):
-    _recrawl_logged_in(LezhinCrawler, '레진코믹스', urls, writer)
+    _recrawl_logged_in(platforms.crawler_class('lezhin'), platforms.get('lezhin').label, urls, writer)
 
 
 def _recrawl_mrblue(urls: list[str], writer: JSONLWriter):
-    _recrawl_logged_in(MrblueCrawler, '미스터블루', urls, writer)
+    _recrawl_logged_in(platforms.crawler_class('mrblue'), platforms.get('mrblue').label, urls, writer)
 
 
 _RECRAWL_MAP = {

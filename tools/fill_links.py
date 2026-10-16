@@ -27,6 +27,7 @@ import urllib.parse
 import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from modules.crawler import platforms  # noqa: E402
 from modules.crawler.base_crawler import BaseCrawler, is_edition, pick_candidates, strip_title_labels  # noqa: E402
 from review.landing import canonical_landing_url, platform_work_key  # noqa: E402
 
@@ -185,6 +186,15 @@ def kakao(c, name):
     return cands
 
 
+# 플랫폼 → 검색 (후보 목록). 네이버 웹툰은 검색 API 라 브라우저를 띄우지 않는다
+SEARCH = {
+    'KAKAO_PAGE': kakao,
+    'NAVER_SERIES': naver_series,
+    'NAVER_NOVEL': naver_novel,
+    'RIDIBOOKS': lambda c, n: c.search_candidates(n),
+}
+
+
 def load_artists(path):
     artists = {}
     for line in open(path, encoding='utf-8'):
@@ -254,23 +264,11 @@ def main(argv):
                 except Exception as e:
                     print('ERR', r['works_id'], e, flush=True)
             continue
-        if platform == 'KAKAO_PAGE':
-            from modules.crawler.kakao_crawler import KakaoCrawler as C
-            search = kakao
-        elif platform == 'NAVER_SERIES':
-            from modules.crawler.naver_series_crawler import NaverSeriesCrawler as C
-            search = naver_series
-        elif platform == 'NAVER_NOVEL':
-            from modules.crawler.naver_novel_crawler import NaverNovelCrawler as C
-            search = naver_novel
-        elif platform == 'RIDIBOOKS':
-            from modules.crawler.ridibooks_crawler import RidibooksCrawler as C
-            search = lambda c, n: c.search_candidates(n)  # noqa: E731
-        else:
+        search = SEARCH.get(platform)
+        if search is None:
             continue
-        c = C(headless=True)
-        c.start_driver()
-        try:
+        # 성인 작품 상세(작가 확인)는 로그인해야 열린다. 쿠키가 없거나 만료면 경고하고 비로그인으로 계속 (#98)
+        with platforms.open_crawler(platform, headless=True, login='cookies', required=False) as c:
             for r in items:
                 try:
                     write(r, *decide(c, r, search(c, r['works_name']), used, artists))
@@ -278,12 +276,12 @@ def main(argv):
                     print('ERR', r['works_id'], type(e).__name__, str(e)[:120], flush=True)
                     if 'RateLimited' in type(e).__name__:
                         break
-                    try:
-                        c._restart_driver()
+                    try:   # _restart_driver 는 쿠키가 안 되면 사람 로그인을 기다린다. 여기선 쿠키로만 다시 로그인
+                        c.close_driver()
+                        c.start_driver()
+                        platforms.log_in(c, platform, 'cookies')
                     except Exception:
                         pass
-        finally:
-            c.close_driver()
 
 
 if __name__ == '__main__':

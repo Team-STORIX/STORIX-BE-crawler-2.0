@@ -260,6 +260,8 @@ class BaseCrawler:
         options.add_argument("--disable-dev-shm-usage")
         options.add_argument("--disable-gpu")
         options.add_argument("--disable-extensions")
+        # WebUSB 는 시작할 때 USB 장치를 훑으며 연다. 운영자 PC 에 연결된 USB 장치가 그동안 명령에 응답하지 못한다 (#102)
+        options.add_argument("--disable-features=WebUSB")
         # 메모리 절감 (#7). 썸네일은 이미지 주소 문자열만 쓰므로 이미지를 받지 않는다.
         # DOM 이 만들어지면 바로 넘어간다 — 화면 요소는 크롤러마다 WebDriverWait 로 기다린다
         if self.block_images:

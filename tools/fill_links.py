@@ -94,7 +94,8 @@ def pick(crawler, r, cands, artists=None):
         same = serial or same
     note = ''
     if not same and not is_edition(name):
-        same = edition_of(name, pick_candidates(mine, wtype), is_adult(r))
+        editions = edition_of(name, pick_candidates(mine, wtype), is_adult(r))
+        same = [c for c in editions if c.get('type_hint') in (wtype, None)] or editions   # 여기서도 단행본은 연재판이 없을 때만
         note = '판본을 연령으로 고름'
     uniq = {}
     for c in same:

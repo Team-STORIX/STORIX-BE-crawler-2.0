@@ -1,6 +1,6 @@
 name: STORIX Crawler CD - Build & Push to ECR
 
-# main 에 머지되면(Release PR) 이미지를 ECR 에 올린다 (#77).
+# main 에 머지되면(Release PR) 이미지를 ECR 에 올리고, 슬랙 버튼 Lambda 가 바뀌었으면 같이 올린다 (#77, #126).
 # 서버는 평소 꺼져 있어 배포 단계가 없다 — 자정에 켜질 때 deploy/nightly.sh 가 :latest 를 받는다.
 on:
   push:
@@ -44,3 +44,22 @@ jobs:
           docker push "$IMAGE:latest"
           echo "### 🚀 storix-crawler:prod-${GITHUB_SHA::7} → ECR (:latest)" >> "$GITHUB_STEP_SUMMARY"
           echo "다음 자정 서버 부팅 때 반영됩니다." >> "$GITHUB_STEP_SUMMARY"
+
+      # Lambda 는 main 과 연결돼 있지 않아 v2.3.0 버튼 변경이 운영에 안 들어갔다 (#126).
+      # 같은 코드면 같은 zip 이 되게(파일 시각 고정 · 추가 속성 없음) 묶어 운영 코드 해시와 다를 때만 올린다
+      - name: Deploy slack actions Lambda
+        env:
+          FUNCTION: storix-crawler-slack-actions
+        run: |
+          cd deploy/lambda
+          touch -d '2000-01-01 00:00:00' slack_actions.py
+          zip -X -q /tmp/slack_actions.zip slack_actions.py
+          local_sha=$(openssl dgst -sha256 -binary /tmp/slack_actions.zip | base64)
+          remote_sha=$(aws lambda get-function-configuration --function-name "$FUNCTION" --query CodeSha256 --output text)
+          if [ "$local_sha" = "$remote_sha" ]; then
+            echo "Lambda $FUNCTION 그대로 (코드 같음)" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          aws lambda update-function-code --function-name "$FUNCTION" --zip-file fileb:///tmp/slack_actions.zip --query CodeSha256 --output text
+          aws lambda wait function-updated --function-name "$FUNCTION"
+          echo "### 🔘 Lambda $FUNCTION 배포 (${GITHUB_SHA::7})" >> "$GITHUB_STEP_SUMMARY"

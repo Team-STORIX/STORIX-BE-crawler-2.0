@@ -12,6 +12,7 @@ import time
 from .base_crawler import PASS_THROUGH, BaseCrawler, HttpUnavailable, SessionExpiredError, manual_login_timeout
 from .cookies import apply_cookies, read_cookies, write_cookies
 from review.hashtags import is_noise_tag
+from review.landing import work_id
 from config import BOMTOON_COOKIE_FILE
 
 SITE = 'https://www.bomtoon.com'
@@ -21,7 +22,6 @@ SESSION_API = SITE + '/api/auth/session'
 # 작품명 검색 (화면 검색과 같은 API)
 SEARCH_API = SITE + '/api/balcony-api-v2/search/title'
 API_HEADERS = {'Accept': 'application/json', 'x-balcony-id': 'BOMTOON_COM', 'x-balcony-timeZone': 'Asia/Seoul'}
-_ALIAS = re.compile(r'bomtoon\.com/detail/([^/?#\s]+)')
 
 # 첫 태그는 장르다. 연재 요일 · 봄툰 자체 분류 · 이벤트 태그는 작품 내용이 아니라 해시태그로 쓰지 않는다
 #   토요연재 · 열흘연재 · 4일/14일/24일 · 2/12/22일 · 단편선 · 오직봄툰 · 기다봄 · 웹툰판 · 월드드랍 · 봄툰공모전_당선웹툰 · BL비엘
@@ -46,8 +46,7 @@ def _keep_tag(tag: dict) -> bool:
 
 
 def bomtoon_alias(url: str) -> str | None:
-    m = _ALIAS.search(url or '')
-    return m.group(1).strip() if m else None
+    return work_id(url, 'BOMTOON')   # 작품 주소 규칙은 review/landing 한 곳
 
 
 def parse_bomtoon_contents(data: dict, url: str) -> dict:

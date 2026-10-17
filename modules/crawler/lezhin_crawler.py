@@ -12,11 +12,11 @@ import time
 from .base_crawler import PASS_THROUGH, BaseCrawler, HttpUnavailable, SessionExpiredError, manual_login_timeout
 from .cookies import apply_cookies, read_cookies, write_cookies
 from review.hashtags import is_noise_tag
+from review.landing import work_id
 from config import LEZHIN_COOKIE_FILE
 
 SITE = 'https://www.lezhin.com'
 LOGIN_URL = SITE + '/ko/login'
-_ALIAS = re.compile(r'lezhin\.com/(?:ko/)?comic/([^/?#\s]+)')
 _FLIGHT = re.compile(r'self\.__next_f\.push\(\[1,"(.*?)"\]\)</script>', re.S)
 # 세로 표지 600x800. 페이지 og:image 의 wide.jpg 는 가로 배너(1200x600)라 쓰지 않는다
 COVER = 'https://ccdn.lezhin.com/v2/comics/{id}/images/tall.jpg'
@@ -39,8 +39,7 @@ LEZHIN_META_TAGS = re.compile(r'^(?:스낵타임|.*인기\d*|[A-Za-z0-9 _-]+)$')
 
 
 def lezhin_alias(url: str) -> str | None:
-    m = _ALIAS.search(url or '')
-    return m.group(1).strip() if m else None
+    return work_id(url, 'LEZHIN')   # 작품 주소 규칙은 review/landing 한 곳
 
 
 def lezhin_content(src: str) -> dict | None:

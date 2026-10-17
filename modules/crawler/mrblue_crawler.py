@@ -5,11 +5,11 @@
 세션은 `python cli.py login --platform mrblue` 로 사람이 브라우저에서 로그인해 sessions/ 에 저장한다.
 """
 import html
-import pickle
 import re
 import time
 
 from .base_crawler import PASS_THROUGH, BaseCrawler, HttpUnavailable, SessionExpiredError, manual_login_timeout
+from .cookies import apply_cookies, read_cookies, write_cookies
 from .classify import age_from_text
 from config import MRBLUE_COOKIE_FILE
 
@@ -105,7 +105,7 @@ class MrblueCrawler(BaseCrawler):
         if not MRBLUE_COOKIE_FILE.exists():
             return ''
         try:
-            cookies = pickle.load(open(MRBLUE_COOKIE_FILE, 'rb'))
+            cookies = read_cookies(MRBLUE_COOKIE_FILE)
         except Exception:
             return ''
         return '; '.join(f"{c['name']}={c['value']}" for c in cookies if 'mrblue' in (c.get('domain') or ''))
@@ -155,12 +155,7 @@ class MrblueCrawler(BaseCrawler):
             return False
         try:
             self.driver.get(SITE)
-            for c in pickle.load(open(MRBLUE_COOKIE_FILE, 'rb')):
-                c.pop('expiry', None)
-                try:
-                    self.driver.add_cookie(c)
-                except Exception:
-                    pass
+            apply_cookies(self.driver, MRBLUE_COOKIE_FILE)
             self.driver.get(f'{SITE}/webtoon/wt_000070142')
             return not self.is_login_page() and parse_mrblue_page(self.driver.page_source, self.driver.current_url) is not None
         except Exception as e:
@@ -185,7 +180,7 @@ class MrblueCrawler(BaseCrawler):
             time.sleep(4)
             if self.is_login_page():
                 continue
-            pickle.dump(self.driver.get_cookies(), open(MRBLUE_COOKIE_FILE, 'wb'))
+            write_cookies(MRBLUE_COOKIE_FILE, self.driver.get_cookies())
             if self._http_adult_ok():
                 print('✅ [미스터블루] 로그인 · 성인 작품 확인. 쿠키를 저장했습니다.')
                 return True

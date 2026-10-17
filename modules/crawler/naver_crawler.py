@@ -2,7 +2,6 @@ import json
 import re
 import time
 import random
-import pickle
 
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
@@ -10,6 +9,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import NoSuchElementException
 
 from .base_crawler import PASS_THROUGH, AuthExpiredError, BaseCrawler, manual_login_timeout, HttpUnavailable, SessionExpiredError
+from .cookies import apply_cookies, write_cookies
 from .classify import age_from_text
 from .titles import clean_work_name
 
@@ -150,7 +150,7 @@ class NaverCrawler(BaseCrawler):
 
             if self._is_logged_in():
                 print("✅ 자격증명 로그인 성공. 쿠키를 저장합니다.")
-                pickle.dump(self.driver.get_cookies(), open(NAVER_COOKIE_FILE, "wb"))
+                write_cookies(NAVER_COOKIE_FILE, self.driver.get_cookies())
                 return True
 
             print("⚠️ 자격증명 로그인 실패 (CAPTCHA 또는 추가 인증 필요).")
@@ -185,7 +185,7 @@ class NaverCrawler(BaseCrawler):
         time.sleep(2)
         if self._wait_for_manual_login():
             print("✅ 로그인 확인됨. 쿠키를 저장합니다.")
-            pickle.dump(self.driver.get_cookies(), open(NAVER_COOKIE_FILE, "wb"))
+            write_cookies(NAVER_COOKIE_FILE, self.driver.get_cookies())
             return True
 
         print("❌ 네이버 로그인 실패. 쿠키를 저장하지 않습니다.")
@@ -198,11 +198,7 @@ class NaverCrawler(BaseCrawler):
         try:
             self.driver.get("https://comic.naver.com/index")
             time.sleep(1)
-            cookies = pickle.load(open(NAVER_COOKIE_FILE, "rb"))
-            for c in cookies:
-                if 'expiry' in c: del c['expiry']
-                c['domain'] = '.naver.com'
-                self.driver.add_cookie(c)
+            apply_cookies(self.driver, NAVER_COOKIE_FILE, domain='.naver.com')
             # 넣은 쿠키라 NID_AUT 는 늘 있다. 성인 작품이 로그인 화면으로 넘어가지 않는지로 본다 (#98)
             self.driver.get(ADULT_CHECK_URL)
             time.sleep(2)

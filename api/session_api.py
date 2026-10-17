@@ -10,8 +10,6 @@ pkl을 직접 업로드받지 않고 JSON → 서버에서 pickle 변환만 한�
 (pickle은 로드 시 임의 코드 실행이 가능하므로 외부 입력으로 받으면 안 됨)
 """
 import os
-import pickle
-import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -20,6 +18,7 @@ from pydantic import BaseModel, Field
 
 from config import SESSIONS_DIR
 from modules.crawler import platforms
+from modules.crawler.cookies import write_cookies
 
 API_TOKEN = os.getenv('SESSION_API_TOKEN', '')
 
@@ -98,18 +97,8 @@ def register_session(platform: str, cookies: list[Cookie]):
 
     data = [c.to_selenium() for c in cookies]
 
-    # 크롤러가 읽는 도중 깨진 파일을 보지 않도록 임시 파일에 쓰고 교체
+    # 크롤러가 읽는 도중 깨진 파일을 보지 않도록 임시 파일에 쓰고 교체 (크롤러와 같은 쓰기, #122)
     SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=SESSIONS_DIR, suffix='.tmp')
-    try:
-        with os.fdopen(fd, 'wb') as f:
-            pickle.dump(data, f)
-        os.replace(tmp, pkl_path)
-    except BaseException:
-        try:
-            os.unlink(tmp)
-        except OSError:
-            pass
-        raise
+    write_cookies(pkl_path, data)
 
     return {'platform': platform, 'saved': len(data), 'file': pkl_path.name}

@@ -6,11 +6,11 @@
 세션은 `python cli.py login --platform bomtoon` 으로 사람이 브라우저에서 로그인해 sessions/ 에 저장한다.
 """
 import json
-import pickle
 import re
 import time
 
 from .base_crawler import PASS_THROUGH, BaseCrawler, HttpUnavailable, SessionExpiredError, manual_login_timeout
+from .cookies import apply_cookies, read_cookies, write_cookies
 from config import BOMTOON_COOKIE_FILE
 
 SITE = 'https://www.bomtoon.com'
@@ -123,7 +123,7 @@ class BomtoonCrawler(BaseCrawler):
         if not BOMTOON_COOKIE_FILE.exists():
             return ''
         try:
-            cookies = pickle.load(open(BOMTOON_COOKIE_FILE, 'rb'))
+            cookies = read_cookies(BOMTOON_COOKIE_FILE)
         except Exception:
             return ''
         return '; '.join(f"{c['name']}={c['value']}" for c in cookies if 'bomtoon' in (c.get('domain') or ''))
@@ -195,12 +195,7 @@ class BomtoonCrawler(BaseCrawler):
         try:
             self.driver.get(SITE)
             time.sleep(1)
-            for c in pickle.load(open(BOMTOON_COOKIE_FILE, 'rb')):
-                c.pop('expiry', None)
-                try:
-                    self.driver.add_cookie(c)
-                except Exception:
-                    pass
+            apply_cookies(self.driver, BOMTOON_COOKIE_FILE)
             self.driver.get(SITE)
             return self._adult_session_ok()
         except Exception as e:
@@ -241,7 +236,7 @@ class BomtoonCrawler(BaseCrawler):
             if '/user/login' in (self.driver.current_url or ''):
                 continue
             # 로그인 화면을 벗어나면 쿠키부터 저장한다. 성인 인증 확인은 따로 알린다
-            pickle.dump(self.driver.get_cookies(), open(BOMTOON_COOKIE_FILE, 'wb'))
+            write_cookies(BOMTOON_COOKIE_FILE, self.driver.get_cookies())
             code = self._adult_check()
             if code == 'SUCCESS':
                 print('✅ [봄툰] 로그인 · 성인 인증 확인. 쿠키를 저장했습니다.')

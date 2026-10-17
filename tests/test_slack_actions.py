@@ -121,3 +121,9 @@ def test_rerun_while_running_waits(mod):
     mod.handler(event(click(platform='requests', action='rerun')), None)
     assert not mod.fake_ec2.started
     assert {t['Key']: t['Value'] for t in mod.fake_ec2.tags}['crawler:mode'] == 'rerun-after'
+
+
+def test_button_ids_match_notify(mod):
+    """Lambda 는 따로 배포해 crawler.notify 를 못 불러온다. 버튼 action_id 접두어가 보내는 쪽과 같아야 한다 (#122)."""
+    from crawler import notify
+    assert (mod.RELOGIN, mod.RERUN) == (notify.RELOGIN_ACTION + ':', notify.RERUN_ACTION + ':')

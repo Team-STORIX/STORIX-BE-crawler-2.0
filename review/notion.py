@@ -79,7 +79,6 @@ class NotionRequests:
             raise NotionError(f'노션 HTTP {e.code} {msg}') from None
 
     def pending(self, min_id: int = DEFAULT_MIN_ID) -> list[Request]:
-        """아직 처리 안 한 요청 (추가 여부 · 적재 검토 중 둘 다 꺼짐), ID 순."""
         flt = {'and': [
             {'property': P_DONE, 'checkbox': {'equals': False}},
             {'property': P_REVIEW, 'checkbox': {'equals': False}},

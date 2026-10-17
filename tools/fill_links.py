@@ -24,8 +24,8 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from modules.crawler import platforms  # noqa: E402
-from modules.crawler.base_crawler import (BaseCrawler, is_edition, pick_candidates, strip_edition_labels,  # noqa: E402
-                                         strip_title_labels)
+from modules.crawler.base_crawler import pick_candidates  # noqa: E402
+from modules.crawler.titles import is_edition, norm_title, strip_edition_labels, strip_title_labels  # noqa: E402
 from review.artists import artist_keys, result_artist_keys  # noqa: E402
 from review.landing import canonical_landing_url, platform_work_key  # noqa: E402
 
@@ -40,16 +40,15 @@ def text_of(c):
 
 
 def edition_of(name, cands, adult):
-    """DB 이름에 판본 표기가 없는데 플랫폼엔 판본만 있을 때. 표기를 뗀 제목이 같고 연령에 맞는 판본만"""
+    """DB 이름에 판본 표기가 없는데 플랫폼엔 판본만 있을 때 쓴다"""
     want = '완전판' if adult else '개정판'
-    key = BaseCrawler._norm_title(strip_title_labels(name))
+    key = norm_title(strip_title_labels(name))
     # 원래 제목(raw)엔 시리즈 '(총 102화/완결)' 같은 꼬리가 붙어 있어, 라벨을 정리한 제목(text)으로 비교한다
     return [c for c in cands if is_edition(c.get('text')) and want in c.get('text', '')
-            and BaseCrawler._norm_title(strip_title_labels(strip_edition_labels(c['text']))) == key]
+            and norm_title(strip_title_labels(strip_edition_labels(c['text']))) == key]
 
 
 def by_author(crawler, want_names, cands):
-    """후보 상세를 열어 DB 작가와 겹치는 후보만."""
     want = artist_keys(want_names)
     hit = []
     for c in cands:
@@ -69,7 +68,7 @@ def pick(crawler, r, cands, artists=None):
     platform, wtype, name = r['platform'], r['works_type'], r['works_name']
     mine = [c for c in cands if (platform_work_key(c['url']) or ('',))[0] == platform]
     exact = [c for c in mine if c.get('kind') == '정확' and is_edition(text_of(c)) == is_edition(name)]
-    picked = pick_candidates(exact, wtype)   # 원하는 유형 → 힌트 없음 → (웹소설이면) 단행본
+    picked = pick_candidates(exact, wtype)
     main = [c for c in picked if c.get('type_hint') in (wtype, None)]
     same = main or picked                    # 단행본은 연재판이 없을 때만
     if platform == 'NAVER_SERIES':
@@ -98,7 +97,7 @@ def pick(crawler, r, cands, artists=None):
 
 
 def decide(crawler, r, cands, used, artists=None):
-    """pick + 링크 중복 확인. used: {정규화 링크: works_id}. 확정한 링크는 used 에 더한다"""
+    """used: {정규화 링크: works_id}. 확정한 링크는 used 에 더한다"""
     status, url, kept, note = pick(crawler, r, cands, artists)
     if status == 'OK':
         other = used.get(url)
@@ -137,7 +136,7 @@ def load_used(used_path, results_path):
 def main(argv):
     src, artists_path, out = argv[1], argv[2], argv[3]
     only = set(argv[4].split(',')) if len(argv) > 4 and argv[4] else None
-    limit = int(argv[5]) if len(argv) > 5 and argv[5] else None  # 이번 실행에서 처리할 최대 행 수 (전체)
+    limit = int(argv[5]) if len(argv) > 5 and argv[5] else None
     used_path = argv[6] if len(argv) > 6 else None
 
     artists = load_artists(artists_path)
@@ -170,7 +169,7 @@ def main(argv):
         todo = capped
 
     for platform, items in todo.items():
-        if platforms.crawler_class(platform).search_candidates is BaseCrawler.search_candidates:
+        if not platforms.searchable(platform):
             print(f'⏭️  {platform}: 검색 후보를 내는 크롤러가 없어 건너뜀', flush=True)
             continue
         # 성인 작품 상세(작가 확인)는 로그인해야 열린다. 쿠키가 없거나 만료면 경고하고 비로그인으로 계속 (#98)

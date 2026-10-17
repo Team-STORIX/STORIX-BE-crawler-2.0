@@ -2,22 +2,22 @@ import html
 import json
 import re
 import time
-import pickle
 
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import TimeoutException, InvalidSessionIdException
-from urllib3.exceptions import ReadTimeoutError as _DriverTimeoutError
+from selenium.common.exceptions import TimeoutException
 
-from .base_crawler import PASS_THROUGH, AuthExpiredError, BaseCrawler, manual_login_timeout, HttpUnavailable, SessionExpiredError, pick_candidates
+from .base_crawler import PASS_THROUGH, AuthExpiredError, BaseCrawler, manual_login_timeout, HttpUnavailable, SessionExpiredError
+from .cookies import apply_cookies, write_cookies
+from review.hashtags import is_noise_tag
+from .classify import artist_fields, is_age_gate_cover, works_type_from_category
 from config import RIDIBOOKS_COOKIE_FILE, RIDIBOOKS_LOGIN_URL, RIDIBOOKS_ID, RIDIBOOKS_PW
 
 # 로그인하면 생기는 쿠키. 세션 등록 API(api/session_api.py)도 같은 쿠키로 로그인을 판단한다
 RIDI_SESSION_COOKIE = 'ridi-at'
 
-# 리디 브레드크럼 카테고리 텍스트 → 대표 장르(DB 표준값).
-# 위에서부터 먼저 매칭되는 것을 채택 → 로판/BL/무협을 로맨스·판타지보다 앞에 둔다.
+# 위에서부터 먼저 맞는 것을 쓰므로 로판/BL/무협을 로맨스·판타지보다 앞에 둔다.
 # (실제 리디 분류: 로판 e북/웹소설, BL 소설/웹소설/만화/웹툰, 무협 소설,
 #  정통·퓨전·현대 판타지·판타지 웹소설, 로맨스 e북/웹소설, 라이트노벨 등)
 _RIDI_GENRE_KEYWORDS = [
@@ -50,7 +50,6 @@ _RIDI_NON_TARGET_CAT_KEYWORDS = (
 
 
 def _ridi_is_general_lit(cat_texts: list[str]) -> bool:
-    """브레드크럼 카테고리가 일반 단행본(비웹툰·비웹소설)이면 True."""
     blob = ' '.join(cat_texts)
     return any(kw in blob for kw in _RIDI_NON_TARGET_CAT_KEYWORDS)
 
@@ -62,15 +61,7 @@ def ridi_genre_and_type(cat_texts: list[str], section: str = '') -> tuple[str, s
     '만화 e북' 카테고리(출판 만화)는 만화다 (#64)."""
     cat_blob = ' '.join(cat_texts)
     genre = next((canonical for kw, canonical in _RIDI_GENRE_KEYWORDS if kw in cat_blob), '')
-    if '웹툰' in cat_blob:
-        return genre, '웹툰'
-    if '만화' in cat_blob:
-        return genre, '만화'
-    if any(k in cat_blob for k in ('웹소설', '소설', '노벨', 'e북')):
-        return genre, '웹소설'
-    if '소설' in section:
-        return genre, '웹소설'
-    return genre, '웹툰'
+    return genre, works_type_from_category(cat_blob, '웹소설' if '소설' in section else '웹툰')
 
 
 class RidibooksCrawler(BaseCrawler):
@@ -83,7 +74,7 @@ class RidibooksCrawler(BaseCrawler):
 
     def _save_cookies(self):
         try:
-            pickle.dump(self.driver.get_cookies(), open(RIDIBOOKS_COOKIE_FILE, "wb"))
+            write_cookies(RIDIBOOKS_COOKIE_FILE, self.driver.get_cookies())
         except Exception as e:
             print(f"⚠️ 리디북스 쿠키 저장 실패: {e}")
 
@@ -93,14 +84,7 @@ class RidibooksCrawler(BaseCrawler):
         try:
             self.driver.get("https://ridibooks.com")
             time.sleep(2)
-            cookies = pickle.load(open(RIDIBOOKS_COOKIE_FILE, "rb"))
-            for c in cookies:
-                if 'expiry' in c:
-                    del c['expiry']
-                try:
-                    self.driver.add_cookie(c)
-                except Exception:
-                    pass
+            apply_cookies(self.driver, RIDIBOOKS_COOKIE_FILE)
             self.driver.get("https://ridibooks.com/account/myridi")
             time.sleep(3)
             if "account/login" in self.driver.current_url:
@@ -202,9 +186,7 @@ class RidibooksCrawler(BaseCrawler):
         return False
 
     def search_candidates(self, title: str) -> list[dict]:
-        """리디 검색 결과 → 후보 목록 (일치도 순, 카드에 보이는 유형 힌트 포함).
-
-        검색 결과 카드는 emotion 해시 클래스라 안정적인 셀렉터가 없어, `/books/<id>`
+        """검색 결과 카드는 emotion 해시 클래스라 안정적인 셀렉터가 없어, `/books/<id>`
         링크(속성 기반)를 훑어 책ID 별로 (표시 제목, 카드 텍스트)를 모은다. 같은 책에
         썸네일 · 제목 두 앵커가 걸리므로 책ID로 합쳐 텍스트가 있는 쪽을 제목으로 쓴다.
         """
@@ -242,18 +224,7 @@ class RidibooksCrawler(BaseCrawler):
                for book_id, text, card in cards if text]
         return self.rank_candidates(title, raw)
 
-    def search_url_by_title(self, title: str, works_type: str | None = None) -> str | None:
-        """제목으로 리디북스 작품 URL 검색. 원하는 유형이 있으면 그 유형 후보를 먼저 고른다."""
-        picked = pick_candidates(self.search_candidates(title), works_type)
-        if not picked:
-            print(f"   ⚠️  '{title}'과 일치하는 검색 결과 없음 — 스킵")
-            return None
-        c = picked[0]
-        print(f"   ↳ 검색 결과 ({c['kind']}): {c['url']} [{c['text']}]")
-        return c['url']
-
     def get_category_urls(self, base_url: str, extra_params: str, max_count: int) -> list[str]:
-        """카테고리 베스트셀러 URL 목록 수집 (스크롤 + 더보기 버튼)."""
         url = f"{base_url}?{extra_params}" if extra_params else base_url
         print(f"  📂 카테고리 URL 수집: {url}")
         self.driver.get(url)
@@ -270,7 +241,7 @@ class RidibooksCrawler(BaseCrawler):
                 if '/books/' not in href:
                     continue
                 book_id = href.rstrip('/').split('/books/')[-1].split('?')[0]
-                # 1612 등 실제 도서가 아닌 서비스 메타 페이지 제외
+                # 1612 는 도서가 아닌 서비스 메타 페이지
                 _RIDI_NON_BOOK_IDS = {'1612'}
                 if book_id.isdigit() and book_id not in _RIDI_NON_BOOK_IDS:
                     collected.add(f"https://ridibooks.com/books/{book_id}")
@@ -331,7 +302,6 @@ class RidibooksCrawler(BaseCrawler):
             self.driver.execute_script("window.scrollTo(0, 0);")
             time.sleep(0.3)
 
-            # 제목
             title = ""
             for sel in [
                 "h1.book_title", "h2.book_title", ".book_info h1", ".book_info h2",
@@ -356,7 +326,6 @@ class RidibooksCrawler(BaseCrawler):
             if not title:
                 return None
 
-            # 썸네일
             thumb = ""
             for sel in [".thumbnail img", ".cover_image img", ".book_cover img", "img.cover"]:
                 try:
@@ -374,7 +343,7 @@ class RidibooksCrawler(BaseCrawler):
                     pass
             thumb = ridi_real_cover(thumb, url)
 
-            # 더보기 클릭 (description 펼치기 — line-clamp 해제)
+            # 소개가 line-clamp 로 접혀 있다
             try:
                 more_btn = self.driver.find_element(
                     By.XPATH,
@@ -385,7 +354,6 @@ class RidibooksCrawler(BaseCrawler):
             except Exception:
                 pass
 
-            # 설명 - '작품 소개' h2 다음 형제 div innerText (\n 보존)
             # 구조: h2[작품 소개] → div.container → div.text-wrapper(버튼 제외) → div(br 포함 텍스트)
             desc = ""
             try:
@@ -425,7 +393,6 @@ class RidibooksCrawler(BaseCrawler):
                 except Exception:
                     pass
 
-            # 작가 정보
             author = ""
             illustrator = ""
             original_author = ""
@@ -448,17 +415,10 @@ class RidibooksCrawler(BaseCrawler):
                         if not name:
                             continue
                         # li 전체 텍스트에서 이름을 뺀 나머지가 역할 (예: "유한려 저자" → "저자")
-                        role = li.text.replace(name, '').strip()
-                        role = role.replace('/', '').replace('·', '').replace(' ', '')
-                        if '글' in role and '그림' in role:      # 글그림 / 글·그림
-                            if not author: author = name
-                            if not illustrator: illustrator = name
-                        elif '그림' in role or '그린이' in role:
-                            if not illustrator: illustrator = name
-                        elif '원작' in role:
-                            if not original_author: original_author = name
-                        else:  # 저자/글/지은이/글쓴이/역할없음 → 글作家
-                            if not author: author = name
+                        fields = artist_fields(li.text.replace(name, ''))
+                        author = author or (name if 'author' in fields else '')
+                        illustrator = illustrator or (name if 'illustrator' in fields else '')
+                        original_author = original_author or (name if 'original_author' in fields else '')
                     except Exception:
                         continue
             except Exception:
@@ -481,17 +441,11 @@ class RidibooksCrawler(BaseCrawler):
                     name = parts[1].strip()
                     if not name:
                         continue
-                    if role in ("글", "지은이", "작가", "저자"):
-                        if not author: author = name
-                    elif role in ("그림", "그린이"):
-                        if not illustrator: illustrator = name
-                    elif role == "원작":
-                        if not original_author: original_author = name
-                    elif role == "글/그림":
-                        if not author: author = name
-                        if not illustrator: illustrator = name
-                    else:
-                        if not author: author = name
+                    # 역할 판정은 HTTP 경로와 같다 — 번역 · 감수 등은 작가에 넣지 않는다 (#121)
+                    fields = artist_fields(role)
+                    author = author or (name if 'author' in fields else '')
+                    illustrator = illustrator or (name if 'illustrator' in fields else '')
+                    original_author = original_author or (name if 'original_author' in fields else '')
             except Exception:
                 pass
 
@@ -547,7 +501,6 @@ class RidibooksCrawler(BaseCrawler):
                     except Exception:
                         pass
 
-            # 방법 3: 메타 태그 폴백
             if not author and not illustrator:
                 try:
                     meta_author = self.driver.find_element(
@@ -582,7 +535,6 @@ class RidibooksCrawler(BaseCrawler):
                 cat_texts = [c.text.strip() for c in cat_els if c.text.strip()]
             except Exception:
                 pass
-            # 일반 단행본(나라별 문학·에세이·인문 등)은 크롤 대상이 아니므로 스킵.
             if cat_texts and _ridi_is_general_lit(cat_texts):
                 print(f"   ⏭️  일반문학/비대상 카테고리 — 스킵: {title} "
                       f"({' > '.join(cat_texts)})")
@@ -661,13 +613,9 @@ def ridi_type_hint(card_text: str) -> str | None:
     return None
 
 
-# 성인 인증이 안 된 화면에서 표지 대신 나오는 가림 이미지
-RIDI_ADULT_COVER = re.compile(r'ridicdn\.net/.*book_cover/cover_adult')
-
-
 def ridi_real_cover(thumb: str, book_url: str) -> str:
     """가림 이미지면 책 ID 로 실제 표지 주소를 만든다. 리디 이미지 서버는 성인 책도 표지를 준다."""
-    if not RIDI_ADULT_COVER.search(thumb or ''):
+    if not is_age_gate_cover(thumb):
         return thumb
     m = re.search(r'/books/(\d+)', book_url or '')
     return f'https://img.ridicdn.net/cover/{m.group(1)}/xxlarge' if m else ''
@@ -675,9 +623,8 @@ def ridi_real_cover(thumb: str, book_url: str) -> str:
 
 # 리디가 키워드 목록에 같이 넣는 통계 · 가격 · 권수 · 판매 · 연재 상태 태그. 작품 내용이 아니라 해시태그로 쓰지 않는다
 #   별점1000개이상 · 리뷰500개이상 · 평점4점이상 · 1만원~2만원 · 2만원초과 · 10000~15000원 · 5권이상 · 기다리면무료 · 연재완결
-RIDI_META_KEYWORDS = re.compile(
-    r'^(?:(?:별점|리뷰|평점)\d+.*|.*\d+\s*[만천]?\s*원(?:이상|이하|미만|초과)?|\d+\s*권(?:이상|이하|미만)?|\d+\s*~\s*\d+\s*권'
-    r'|연재(?:완결|중)?|완결|ebook|전자책|만웹대여제|단행본|기다리면\s*무료|무료|대여|소장|\d+\s*%\s*할인)$')
+# 리디만의 표기. 판매 · 연재 상태 공통 표기(별점 · 가격 · 권수 · 완결 등)는 review.hashtags.is_noise_tag
+RIDI_META_KEYWORDS = re.compile(r'^(?:만웹대여제)$')
 
 
 def parse_ridi_keywords(src: str) -> list[str]:
@@ -697,16 +644,13 @@ def parse_ridi_keywords(src: str) -> list[str]:
         names = [html.unescape(n) for n in re.findall(r'<span>#<!-- -->([^<]+)</span>', src)]
     seen, out = set(), []
     for n in (x.strip() for x in names):
-        if n and n not in seen and not RIDI_META_KEYWORDS.match(n):
+        if n and n not in seen and not (is_noise_tag(n) or RIDI_META_KEYWORDS.match(n)):
             seen.add(n)
             out.append(n)
     return out
 
 
 _NEXT_DATA = re.compile(r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>', re.S)
-
-# 작가 묶음 제목 → 역할. 번역 · 감수 등은 작가로 넣지 않는다
-_RIDI_SKIP_ROLES = ('번역', '옮긴이', '감수', '편집', '기획')
 
 
 def _ridi_cells(src: str) -> dict:
@@ -727,7 +671,6 @@ def _ridi_cells(src: str) -> dict:
 
 
 def _ridi_intro_text(intro_html: str) -> str:
-    """작품 소개 HTML → 화면 글자 (줄바꿈 유지, 줄마다 앞뒤 공백 정리)."""
     t = re.sub(r'<br\s*/?>', '\n', intro_html or '', flags=re.I)
     t = html.unescape(re.sub(r'<[^>]+>', '', t)).replace('\r\n', '\n').replace('\r', '\n')
     return '\n'.join(re.sub(r'[ \t]+', ' ', line).strip() for line in t.split('\n')).strip()
@@ -761,20 +704,12 @@ def parse_ridi_book_page(src: str, url: str) -> dict | None:
 
     author = illustrator = original_author = ''
     for group in info.get('authorGroups') or []:
-        role = (group.get('title') or '').replace('/', '').replace('·', '').replace(' ', '')
         names = [(a.get('name') or '').strip() for a in group.get('authors') or []]
         name = next((n for n in names if n), '')
-        if not name or any(r in role for r in _RIDI_SKIP_ROLES):
-            continue
-        if '글' in role and '그림' in role:
-            author = author or name
-            illustrator = illustrator or name
-        elif '그림' in role or '그린이' in role:
-            illustrator = illustrator or name
-        elif '원작' in role:
-            original_author = original_author or name
-        else:  # 저자 · 글 · 지은이
-            author = author or name
+        fields = artist_fields(group.get('title')) if name else ()
+        author = author or (name if 'author' in fields else '')
+        illustrator = illustrator or (name if 'illustrator' in fields else '')
+        original_author = original_author or (name if 'original_author' in fields else '')
 
     desc = _ridi_intro_text((cells.get('BookDetailHomeBookIntroduction') or {}).get('introductionHtml') or '')
     if not desc:

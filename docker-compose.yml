@@ -17,7 +17,7 @@ services:
     shm_size: '2gb'
     command: ["python", "cli.py", "requests", "--env", "prod"]
 
-  # 로그인 쿠키를 받는 API (선택). 서버에는 SSM 으로 sessions/ 를 넣는 걸 기본으로 한다
+  # 로그인 쿠키를 받는 API (선택). 서버에는 S3 로 넣는 게 기본이다 (deploy/push_sessions.sh)
   session-api:
     build: .
     image: storix-crawler:latest

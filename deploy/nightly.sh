@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # 크롤러 서버 야간 실행 (#77). 부팅 때 systemd(storix-crawler-nightly.service)가 한 번 부른다.
 #   1) Parameter Store /storix/crawler/ → 환경변수 파일 (메모리 위 /run, 디스크에 안 남김)
-#   2) main 을 받아 compose · 스크립트 갱신, 이미지는 ECR 에서 받음 (main 푸시 때 cd.yml 이 올림)
+#   2) main 으로 코드 갱신, 이미지는 ECR 에서 받음 (main 푸시 때 cd.yml 이 올림)
 #   3) 로그인 쿠키: S3 에 더 새 것이 있으면 받음 (로컬에서 deploy/push_sessions.sh 로 올림)
-#   4) 노션 작품 요청 처리 — 단, 슬랙 [다시 로그인] 버튼으로 켜졌으면(태그 crawler:mode=login) 폰 원격 로그인
-#      (crawler/remote_login.py) 을 돌리고 성공하면 쿠키를 S3 에 올린다 (cli.py requests --env prod). 세션 만료 · 실패 알림은 cli 가 슬랙으로 보낸다
-#      다시 로그인에 성공하면 [못 긁은 작품 다시 긁기] 버튼을 단다 — 누르면 Lambda 가 crawler:mode=rerun 으로 켜 5) 만 다시 돈다
-#   5) 그 전에 로그인 쿠키를 모두 열어 갱신한다 (cli.py keepalive). 만료면 요청이 없어도 [다시 로그인] 알림이 간다
+#   4) 슬랙 버튼으로 켜졌으면(태그 crawler:mode) 그 일만 한다
+#      login: 폰 원격 로그인(crawler/remote_login.py). 성공하면 쿠키를 S3 에 올리고 [못 긁은 작품 다시 긁기] 버튼을 단다
+#      rerun: 5) 의 노션 요청 처리만 다시
+#   5) 로그인 쿠키를 모두 열어 갱신(cli.py keepalive, 만료면 요청이 없어도 [다시 로그인] 알림)한 뒤
+#      노션 작품 요청 처리 (cli.py requests --env prod). 세션 만료 · 실패 알림은 cli 가 슬랙으로 보낸다
 #   6) 실행 중에 버튼을 눌렀으면(태그 crawler:mode=login-after · rerun-after) 끄기 전에 처리
 #   7) 서버 종료 — 그 전에 S3 보다 새 쿠키를 올린다. /etc/storix-crawler/hold 가 있으면 끄지 않는다 (들어가서 고칠 때)
 set -uo pipefail
@@ -26,51 +27,30 @@ SESSIONS_BUCKET=${SESSIONS_BUCKET:-storix-crawler-sessions}
 
 log() { echo "[nightly] $*"; }
 
-# cli 까지 못 가고 죽으면 cli 가 알릴 수 없으니 여기서 알린다
-slack() {  # slack <글> [채널] [스레드] [blocks JSON]
-  local token channel
-  token=$(grep -s '^SLACK_BOT_TOKEN=' "$ENV_FILE" | cut -d= -f2-)
-  channel=${2:-$(grep -s '^SLACK_CHANNEL_ID=' "$ENV_FILE" | cut -d= -f2-)}
-  [ -n "$token" ] && [ -n "$channel" ] || return 0
-  curl -s -o /dev/null -X POST https://slack.com/api/chat.postMessage \
-    -H "Authorization: Bearer $token" -H 'Content-Type: application/json; charset=utf-8' \
-    --data "$(python3 -c 'import json,sys; print(json.dumps({"channel": sys.argv[1], "text": sys.argv[2], **({"thread_ts": sys.argv[3]} if sys.argv[3] else {}), **({"blocks": json.loads(sys.argv[4])} if sys.argv[4] else {})}))' "$channel" "$1" "${3:-}" "${4:-}")"
+# cli 까지 못 가고 죽으면 cli 가 알릴 수 없으니 여기서 알린다. 전송 코드는 crawler/notify.py 한 곳 (컨테이너 없이 부른다)
+notify() {
+  SLACK_BOT_TOKEN=$(grep -s '^SLACK_BOT_TOKEN=' "$ENV_FILE" | cut -d= -f2-) \
+  SLACK_CHANNEL_ID=$(grep -s '^SLACK_CHANNEL_ID=' "$ENV_FILE" | cut -d= -f2-) \
+    python3 -m crawler.notify "$@" >/dev/null || true
 }
-
-# 글 + [못 긁은 작품 다시 긁기] 버튼. 버튼은 크롤러 슬랙 앱의 Interactivity(Lambda)로 간다
-rerun_blocks() {
-  python3 -c 'import json,sys; print(json.dumps([
-    {"type": "section", "text": {"type": "mrkdwn", "text": sys.argv[1]}},
-    {"type": "actions", "elements": [{"type": "button", "text": {"type": "plain_text", "text": "🔄 못 긁은 작품 다시 긁기"},
-                                      "action_id": "rerun:requests", "value": "requests", "style": "primary"}]}]))' "$1"
+slack() {  # slack <글> [채널] [스레드] [rerun: 다시 긁기 버튼]
+  notify post "$1" ${2:+--channel "$2"} ${3:+--thread "$3"} ${4:+--rerun-button}
 }
-
 # 스레드 답글과 같은 이모지로 원글에 반응한다. react <이모지 이름> <채널> <원글 ts>
 react() {
-  local token
-  token=$(grep -s '^SLACK_BOT_TOKEN=' "$ENV_FILE" | cut -d= -f2-)
-  [ -n "$token" ] && [ -n "$2" ] && [ -n "$3" ] || return 0
-  curl -s -o /dev/null -X POST https://slack.com/api/reactions.add \
-    -H "Authorization: Bearer $token" -H 'Content-Type: application/json; charset=utf-8' \
-    --data "{\"channel\":\"$2\",\"timestamp\":\"$3\",\"name\":\"$1\"}"
+  [ -n "${2:-}" ] && [ -n "${3:-}" ] || return 0
+  notify react "$1" "$2" "$3"
 }
 
-# 서버에서 갱신한 쿠키(keepalive · 원격 로그인)를 S3 에 올린다. S3 쪽이 더 새 것(그사이 로컬에서 올림)은 덮지 않는다
+# 서버에서 갱신한 쿠키(keepalive · 원격 로그인)를 S3 에 올린다. S3 쪽이 더 새 것(그사이 로컬에서 올림)은 덮지 않는다.
+# 올리는 건 deploy/push_sessions.sh 하나가 한다
 upload_sessions() {
-  local file key modified remote
   [ -d sessions ] || return 0
-  for file in sessions/*.pkl; do
-    [ -e "$file" ] || continue
-    key="sessions/${file##*/}"
-    modified=$(aws s3api head-object --bucket "$SESSIONS_BUCKET" --key "$key" --query LastModified --output text 2>/dev/null)
-    remote=$( [ -n "$modified" ] && date -d "$modified" +%s || echo 0 )
-    if [ "$(stat -c %Y "$file")" -gt "$remote" ] \
-       && aws s3 cp --only-show-errors --sse AES256 "$file" "s3://$SESSIONS_BUCKET/$key"; then
-      log "쿠키 올림 ${file##*/}"
-    fi
-  done
+  SESSIONS_BUCKET=$SESSIONS_BUCKET bash deploy/push_sessions.sh --newer | while read -r line; do log "$line"; done
+  return "${PIPESTATUS[0]}"
 }
 
+# 7) 어느 경로로 끝나든 쿠키를 올리고 서버를 끈다
 finish() {
   upload_sessions
   rm -f "$ENV_FILE"
@@ -153,7 +133,7 @@ clear_tags() { aws ec2 delete-tags --resources "$instance_id" --tags "${LOGIN_TA
 
 # 태그대로 원격 로그인. 다음 부팅이 또 로그인 모드가 되지 않게 태그는 바로 지운다
 remote_login() {
-  local platform user channel thread code cookie
+  local platform user channel thread code
   platform=$(tag crawler:login-platform) user=$(tag crawler:login-user)
   channel=$(tag crawler:login-channel) thread=$(tag crawler:login-thread)
   clear_tags
@@ -162,20 +142,20 @@ remote_login() {
     --platform "$platform" --user "$user" --channel "$channel" ${thread:+--thread "$thread"}
   code=$?
   if [ "$code" -eq 0 ]; then
-    case "$platform" in naver_*) cookie=naver ;; kakao_page) cookie=kakao ;; *) cookie=$platform ;; esac
-    if aws s3 cp --only-show-errors --sse AES256 "sessions/${cookie}_cookies.pkl" "s3://$SESSIONS_BUCKET/sessions/${cookie}_cookies.pkl"; then
+    # 방금 저장한 쿠키가 S3 보다 새 것이라 올라간다. 플랫폼 → 쿠키 파일 대응은 파이썬 등록부(platforms.py)에만 둔다
+    if upload_sessions; then
       text=":white_check_mark: *$platform* 다시 로그인 완료 — 쿠키를 갱신했습니다. 못 긁은 작품은 다음 자정에 다시 찾고, 지금 바로 하려면 아래 버튼을 누르세요"
       react white_check_mark "$channel" "$thread"
     else
       text=":warning: *$platform* 로그인은 됐지만 쿠키를 S3 에 못 올렸습니다. 서버 sessions/ 에는 있어 다시 긁기 · 자정 실행은 됩니다"
       react warning "$channel" "$thread"
     fi
-    slack "$text" "$channel" "$thread" "$(rerun_blocks "$text")"
+    slack "$text" "$channel" "$thread" rerun
   fi
   return "$code"
 }
 
-# 5) 노션 작품 요청 처리. NIGHTLY_ARGS 로 명령을 바꿀 수 있다 (첫 확인: NIGHTLY_ARGS='python cli.py requests --env prod --dry-run')
+# 노션 작품 요청 처리. NIGHTLY_ARGS 로 명령을 바꿀 수 있다 (첫 확인: NIGHTLY_ARGS='python cli.py requests --env prod --dry-run')
 crawl() {
   log '노션 작품 요청 처리 시작'
   # shellcheck disable=SC2086
@@ -230,14 +210,14 @@ case "$mode" in
     clear_tags ;;
 esac
 
-# 로그인 쿠키 갱신. 실패해도 요청 처리는 한다 (만료 알림은 cli 가 보낸다)
+# 5) 쿠키 갱신 뒤 요청 처리. 갱신이 실패해도 요청 처리는 한다 (만료 알림은 cli 가 보낸다)
 if [ -z "${NIGHTLY_ARGS:-}" ]; then
   docker compose run --rm nightly python cli.py keepalive || log '쿠키 갱신에 실패한 플랫폼이 있습니다'
 fi
 
 crawl
 code=$?
-# 월요일(한국 시간)이면 지난주 새로 만든 작품을 슬랙으로. 없으면 보내지 않는다
+# 지난주 새로 만든 작품 주간 알림. 없으면 보내지 않는다
 if [ "$(TZ=Asia/Seoul date +%u)" = 1 ] && [ -z "${NIGHTLY_ARGS:-}" ]; then
   docker compose run --rm nightly python cli.py stage weekly --env prod --send || log '주간 작품 추가 알림 실패'
 fi

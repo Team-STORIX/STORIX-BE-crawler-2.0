@@ -5,11 +5,13 @@
 세션은 `python cli.py login --platform mrblue` 로 사람이 브라우저에서 로그인해 sessions/ 에 저장한다.
 """
 import html
-import pickle
 import re
 import time
 
 from .base_crawler import PASS_THROUGH, BaseCrawler, HttpUnavailable, SessionExpiredError, manual_login_timeout
+from .cookies import apply_cookies, read_cookies, write_cookies
+from review.hashtags import is_noise_tag
+from .classify import age_from_text
 from config import MRBLUE_COOKIE_FILE
 
 SITE = 'https://www.mrblue.com'
@@ -32,9 +34,8 @@ _SYNOPSIS = re.compile(r'<div class="txt-box">(.*?)</div>', re.S)
 # 판매 · 통계 · 형식 키워드는 해시태그로 쓰지 않는다
 #   스크롤 · 오리지널 · 2만~3만원 · 50화이상 · 별점4점이상 · 리뷰100개+ · 완결 · 대여 · 19+
 #   미블뿐 · 할인이벤트 · 선물함 · 기다리면무료 · 4주이내신작 · 후방주의
-MRBLUE_META_TAGS = re.compile(
-    r'^(?:스크롤|오리지널|독점|완결|연재중?|대여|소장|무료|단행본|미블뿐|할인이벤트|선물함|기다리면\s*무료|후방주의|\d+\s*[주일]\s*이내\s*신작|\d+\+|.*\d+\s*[만천]?\s*원.*|\d+\s*화\s*(?:이상|이하|미만)?'
-    r'|(?:별점|평점|리뷰)\s*\d+.*)$')
+# 미스터블루만의 표기. 판매 · 연재 상태 공통 표기는 review.hashtags.is_noise_tag
+MRBLUE_META_TAGS = re.compile(r'^(?:미블뿐|선물함)$')
 
 
 def mrblue_work(url: str) -> tuple[str, str] | None:
@@ -76,11 +77,7 @@ def parse_mrblue_page(src: str, url: str) -> dict | None:
                     roles['illustrator'] = roles['illustrator'] or name
 
     age = _AGE.search(src)
-    age_text = age.group(1) if age else ''
-    if age_text.startswith('19'):
-        age_text = '18세 이용가'
-    elif age_text.startswith('전체'):
-        age_text = '전체연령가'
+    age_text = age_from_text(age.group(1)) if age else ''
     genre = _GENRE.search(src)
     synopsis = _SYNOPSIS.search(src)
     return {
@@ -92,7 +89,7 @@ def parse_mrblue_page(src: str, url: str) -> dict | None:
         'description': _text(synopsis.group(1)) if synopsis else '',
         'genre': _text(genre.group(1)) if genre else '',
         'hashtags': list(dict.fromkeys(k for k in (html.unescape(x).strip() for x in _KEYWORD.findall(src))
-                                       if k and not MRBLUE_META_TAGS.match(k))),
+                                       if not (is_noise_tag(k) or MRBLUE_META_TAGS.match(k)))),
         'thumbnail_url': COVER.format(pid=pid),
         'works_type': _TYPES.get(section, ''),
         'source_url': f'{SITE}/{section}/{pid}',
@@ -108,7 +105,7 @@ class MrblueCrawler(BaseCrawler):
         if not MRBLUE_COOKIE_FILE.exists():
             return ''
         try:
-            cookies = pickle.load(open(MRBLUE_COOKIE_FILE, 'rb'))
+            cookies = read_cookies(MRBLUE_COOKIE_FILE)
         except Exception:
             return ''
         return '; '.join(f"{c['name']}={c['value']}" for c in cookies if 'mrblue' in (c.get('domain') or ''))
@@ -145,8 +142,6 @@ class MrblueCrawler(BaseCrawler):
             self._log.warning('crawl_detail 실패 (%s): %s', url, e)
             return None
 
-    # ---------------------------------------------------------------- 로그인
-
     def _http_adult_ok(self) -> bool:
         try:
             return self.crawl_detail_http(f'{SITE}/webtoon/wt_000070142') is not None
@@ -158,12 +153,7 @@ class MrblueCrawler(BaseCrawler):
             return False
         try:
             self.driver.get(SITE)
-            for c in pickle.load(open(MRBLUE_COOKIE_FILE, 'rb')):
-                c.pop('expiry', None)
-                try:
-                    self.driver.add_cookie(c)
-                except Exception:
-                    pass
+            apply_cookies(self.driver, MRBLUE_COOKIE_FILE)
             self.driver.get(f'{SITE}/webtoon/wt_000070142')
             return not self.is_login_page() and parse_mrblue_page(self.driver.page_source, self.driver.current_url) is not None
         except Exception as e:
@@ -188,7 +178,7 @@ class MrblueCrawler(BaseCrawler):
             time.sleep(4)
             if self.is_login_page():
                 continue
-            pickle.dump(self.driver.get_cookies(), open(MRBLUE_COOKIE_FILE, 'wb'))
+            write_cookies(MRBLUE_COOKIE_FILE, self.driver.get_cookies())
             if self._http_adult_ok():
                 print('✅ [미스터블루] 로그인 · 성인 작품 확인. 쿠키를 저장했습니다.')
                 return True
@@ -196,16 +186,11 @@ class MrblueCrawler(BaseCrawler):
         return False
 
     def search_candidates(self, title: str) -> list[dict]:
-        """미스터블루 검색 결과 → 후보 목록 (일치도 순). 로그인 없이도 성인 작품까지 나온다 (#107)"""
+        """로그인 없이도 성인 작품까지 나온다 (#107)"""
         import urllib.parse
         self.driver.get(f'{SITE}/search?keyword={urllib.parse.quote(title)}')
         time.sleep(3)
         return self.rank_candidates(title, parse_mrblue_search(self.driver.page_source))
-
-    def search_url_by_title(self, title: str) -> str | None:
-        candidates = self.search_candidates(title)
-        return candidates[0]['url'] if candidates else None
-
 
 # 검색 결과의 작품 제목 링크. 주소의 webtoon · comic · novel 로 유형을 안다
 _MRBLUE_RESULT = re.compile(r'<span class="tit[^"]*">\s*<a href="(/(webtoon|comic|novel)/[A-Za-z0-9_]+)" title="([^"]*)"')

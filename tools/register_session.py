@@ -23,11 +23,12 @@ import requests
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 
-LOGIN_TIMEOUT_S = 600  # 로그인 대기 최대 10분
+LOGIN_TIMEOUT_S = 600
 POLL_INTERVAL_S = 2
 
 # platform → (표시명, 로그인 URL, 로그인 완료 판정 쿠키, 로그인 후 이동 URL, pkl 파일명)
-# 판정 쿠키는 서버(api/session_api.py)의 marker와 반드시 일치해야 한다.
+# 이 툴은 exe 로 따로 빌드해 저장소 모듈을 못 불러온다. 판정 쿠키 · pkl 파일명은 등록부(modules/crawler/platforms.py)의
+# LOGIN_COOKIES · COOKIE_FILES 와 같아야 한다 — 어긋나면 tests/test_platforms.py 가 실패한다
 PLATFORMS = {
     'naver_webtoon': (
         '네이버',

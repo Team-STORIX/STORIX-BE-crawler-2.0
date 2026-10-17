@@ -206,8 +206,9 @@ def test_titles_file_sections(tmp_path, capsys):
     from cli import _parse_titles_file
     f = tmp_path / 'titles.txt'
     f.write_text('## 웹툰\n천관사복\n## 전체\n넷카마 펀치!!!\n## 단행본\n군림천하\n', encoding='utf-8')
-    assert _parse_titles_file(f) == [('천관사복', '웹툰'), ('넷카마 펀치!!!', '전체'), ('군림천하', '웹소설')]
-    assert '단행본' in capsys.readouterr().out  # 없어진 섹션은 경고한다
+    # 단행본은 노션 요청과 같이 웹소설 · 만화로 찾는다 (classify.REQUEST_SECTIONS, #122)
+    assert _parse_titles_file(f) == [('천관사복', '웹툰'), ('넷카마 펀치!!!', '전체'),
+                                     ('군림천하', '웹소설'), ('군림천하', '만화')]
 
 
 def test_ridi_revised_prefix_matches_title():

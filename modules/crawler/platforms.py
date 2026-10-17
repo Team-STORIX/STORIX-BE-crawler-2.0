@@ -17,8 +17,8 @@ from config import (BOMTOON_COOKIE_FILE, KAKAO_COOKIE_FILE, LEZHIN_COOKIE_FILE, 
 @dataclass(frozen=True)
 class Platform:
     key: str        # cli --platform · 리포트 · 수집 파일 이름 (crawler.REPORT_PLATFORM)
-    enum: str       # BE Platform enum name
-    label: str      # 사람이 보는 이름
+    enum: str
+    label: str
     crawler: str    # 'modules.crawler.<모듈>:<클래스>' (selenium 을 늦게 불러오려고 문자열로 둔다)
     login: str      # 로그인 쿠키를 같이 쓰는 플랫폼 key (네이버 웹툰 · 웹소설 · 시리즈는 네이버 쿠키 하나)
 
@@ -43,6 +43,16 @@ COOKIE_FILES = {
     'mrblue': MRBLUE_COOKIE_FILE,
 }
 
+# 로그인됐음을 보여 주는 쿠키 (세션 API · 세션 등록 툴이 받은 쿠키를 확인할 때)
+LOGIN_COOKIES = {
+    'naver_webtoon': 'NID_AUT',
+    'kakao_page': '_kawlt',
+    'ridibooks': 'ridi-at',
+}
+
+# 제목만 받고 연재처를 모를 때('전체' · 노션 '기타') 찾아보는 플랫폼 — 웹툰 · 웹소설을 모두 다루는 곳
+GENERAL_SEARCH = ('naver_webtoon', 'naver_novel', 'naver_series', 'kakao_page', 'ridibooks')
+
 _BY_NAME = {n: p for p in PLATFORMS for n in (p.key, p.enum)}
 
 
@@ -57,6 +67,12 @@ def get(name: str) -> Platform:
 def crawler_class(name: str):
     module, cls = get(name).crawler.split(':')
     return getattr(importlib.import_module(module), cls)
+
+
+def searchable(name: str) -> bool:
+    """제목 검색 후보(search_candidates)를 내는 크롤러인지. 링크 채우기 · 복구가 같이 쓴다 (#121)"""
+    from modules.crawler.base_crawler import BaseCrawler
+    return crawler_class(name).search_candidates is not BaseCrawler.search_candidates
 
 
 def cookie_file(name: str):

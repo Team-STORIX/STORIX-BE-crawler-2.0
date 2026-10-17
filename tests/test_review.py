@@ -1103,3 +1103,9 @@ def test_ebook_age_not_sent_when_other_row_created_the_work():
     run_import(store, FakeClient(respond))
     assert sent[1] == [(1, None)] and len(sent) == 2
     assert store.imported == {2: 50, 1: 50}
+
+
+def test_genre_field_uses_same_alias_as_tags():
+    """'로맨스판타지' 가 해시태그로는 로판, 장르 필드로는 모르는 값이었다 (#121)."""
+    v = validate_item(item(genre='로맨스판타지'), CATALOG)
+    assert v.normalized['genre'] == 'ROFAN'

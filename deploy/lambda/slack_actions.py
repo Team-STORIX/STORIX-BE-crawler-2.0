@@ -29,6 +29,7 @@ ec2 = boto3.client('ec2')
 
 INSTANCE_ID = os.environ['INSTANCE_ID']
 PARAM_PATH = os.environ.get('PARAM_PATH', '/storix/crawler/')
+# 버튼 action_id 접두어. 보내는 쪽(crawler/notify.py RELOGIN_ACTION · RERUN_ACTION)과 같아야 한다 — 테스트로 묶음
 RELOGIN, RERUN = 'relogin:', 'rerun:'
 _params: dict = {}
 
@@ -54,7 +55,6 @@ def allowed(user_id: str) -> bool:
 
 
 def reply(response_url: str, text: str) -> None:
-    """누른 사람에게만 보이는 답 (ephemeral). 원래 알림은 그대로 둔다."""
     req = urllib.request.Request(response_url, method='POST',
                                  data=json.dumps({'response_type': 'ephemeral', 'replace_original': False,
                                                   'text': text}).encode(),

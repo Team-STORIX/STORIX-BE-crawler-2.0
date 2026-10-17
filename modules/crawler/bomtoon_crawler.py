@@ -6,26 +6,28 @@
 세션은 `python cli.py login --platform bomtoon` 으로 사람이 브라우저에서 로그인해 sessions/ 에 저장한다.
 """
 import json
-import pickle
 import re
 import time
 
 from .base_crawler import PASS_THROUGH, BaseCrawler, HttpUnavailable, SessionExpiredError, manual_login_timeout
+from .cookies import apply_cookies, read_cookies, write_cookies
+from review.hashtags import is_noise_tag
+from review.landing import work_id
 from config import BOMTOON_COOKIE_FILE
 
 SITE = 'https://www.bomtoon.com'
 CONTENTS_API = SITE + '/api/balcony-api-v2/contents/{}'
 # 로그인 세션(next-auth). user.accessToken.token 을 API 에 Authorization: Bearer 로 붙인다 (쿠키만으로는 성인 작품이 안 열림)
 SESSION_API = SITE + '/api/auth/session'
-# 작품명 검색 (화면 검색과 같은 API)
+# 화면 검색과 같은 API
 SEARCH_API = SITE + '/api/balcony-api-v2/search/title'
 API_HEADERS = {'Accept': 'application/json', 'x-balcony-id': 'BOMTOON_COM', 'x-balcony-timeZone': 'Asia/Seoul'}
-_ALIAS = re.compile(r'bomtoon\.com/detail/([^/?#\s]+)')
 
 # 첫 태그는 장르다. 연재 요일 · 봄툰 자체 분류 · 이벤트 태그는 작품 내용이 아니라 해시태그로 쓰지 않는다
 #   토요연재 · 열흘연재 · 4일/14일/24일 · 2/12/22일 · 단편선 · 오직봄툰 · 기다봄 · 웹툰판 · 월드드랍 · 봄툰공모전_당선웹툰 · BL비엘
+# 봄툰만의 표기 (연재 요일 · 봄툰 브랜드 · 판 구분). 판매 · 연재 상태 공통 표기는 review.hashtags.is_noise_tag
 BOMTOON_META_TAGS = re.compile(
-    r'^(?:.+연재|\d+(?:일)?(?:/\d+(?:일)?)*일|단편선|오직봄툰|기다봄|웹툰판|소설판|월드드랍|BL비엘|GL지엘|.*공모전.*|.*봄툰.*)$')
+    r'^(?:.+연재|\d+(?:일)?(?:/\d+(?:일)?)*일|단편선|오직봄툰|기다봄|웹툰판|소설판|BL비엘|GL지엘|.*공모전.*|.*봄툰.*)$')
 # 작가가 직접 다는 자유 태그(isExtra)는 '츤데레수' · '혐관' 같은 키워드도 있지만 문장('드실래요_잘생긴..감자♥') ·
 # 캐릭터 커플링('도해x단조')이 섞여 있다. 짧은 단어형만 남긴다
 _EXTRA_KEYWORD = re.compile(r'^[가-힣A-Za-z0-9/]{1,8}$')
@@ -36,7 +38,7 @@ _TYPES = {'COMIC': '웹툰', 'CARTOON': '만화', 'NOVEL': '웹소설'}
 
 def _keep_tag(tag: dict) -> bool:
     name = (tag.get('name') or '').strip()
-    if not name or BOMTOON_META_TAGS.match(name):
+    if is_noise_tag(name) or BOMTOON_META_TAGS.match(name):
         return False
     if tag.get('isExtra'):
         return bool(_EXTRA_KEYWORD.match(name)) and not _PAIRING.search(name)
@@ -44,12 +46,10 @@ def _keep_tag(tag: dict) -> bool:
 
 
 def bomtoon_alias(url: str) -> str | None:
-    m = _ALIAS.search(url or '')
-    return m.group(1).strip() if m else None
+    return work_id(url, 'BOMTOON')   # 작품 주소 규칙은 review/landing 한 곳
 
 
 def parse_bomtoon_contents(data: dict, url: str) -> dict:
-    """작품 API 의 data → 수집 결과."""
     tags = [t for t in data.get('tags') or [] if (t.get('name') or '').strip()]
     genre = tags[0]['name'].strip() if tags else ''
     hashtags = list(dict.fromkeys(t['name'].strip() for t in tags[1:] if _keep_tag(t)))
@@ -103,7 +103,7 @@ class BomtoonCrawler(BaseCrawler):
         self._token: tuple[str, float] | None = None  # (토큰, 만료 시각 epoch 초)
 
     def _access_token(self) -> str:
-        """저장된 쿠키로 세션 토큰을 받는다. 만료 전까지 재사용. 로그인 세션이 없으면 ''."""
+        """저장된 쿠키로 받는 세션 토큰. 로그인 세션이 없으면 ''."""
         if self._token and self._token[1] - 60 > time.time():
             return self._token[0]
         cookie = self._cookie_header()
@@ -123,7 +123,7 @@ class BomtoonCrawler(BaseCrawler):
         if not BOMTOON_COOKIE_FILE.exists():
             return ''
         try:
-            cookies = pickle.load(open(BOMTOON_COOKIE_FILE, 'rb'))
+            cookies = read_cookies(BOMTOON_COOKIE_FILE)
         except Exception:
             return ''
         return '; '.join(f"{c['name']}={c['value']}" for c in cookies if 'bomtoon' in (c.get('domain') or ''))
@@ -175,8 +175,6 @@ class BomtoonCrawler(BaseCrawler):
                  .then(r => r.text()).then(done).catch(e => done(String(e)));""",
             api_url, API_HEADERS, SESSION_API)
 
-    # ---------------------------------------------------------------- 로그인
-
     def _adult_check(self) -> str:
         """성인 작품 API 결과 코드. SUCCESS 면 로그인 · 성인 인증이 된 것이다."""
         try:
@@ -195,12 +193,7 @@ class BomtoonCrawler(BaseCrawler):
         try:
             self.driver.get(SITE)
             time.sleep(1)
-            for c in pickle.load(open(BOMTOON_COOKIE_FILE, 'rb')):
-                c.pop('expiry', None)
-                try:
-                    self.driver.add_cookie(c)
-                except Exception:
-                    pass
+            apply_cookies(self.driver, BOMTOON_COOKIE_FILE)
             self.driver.get(SITE)
             return self._adult_session_ok()
         except Exception as e:
@@ -241,7 +234,7 @@ class BomtoonCrawler(BaseCrawler):
             if '/user/login' in (self.driver.current_url or ''):
                 continue
             # 로그인 화면을 벗어나면 쿠키부터 저장한다. 성인 인증 확인은 따로 알린다
-            pickle.dump(self.driver.get_cookies(), open(BOMTOON_COOKIE_FILE, 'wb'))
+            write_cookies(BOMTOON_COOKIE_FILE, self.driver.get_cookies())
             code = self._adult_check()
             if code == 'SUCCESS':
                 print('✅ [봄툰] 로그인 · 성인 인증 확인. 쿠키를 저장했습니다.')
@@ -254,7 +247,7 @@ class BomtoonCrawler(BaseCrawler):
         return False
 
     def search_candidates(self, title: str) -> list[dict]:
-        """봄툰 검색 API → 후보 (일치도 순). 성인 작품도 받으려면 로그인 세션 토큰이 필요하다."""
+        """성인 작품도 받으려면 로그인 세션 토큰이 필요하다."""
         import urllib.parse
         headers = dict(API_HEADERS)
         token = self._access_token()
@@ -270,7 +263,3 @@ class BomtoonCrawler(BaseCrawler):
         raw = [(f"{SITE}/detail/{c['alias']}", c.get('title') or '', _TYPES.get(c.get('type')))
                for c in contents if c.get('alias')]
         return self.rank_candidates(title, raw)
-
-    def search_url_by_title(self, title: str) -> str | None:
-        candidates = self.search_candidates(title)
-        return candidates[0]['url'] if candidates else None

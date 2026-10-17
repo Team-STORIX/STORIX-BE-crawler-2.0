@@ -4,7 +4,7 @@ import threading
 from datetime import datetime, timezone
 from pathlib import Path
 
-from config import OUTPUT_DIR
+from config import OUTPUT_DIR, RUN_DATE
 
 # 작가 원문을 글 · 그림 · 원작으로 나눈다. 옛 modules/db_handler.py(직접 INSERT 경로, #5 에서 삭제)에서 옮겨 왔다.
 # 검수 단계(review/artists.py normalize_artists)가 다시 정규화하므로 여기서는 수집 결과 파일 형식만 맞춘다
@@ -18,7 +18,6 @@ def parse_artists(artist_name_raw):
     if not artist_name_raw:
         return None, None, None
 
-    # 정규화
     text = artist_name_raw.replace('∙', ' ').replace(':', ' ')
     text = text.replace('글/그림', '글 그림').replace('글/원작', '글 원작')
 
@@ -121,9 +120,8 @@ def _normalize_record(data: dict, platform: str, mode: str) -> dict:
 class JSONLWriter:
     def __init__(self, platform: str, mode: str, output_dir: Path = None, filename: str = None):
         base = output_dir or OUTPUT_DIR
-        date_str = datetime.now().strftime('%Y-%m-%d')
         # 플랫폼마다 파일을 따로 쓴다. 플랫폼을 동시에 돌려도 서로 덮어쓰지 않는다 (#7)
-        self.path = Path(base) / date_str / (filename or f'{platform}_{mode}.jsonl')
+        self.path = Path(base) / RUN_DATE / (filename or f'{platform}_{mode}.jsonl')
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._platform = platform
         self._mode = mode
@@ -153,7 +151,7 @@ class JSONLWriter:
         record = _normalize_record(raw_data, self._platform, self._mode)
         key = self._record_key(record)
         with self._lock:
-            self._records[key] = record  # 동일 작품이면 덮어씌움
+            self._records[key] = record
 
     @property
     def count(self) -> int:

@@ -31,7 +31,7 @@ _failures: list[dict] = []
 
 
 def record(platform: str, status: str, target: str = '', detail: str = '') -> None:
-    """platform 의 status 1건을 센다. SUCCESS 가 아니면 대상(URL · 제목 · 구간)과 사유를 남긴다."""
+    """target 은 실패한 대상(URL · 제목 · 구간)."""
     with _lock:
         _counts[(platform, status)] += 1
         if status != SUCCESS:
@@ -59,7 +59,6 @@ def failed() -> bool:
 
 
 def save(output_dir: Path, mode: str) -> Path:
-    """output/<날짜>/<mode>_report.json 으로 저장하고 요약을 출력한다."""
     data = {'mode': mode, 'finished_at': datetime.now(timezone.utc).isoformat(timespec='seconds'),
             'failed': failed(), **summary()}
     output_dir.mkdir(parents=True, exist_ok=True)

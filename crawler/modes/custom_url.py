@@ -10,12 +10,6 @@ from review.landing import canonical_landing_url, platform_work_key
 
 SUPPORTED_PLATFORMS = ['naver_webtoon', 'naver_series', 'kakao_page', 'ridibooks']
 
-# 리디북스 단건 상세 URL 판별: /books/<숫자>
-_RIDI_BOOK_RE = re.compile(r'/books/(\d+)')
-
-# 카카오페이지 단건 상세 URL 판별: /content/<숫자>
-_KAKAO_CONTENT_RE = re.compile(r'/content/(\d+)')
-
 # 네이버 시리즈 모바일 → PC. 상세 파서가 PC 레이아웃 셀렉터(.end_head 등) 전용이라
 # m.series 로 들어오면 로딩 타임아웃이 난다.
 _SERIES_MOBILE_RE = re.compile(r'^(https?://)m\.series\.naver\.com')
@@ -77,11 +71,11 @@ def parse_url_to_platform(url: str) -> tuple[str, str]:
     # 카카오페이지: /content/<id> 단건 상세 vs 목록(메뉴·랭킹) 페이지
     # 실제 서비스 도메인은 page.kakao.com. kakaopage.com 은 구 도메인이라 같이 받는다.
     elif 'page.kakao.com' in domain or 'kakaopage.com' in domain:
-        return 'kakao_page', ('content' if _KAKAO_CONTENT_RE.search(parsed.path) else 'list')
+        return 'kakao_page', ('content' if found else 'list')
 
     # 리디북스: /books/<id> 단건 상세 vs 카테고리(베스트셀러) 목록
     elif 'ridibooks.com' in domain:
-        return 'ridibooks', ('book' if _RIDI_BOOK_RE.search(parsed.path) else 'category')
+        return 'ridibooks', ('book' if found else 'category')
 
     else:
         raise ValueError(f'지원하지 않는 도메인: {domain}')

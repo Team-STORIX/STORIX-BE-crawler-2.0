@@ -14,7 +14,7 @@ _RULES = (
      'https://novel.naver.com/webnovel/list?novelId={}', 'NAVER_NOVEL'),
     (re.compile(r'series\.naver\.com/(novel|comic)/detail\.series\?(?:.*&)?productNo=(\d+)'),
      'https://series.naver.com/{}/detail.series?productNo={}', 'NAVER_SERIES'),
-    (re.compile(r'page\.kakao\.com/content/(\d+)'),
+    (re.compile(r'(?:page\.kakao|kakaopage)\.com/content/(\d+)'),   # kakaopage.com 은 옛 도메인
      'https://page.kakao.com/content/{}', 'KAKAO_PAGE'),
     (re.compile(r'ridibooks\.com/books/(\d+)'),
      'https://ridibooks.com/books/{}', 'RIDIBOOKS'),
@@ -43,6 +43,12 @@ def canonical_landing_url(url: str) -> str:
         if m:
             return template.format(*m.groups())
     return url
+
+
+def work_id(url: str, platform: str) -> str | None:
+    """그 플랫폼(BE enum name) 작품 링크면 플랫폼 작품 ID ('https://www.bomtoon.com/detail/cat_BF' → 'cat_BF')."""
+    found = platform_work_key(url)
+    return found[1] if found and found[0] == platform else None
 
 
 def platform_work_key(url: str) -> tuple[str, str] | None:

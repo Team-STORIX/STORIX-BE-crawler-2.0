@@ -13,12 +13,18 @@ import re
 
 from review.catalog import EnumCatalog
 
-# BE 장르(dbValue)와 다르게 쓰는 플랫폼 장르 표기 → BE 장르 dbValue. 별개 장르(현판 · 로판)의 표기도 여기 둔다
+# BE 장르(dbValue)와 다르게 쓰는 플랫폼 장르 표기 → BE 장르 dbValue. 별개 장르(현판 · 로판)의 표기도 여기 둔다.
+# 장르 필드(rules.validate_item)와 해시태그가 같이 쓴다 — 따로 두면 '로맨스판타지' 가 태그로는 로판, 장르로는 모르는 값이 됐다 (#121)
 GENRE_TAG_ALIASES = {
     '현대판타지': '현판',
     '로맨스판타지': '로판',
-    '무협/사극': '무협',  # 네이버 웹툰 장르 태그
+    '무협/사극': '무협',  # 네이버 웹툰 장르 (2026-10 장르 이름 변경)
 }
+
+
+def genre_alias(text: str) -> str:
+    """플랫폼 장르 표기 → BE 장르 dbValue. 별칭이 없으면 그대로. 띄어쓰기는 무시한다 ('로맨스 판타지')."""
+    return GENRE_TAG_ALIASES.get(''.join((text or '').split()), text)
 
 # 작품 내용이 아니라 플랫폼이 붙이는 태그 (2026-10-10 네이버 웹툰 연재작 400개 · 수집 결과 80작품 태그 분포에서 추림)
 NOISE_TAGS = {
@@ -45,8 +51,8 @@ def _genre_of(tag: str, genres: dict[str, str]) -> str | None:
     k = _key(tag)
     if k in genres:
         return genres[k]
-    alias = GENRE_TAG_ALIASES.get(''.join(tag.split()))
-    if alias:
+    alias = genre_alias(tag)
+    if alias != tag:
         return alias
     if k.endswith('물') and k[:-1] in genres:  # 판타지물 · 무협물 · 개그물
         return genres[k[:-1]]

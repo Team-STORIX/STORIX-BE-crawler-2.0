@@ -9,7 +9,6 @@
 import json
 import os
 import urllib.request
-from datetime import datetime
 from pathlib import Path
 
 from crawler import report
@@ -117,8 +116,8 @@ def _alerted_file() -> Path | None:
     """오늘 만료를 알린 로그인 쿠키 기록. 서버(Docker)에서만 쓴다 — 로컬 실행 · 테스트는 매번 알린다."""
     if os.environ.get('DOCKER_ENV') != 'true':
         return None
-    from config import OUTPUT_DIR
-    return Path(OUTPUT_DIR) / datetime.now().strftime('%Y-%m-%d') / 'alerted_expired.json'
+    from config import RUN_DIR
+    return RUN_DIR / 'alerted_expired.json'
 
 
 def _login_key(platform: str) -> str:

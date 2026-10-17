@@ -170,7 +170,7 @@ def main(argv):
         todo = capped
 
     for platform, items in todo.items():
-        if platforms.crawler_class(platform).search_candidates is BaseCrawler.search_candidates:
+        if not platforms.searchable(platform):
             print(f'⏭️  {platform}: 검색 후보를 내는 크롤러가 없어 건너뜀', flush=True)
             continue
         # 성인 작품 상세(작가 확인)는 로그인해야 열린다. 쿠키가 없거나 만료면 경고하고 비로그인으로 계속 (#98)

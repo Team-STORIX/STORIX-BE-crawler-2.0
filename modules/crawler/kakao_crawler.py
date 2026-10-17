@@ -9,6 +9,7 @@ from selenium.common.exceptions import TimeoutException, InvalidSessionIdExcepti
 from urllib3.exceptions import ReadTimeoutError as _DriverTimeoutError
 
 from .base_crawler import PASS_THROUGH, AuthExpiredError, BaseCrawler, manual_login_timeout, SessionExpiredError, pick_candidates
+from .classify import age_from_text, works_type_from_category
 from config import KAKAO_COOKIE_FILE, KAKAO_LOGIN_URL, KAKAO_ID, KAKAO_PW
 
 # 쿠키 로그인 확인용 성인 작품 (「최악의 매칭 가이드 [19세 완전판]」). 로그인 · 성인 인증이 안 되면 연령 확인 화면이 뜬다
@@ -395,15 +396,9 @@ class KakaoCrawler(BaseCrawler):
                         elif label in ("지은이", "작가", "저자"): author = value
                         elif label == "글/그림": author = value; illustrator = value
                         elif label == "연령등급" or label == "이용등급":
-                            if "19" in value or "청불" in value: age = "18세 이용가"
-                            elif "15" in value: age = "15세 이용가"
-                            elif "12" in value: age = "12세 이용가"
-                            elif "전체" in value: age = "전체연령가"
-                            else: age = ""
+                            age = age_from_text(value)
                         elif label == "분류":
-                            if "웹소설" in value or "소설" in value: works_type = "웹소설"
-                            elif "만화" in value and "웹툰" not in value: works_type = "만화"  # 출판 만화 (#64)
-                            else: works_type = "웹툰"
+                            works_type = works_type_from_category(value)
                             clean_genre = value.replace("웹소설", "").replace("소설", "").replace("웹툰", "").replace("만화", "").strip()
                             if clean_genre: genre = clean_genre
                     except Exception: continue

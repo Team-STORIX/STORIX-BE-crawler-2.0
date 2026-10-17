@@ -137,15 +137,14 @@ def cmd_login(args):
 def cmd_keepalive(args):
     """로그인 쿠키를 열어 갱신한다. 만료된 플랫폼은 슬랙으로 알린다 (다시 로그인 버튼)."""
     import json
-    from datetime import datetime
 
-    from config import OUTPUT_DIR
+    from config import RUN_DIR
     from crawler import notify, report
     from crawler.modes.keepalive import run_keepalive
 
     report.reset()
     result = run_keepalive(args.platform)
-    report.save(OUTPUT_DIR / datetime.now().strftime('%Y-%m-%d'), 'keepalive')
+    report.save(RUN_DIR, 'keepalive')
     notify.notify_report('keepalive')
     print(json.dumps(result, ensure_ascii=False))
     if report.failed():
@@ -225,11 +224,10 @@ def cmd_requests(args):
     """노션 '작품 추가 요청' 자동 처리 (#66)."""
     import json
     import os
-    from datetime import datetime
 
     if args.env:
         os.environ['STORIX_ENV'] = args.env  # review 모듈을 불러오기 전에 정한다
-    from config import OUTPUT_DIR
+    from config import RUN_DIR
     from crawler import notify, report
     from crawler.modes.requests import resume_requests, run_requests
     from review import env as storix_env
@@ -244,7 +242,7 @@ def cmd_requests(args):
         else:
             report.reset()
             summary = run_requests(target, args.min_id, args.dry_run, args.limit)
-            report.save(OUTPUT_DIR / datetime.now().strftime('%Y-%m-%d'), 'requests')
+            report.save(RUN_DIR, 'requests')
             # 세션 만료 · 차단 · 런 실패는 슬랙으로 (#77). SLACK_* 가 없는 로컬 실행은 보내지 않는다
             notify.notify_report('requests')
     except NotionError as e:
@@ -405,17 +403,16 @@ def cmd_stage(args):
                     sys.exit(1)
         elif sub == 'recover':
             # 깨진 작품 링크를 다시 찾는다 (#28). 찾은 결과는 파일로 내고, 적재는 stage load 로 한다
-            from datetime import datetime
-            from config import OUTPUT_DIR
+            from config import RUN_DIR
             from crawler import report
             from crawler.modes.recover import run_recover
             report.reset()
             summary = run_recover(store, args.platform, args.limit)
-            report.save(OUTPUT_DIR / datetime.now().strftime('%Y-%m-%d'), 'recover')
+            report.save(RUN_DIR, 'recover')
             print(json.dumps(summary, ensure_ascii=False, indent=2))
             if summary['files']:
                 print(f"   검수 적재: python cli.py stage load --env {target} "
-                      f"--input '{OUTPUT_DIR / datetime.now().strftime('%Y-%m-%d')}/*_recover.jsonl' --source recover")
+                      f"--input '{RUN_DIR}/*_recover.jsonl' --source recover")
         elif sub == 'weekly':
             # 지난주(월~일) BE 에 새로 만든 작품을 슬랙으로 (#77). 서버는 월요일 자정 실행 때 --send 로 부른다
             from datetime import date
@@ -533,12 +530,11 @@ def main():
     if args.command == 'login':
         cmd_login(args)
     elif args.command == 'crawl':
-        from datetime import datetime
-        from config import OUTPUT_DIR
+        from config import RUN_DIR
         from crawler import report
         report.reset()
         cmd_crawl(args)
-        report.save(OUTPUT_DIR / datetime.now().strftime('%Y-%m-%d'), args.mode)
+        report.save(RUN_DIR, args.mode)
         if report.failed():
             sys.exit(1)  # 목록 0건 · 세션 만료 · 차단으로 멈춘 플랫폼이 있다 (#6)
     elif args.command == 'stage':

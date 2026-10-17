@@ -27,6 +27,15 @@ _RULES = (
 )
 
 
+# 정식 계약 전 작품 (네이버 웹툰 도전만화 · 베스트도전, 네이버 웹소설 베스트리그 · 챌린지리그). 받지 않는다.
+# 검수(review/rules)와 네이버 크롤러가 같이 쓴다 (#122)
+PRE_CONTRACT_URL = re.compile(r'comic\.naver\.com/(?:challenge|bestChallenge)/|novel\.naver\.com/(?:best|challenge)/')
+
+
+def is_pre_contract_url(url: str) -> bool:
+    return bool(PRE_CONTRACT_URL.search(url or ''))
+
+
 def canonical_landing_url(url: str) -> str:
     url = (url or '').strip()
     for pattern, template, _ in _RULES:

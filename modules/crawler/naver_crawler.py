@@ -12,16 +12,9 @@ from .base_crawler import PASS_THROUGH, AuthExpiredError, BaseCrawler, manual_lo
 from .cookies import apply_cookies, write_cookies
 from .classify import age_from_text
 from .titles import clean_work_name
+from review.landing import is_pre_contract_url
 
 from config import NAVER_COOKIE_FILE, NAVER_ID, NAVER_PW
-
-# 도전만화·베스트도전 URL. 정식 계약 전 작품이라 수집하지 않는다.
-_PRE_CONTRACT_PATHS = ('/challenge/', '/bestChallenge/')
-
-
-def is_pre_contract_url(url: str) -> bool:
-    return any(p in (url or '') for p in _PRE_CONTRACT_PATHS)
-
 
 # 작품 정보 API. 상세 페이지가 화면에 그리는 값(제목 · 작가 역할 · 연령 · 소개 · 태그 · 표지)을 그대로 준다
 TITLE_INFO_API = 'https://comic.naver.com/api/article/list/info?titleId={}'

@@ -6,6 +6,7 @@ from selenium.webdriver.support import expected_conditions as EC
 
 from .naver_crawler import NaverCrawler
 from .base_crawler import PASS_THROUGH, BaseCrawler, SessionExpiredError
+from review.landing import is_pre_contract_url
 
 
 class NaverNovelCrawler(NaverCrawler):
@@ -18,7 +19,6 @@ class NaverNovelCrawler(NaverCrawler):
 
     # 정식 웹소설만 수집한다. 베스트리그·챌린지리그는 정식 계약 전 작품이라 제외
     _OFFICIAL_PATH = '/webnovel/list'
-    _LEAGUE_PATHS = ('/best/list', '/challenge/list')
 
     def search_candidates(self, title: str) -> list[dict]:
         """네이버 웹소설 검색 결과 → 정식 웹소설 후보 목록 (일치도 순). 베스트 · 챌린지리그는 뺀다."""
@@ -88,7 +88,7 @@ class NaverNovelCrawler(NaverCrawler):
                 raise SessionExpiredError(f"네이버 로그인 리다이렉트 감지: {url}")
 
             # 베스트리그·챌린지리그는 정식 계약 전 작품이라 수집하지 않는다
-            if any(p in self.driver.current_url for p in self._LEAGUE_PATHS):
+            if is_pre_contract_url(self.driver.current_url):   # 베스트리그 · 챌린지리그 (검수와 같은 기준)
                 self._log.info("베스트리그·챌린지리그 작품이라 건너뜀: %s", self.driver.current_url)
                 return None
 

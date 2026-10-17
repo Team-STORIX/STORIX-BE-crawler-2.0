@@ -29,6 +29,7 @@ ec2 = boto3.client('ec2')
 
 INSTANCE_ID = os.environ['INSTANCE_ID']
 PARAM_PATH = os.environ.get('PARAM_PATH', '/storix/crawler/')
+# 버튼 action_id 접두어. 보내는 쪽(crawler/notify.py RELOGIN_ACTION · RERUN_ACTION)과 같아야 한다 — 테스트로 묶음
 RELOGIN, RERUN = 'relogin:', 'rerun:'
 _params: dict = {}
 

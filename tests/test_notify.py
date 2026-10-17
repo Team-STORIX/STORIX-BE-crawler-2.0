@@ -185,3 +185,18 @@ def test_session_expiry_is_alerted_once_a_day(monkeypatch, tmp_path):
     assert notify.notify_report('requests') is True
     assert 'kakao_page' in sent[-1]['text'] and 'naver' not in sent[-1]['text']
     assert len(sent) == 2
+
+
+def test_host_command_posts_rerun_button_and_reacts(monkeypatch):
+    """서버 호스트(nightly.sh)도 같은 모듈로 보낸다 — 다시 긁기 버튼 · 반응 (#122)."""
+    monkeypatch.setenv('SLACK_BOT_TOKEN', 'xoxb-test')
+    monkeypatch.setenv('SLACK_CHANNEL_ID', 'C123')
+    sent = []
+    monkeypatch.setattr(notify.urllib.request, 'urlopen',
+                        lambda req, timeout: sent.append((req.full_url, json.loads(req.data))) or FakeResponse({'ok': True, 'ts': '1.2'}))
+    assert notify.main(['post', '완료', '--thread', '9.9', '--rerun-button']) == 0
+    url, body = sent[-1]
+    assert url.endswith('chat.postMessage') and body['thread_ts'] == '9.9'
+    assert body['blocks'][1]['elements'][0]['action_id'] == 'rerun:requests'
+    assert notify.main(['react', 'white_check_mark', 'C1', '9.9']) == 0
+    assert sent[-1][0].endswith('reactions.add') and sent[-1][1]['name'] == 'white_check_mark'

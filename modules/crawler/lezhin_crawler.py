@@ -6,11 +6,11 @@
 """
 import html
 import json
-import pickle
 import re
 import time
 
 from .base_crawler import PASS_THROUGH, BaseCrawler, HttpUnavailable, SessionExpiredError, manual_login_timeout
+from .cookies import apply_cookies, read_cookies, write_cookies
 from config import LEZHIN_COOKIE_FILE
 
 SITE = 'https://www.lezhin.com'
@@ -102,7 +102,7 @@ class LezhinCrawler(BaseCrawler):
         if not LEZHIN_COOKIE_FILE.exists():
             return ''
         try:
-            cookies = pickle.load(open(LEZHIN_COOKIE_FILE, 'rb'))
+            cookies = read_cookies(LEZHIN_COOKIE_FILE)
         except Exception:
             return ''
         return '; '.join(f"{c['name']}={c['value']}" for c in cookies if 'lezhin' in (c.get('domain') or ''))
@@ -152,12 +152,7 @@ class LezhinCrawler(BaseCrawler):
             return False
         try:
             self.driver.get(SITE)
-            for c in pickle.load(open(LEZHIN_COOKIE_FILE, 'rb')):
-                c.pop('expiry', None)
-                try:
-                    self.driver.add_cookie(c)
-                except Exception:
-                    pass
+            apply_cookies(self.driver, LEZHIN_COOKIE_FILE)
             self.driver.get(f'{SITE}/ko/comic/jinx')
             return not self.is_login_page() and lezhin_content(self.driver.page_source) is not None
         except Exception as e:
@@ -182,7 +177,7 @@ class LezhinCrawler(BaseCrawler):
             time.sleep(4)
             if self.is_login_page():
                 continue
-            pickle.dump(self.driver.get_cookies(), open(LEZHIN_COOKIE_FILE, 'wb'))
+            write_cookies(LEZHIN_COOKIE_FILE, self.driver.get_cookies())
             if self._http_adult_ok():
                 print('✅ [레진] 로그인 · 성인 작품 확인. 쿠키를 저장했습니다.')
                 return True

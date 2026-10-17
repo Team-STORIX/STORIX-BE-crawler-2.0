@@ -1,13 +1,13 @@
 import re
 import time
 import random
-import pickle
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException
 
 from .base_crawler import PASS_THROUGH, AuthExpiredError, BaseCrawler, manual_login_timeout, SessionExpiredError
+from .cookies import apply_cookies, write_cookies
 from .classify import age_from_text, works_type_from_category
 from .titles import NOT_A_TITLE, clean_work_name
 from config import KAKAO_COOKIE_FILE, KAKAO_LOGIN_URL, KAKAO_ID, KAKAO_PW
@@ -25,7 +25,7 @@ class KakaoCrawler(BaseCrawler):
 
     def _save_cookies(self):
         try:
-            pickle.dump(self.driver.get_cookies(), open(KAKAO_COOKIE_FILE, "wb"))
+            write_cookies(KAKAO_COOKIE_FILE, self.driver.get_cookies())
         except Exception as e:
             print(f"⚠️ 카카오 쿠키 저장 실패: {e}")
 
@@ -36,11 +36,7 @@ class KakaoCrawler(BaseCrawler):
         try:
             self.driver.get("https://page.kakao.com")
             time.sleep(2)
-            cookies = pickle.load(open(KAKAO_COOKIE_FILE, "rb"))
-            for c in cookies:
-                if 'expiry' in c: del c['expiry']
-                try: self.driver.add_cookie(c)
-                except Exception: pass
+            apply_cookies(self.driver, KAKAO_COOKIE_FILE)
             return self._adult_session_ok()
         except Exception as e:
             print(f"⚠️ 워커 카카오 쿠키 로그인 실패: {e}")

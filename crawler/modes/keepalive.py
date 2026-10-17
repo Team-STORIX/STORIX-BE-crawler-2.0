@@ -9,53 +9,20 @@
 쿠키로 로그인하는 길(login_with_cookies)은 저장하지 않아, 이걸 따로 돌지 않으면 갱신된 쿠키가 브라우저와 함께 버려진다.
 S3 에 올리는 건 nightly.sh 가 한다.
 """
-import os
-import pickle
 from pathlib import Path
 
 from crawler import report
 from modules.crawler import platforms
-
-
-def _base(domain: str) -> str:
-    """'.nid.naver.com' → 'naver.com'"""
-    return '.'.join(domain.lstrip('.').split('.')[-2:])
-
-
-def _selenium_cookie(c: dict) -> dict:
-    """CDP Network.getAllCookies 한 개 → 쿠키 파일에 넣는 selenium 형식."""
-    out = {'name': c['name'], 'value': c['value'], 'domain': c['domain'], 'path': c.get('path', '/'),
-           'secure': c.get('secure', False), 'httpOnly': c.get('httpOnly', False)}
-    if c.get('sameSite'):
-        out['sameSite'] = c['sameSite']
-    if not c.get('session') and c.get('expires', -1) > 0:
-        out['expiry'] = int(c['expires'])
-    return out
-
-
-def merge_cookies(old: list[dict], fresh: list[dict]) -> list[dict]:
-    """기존 쿠키에 브라우저의 새 쿠키를 이름으로 덮어 쓴다. 기존 파일에 있던 도메인 것만 받는다 (광고 · 분석 쿠키 제외)."""
-    bases = {_base(c.get('domain', '')) for c in old}
-    merged = {c['name']: c for c in old}
-    for c in fresh:
-        if _base(c.get('domain', '')) in bases:
-            merged[c['name']] = c
-    return list(merged.values())
+from modules.crawler.cookies import browser_cookies, merge_cookies, read_cookies, write_cookies
 
 
 def save_cookies(driver, path: Path) -> int:
     """브라우저 쿠키를 기존 파일에 합쳐 저장한다. 바뀐 쿠키 수를 돌려준다."""
-    old = pickle.load(open(path, 'rb'))
-    fresh = [_selenium_cookie(c) for c in driver.execute_cdp_cmd('Network.getAllCookies', {})['cookies']]
-    merged = merge_cookies(old, fresh)
+    old = read_cookies(path)
+    merged = merge_cookies(old, browser_cookies(driver))
     before = {c['name']: c.get('value') for c in old}
-    changed = sum(1 for c in merged if before.get(c['name']) != c.get('value'))
-    tmp = path.with_suffix('.tmp')
-    with open(tmp, 'wb') as f:
-        pickle.dump(merged, f)
-    os.chmod(tmp, 0o600)
-    tmp.replace(path)
-    return changed
+    write_cookies(path, merged)
+    return sum(1 for c in merged if before.get(c['name']) != c.get('value'))
 
 
 def refresh(name: str) -> bool | None:

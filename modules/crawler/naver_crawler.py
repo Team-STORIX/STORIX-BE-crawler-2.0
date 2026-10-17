@@ -11,6 +11,7 @@ from selenium.common.exceptions import NoSuchElementException, InvalidSessionIdE
 from urllib3.exceptions import ReadTimeoutError as _DriverTimeoutError
 
 from .base_crawler import PASS_THROUGH, AuthExpiredError, BaseCrawler, manual_login_timeout, HttpUnavailable, SessionExpiredError
+from .classify import age_from_text
 
 from config import NAVER_COOKIE_FILE, NAVER_ID, NAVER_PW
 
@@ -56,7 +57,7 @@ def parse_naver_title_info(info: dict, url: str) -> dict | None:
         "works_name": title,
         "artist_name": ', '.join(names),
         **roles,
-        "age_classification": ((info.get('age') or {}).get('description') or '').strip(),
+        "age_classification": age_from_text((info.get('age') or {}).get('description')),
         "description": (info.get('synopsis') or '').strip(),
         "genre": tags[0] if tags else '',
         "hashtags": tags[1:],
@@ -164,18 +165,11 @@ class NaverCrawler(BaseCrawler):
 
         if NAVER_COOKIE_FILE.exists():
             print(f"🍪 기존 쿠키 파일을 적용합니다.")
-            try:
-                cookies = pickle.load(open(NAVER_COOKIE_FILE, "rb"))
-                for c in cookies:
-                    if 'expiry' in c: del c['expiry']
-                    c['domain'] = '.naver.com'
-                    self.driver.add_cookie(c)
-                if self._is_logged_in():
-                    print("✅ 쿠키 로그인 성공")
-                    return True
-                print("⚠️ 쿠키 만료 또는 로그인 실패. 다음 수단을 시도합니다.")
-            except Exception as e:
-                print(f"⚠️ 쿠키 적용 실패: {e}")
+            # 넣은 쿠키라 NID_AUT 는 늘 있어 만료도 통과했다. 다른 플랫폼처럼 쿠키 로그인 판정(성인 작품)을 쓴다 (#121)
+            if self.login_with_cookies():
+                print("✅ 쿠키 로그인 성공")
+                return True
+            print("⚠️ 쿠키 만료 또는 로그인 실패. 다음 수단을 시도합니다.")
 
         if self._login_with_credentials():
             return True
@@ -408,7 +402,7 @@ class NaverCrawler(BaseCrawler):
             _desc_el = self.driver.find_element(By.XPATH, '//*[@id="content"]/div[1]/div/div[2]/p')
             desc = (self.driver.execute_script("return arguments[0].innerText", _desc_el) or "").strip()
             genre = self.driver.find_element(By.XPATH, '//*[@id="content"]/div[1]/div/div[2]/div/div/a[1]').text.lstrip('#').strip()
-            age = self.driver.find_element(By.XPATH, '//*[@id="content"]/div[1]/div/div[1]/em').text.strip().split('∙')[-1].strip()
+            age = age_from_text(self.driver.find_element(By.XPATH, '//*[@id="content"]/div[1]/div/div[1]/em').text.strip().split('∙')[-1])
             
             hashtags = []
             try:

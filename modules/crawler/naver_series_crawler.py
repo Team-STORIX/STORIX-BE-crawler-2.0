@@ -10,6 +10,7 @@ from urllib3.exceptions import ReadTimeoutError as _DriverTimeoutError
 
 from .naver_crawler import NaverCrawler
 from .base_crawler import PASS_THROUGH, BaseCrawler, SessionExpiredError, is_edition, pick_candidates
+from .classify import age_from_text
 
 
 class NaverSeriesCrawler(NaverCrawler):
@@ -61,6 +62,10 @@ class NaverSeriesCrawler(NaverCrawler):
         for c in cands:
             c['raw'] = full.get(c['url'], '').replace('\n', ' ')
             c['book'] = '[단행본]' in c['raw'] or bool(re.search(r'총\s*\d+\s*권', c['raw']))
+            if c['book']:
+                # 다른 플랫폼(리디 · 카카오 · 미스터블루)처럼 단행본은 유형 힌트로 알린다 — e북 연령 비우기 ·
+                # 단행본은 연재판 다음 순서(pick_candidates)가 시리즈에도 똑같이 걸린다 (#121)
+                c['type_hint'] = '단행본'
         return cands
 
     def search_url_by_title(self, title: str, works_type: str | None = None) -> str | None:
@@ -95,14 +100,7 @@ class NaverSeriesCrawler(NaverCrawler):
             elif ln.startswith('원작'):
                 original_author = ln[2:].strip()
             elif '이용가' in ln or '이용불가' in ln or '19' in ln:
-                if any(x in ln for x in ['19', '청소년 이용불가', '성인']):
-                    age = '18세 이용가'
-                elif '15' in ln:
-                    age = '15세 이용가'
-                elif '12' in ln:
-                    age = '12세 이용가'
-                elif '전체' in ln:
-                    age = '전체연령가'
+                age = age_from_text(ln) or age
         return {
             'author': author,
             'illustrator': illustrator,

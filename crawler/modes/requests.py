@@ -10,6 +10,7 @@
 4. 결과를 노션에 표시
    - 수집한 작품이 하나라도 BE 에 들어감 → '추가 여부' 체크
    - 그 외(못 찾음 · 검수 대기 · 중복 의심 · 실패) → '적재 검토 중' 체크 + '메모' 에 이유
+   - 단, 찾을 연재처의 세션이 만료돼 못 찾은 요청은 그대로 둔다 — 다시 로그인하면 다음 실행에서 다시 찾는다
 """
 import json
 import os
@@ -69,6 +70,7 @@ class Outcome:
     done: bool
     note: str
     works_ids: list[int] = field(default_factory=list)
+    retry: bool = False   # 노션에 표시하지 않고 다음 실행에서 다시 찾는다
 
 
 def decide(urls: list[str], rows: list[dict]) -> Outcome:
@@ -198,7 +200,9 @@ def _finish(store, notion: NotionRequests, requests: list[Request], found: dict[
             print(f'📤 {json.dumps(imported, ensure_ascii=False)}')
 
     for r, outcome in _report(store, requests, found):
-        if outcome.done:
+        if outcome.retry:
+            summary['retry'] = summary.get('retry', 0) + 1
+        elif outcome.done:
             notion.mark_done(r)
             summary['done'] += 1
         else:
@@ -208,11 +212,20 @@ def _finish(store, notion: NotionRequests, requests: list[Request], found: dict[
 
 def _report(store, requests: list[Request], found: dict[str, list[str]]) -> list[tuple[Request, Outcome]]:
     """요청별 결과를 정하고 출력한다."""
+    from crawler import report
+
+    expired = {p for p, counts in report.summary()['by_platform'].items() if report.AUTH_EXPIRED in counts}
     out = []
     for r in requests:
         urls = list(dict.fromkeys(found.get(r.title, [])))
-        outcome = decide(urls, store.rows_by_source_urls(urls) if store and urls else [])
-        print(f"{'✅ 추가' if outcome.done else '🔎 검토'} #{r.id} {r.title} — {outcome.note}")
+        blocked = sorted(expired & plan([r]).keys())
+        if not urls and blocked:
+            outcome = Outcome(False, f"세션 만료({', '.join(blocked)})로 못 찾음 — 다시 로그인 뒤 다음 실행에서 다시 찾습니다",
+                              retry=True)
+        else:
+            outcome = decide(urls, store.rows_by_source_urls(urls) if store and urls else [])
+        label = '⏳ 보류' if outcome.retry else '✅ 추가' if outcome.done else '🔎 검토'
+        print(f"{label} #{r.id} {r.title} — {outcome.note}")
         out.append((r, outcome))
     return out
 

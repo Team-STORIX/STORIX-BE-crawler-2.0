@@ -147,3 +147,30 @@ def test_resume_marks_only_still_pending_requests(tmp_path, monkeypatch):
         resume_requests('prod', str(path))
     with pytest.raises(NotionError):  # 다른 환경 상태 파일은 받지 않는다
         resume_requests('dev', str(save_state(tmp_path / 'x', 'prod', 441, reqs, {}, [])))
+
+
+def test_auth_expired_request_waits_for_next_run():
+    """찾을 연재처 세션이 만료돼 못 찾은 요청은 노션에 표시하지 않는다 — 다시 로그인 뒤 다음 실행에서 다시 찾는다."""
+    from crawler import report
+    from crawler.modes.requests import _finish
+
+    class Notion:
+        def __init__(self):
+            self.done, self.review = [], []
+
+        def mark_done(self, r):
+            self.done.append(r.id)
+
+        def mark_review(self, r, note):
+            self.review.append(r.id)
+
+    reqs = [Request('k', 441, '카카오 작품', ['웹툰'], ['카카오페이지']),
+            Request('n', 442, '네이버 작품', ['웹툰'], ['네이버 웹툰'])]
+    report.reset()
+    try:
+        report.record('kakao_page', report.AUTH_EXPIRED, '플랫폼 중단', 'AuthExpiredError')
+        notion, summary = Notion(), {'done': 0, 'review': 0, 'runs': []}
+        _finish(None, notion, reqs, {}, summary)
+    finally:
+        report.reset()
+    assert (notion.done, notion.review, summary['retry']) == ([], [442], 1)

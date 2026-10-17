@@ -159,6 +159,7 @@ def test_ebook_age_not_sent_for_web_novel():
     crawled = {}
     [r] = _crawl_for_type(Crawler(), cands, '웹소설', crawled)
     assert r['age_classification'] == ''
+    assert r['create_age_classification'] == '18세 이용가'  # 새 작품을 만들 때만 쓴다
     assert crawled['ebook']['age_classification'] == '18세 이용가'  # 단행본 섹션에서 쓸 원본은 그대로
     [r] = _crawl_for_type(Crawler(), cands, '단행본', crawled)
     assert r['age_classification'] == '18세 이용가'

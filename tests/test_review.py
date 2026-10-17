@@ -1064,3 +1064,42 @@ def test_created_works_only_counts_new_works_once(store):
     assert [r['works_id'] for r in rows] == [501]
     assert rows[0]['works_type'] and rows[0]['platforms'] == 'LEZHIN,NAVER_WEBTOON'
     assert store.created_works(now + timedelta(minutes=5), now + timedelta(minutes=10)) == []
+
+
+def test_ebook_age_only_fills_when_nothing_to_attach():
+    """e북으로 대신한 웹소설(논 제로섬): 붙을 작품이 없으면 마지막 재전송에서만 e북 연령으로 새 작품을 만든다."""
+    v = validate_item(item(age_classification='', create_age_classification='18세 이용가'), CATALOG)
+    assert v.normalized['age_classification'] is None and v.normalized['_create_age'] == 'AGE_18'
+    store = FakeStore([{'id': 1, 'normalized': v.normalized}])
+    sent = []
+
+    def respond(items):
+        sent.append(items[0]['ageClassification'])
+        if items[0]['ageClassification'] is None:
+            return [{'stagingId': 1, 'result': 'FAILED', 'error': 'ageClassification 값이 비어 있습니다'}]
+        return [{'stagingId': 1, 'result': 'CREATED', 'worksId': 70}]
+
+    summary = run_import(store, FakeClient(respond))
+    assert sent == [None, None, 'AGE_18']
+    assert store.imported == {1: 70} and store.needs_value == {}
+    assert summary['results'] == {'CREATED': 1}
+
+
+def test_ebook_age_not_sent_when_other_row_created_the_work():
+    """다른 플랫폼 행이 작품을 만들면 e북 연령 없이 붙는다 (연재판 연령을 e북 연령으로 올리지 않게)."""
+    rows = [{'id': 1, 'normalized': validate_item(item(age_classification='', create_age_classification='18세 이용가'),
+                                                  CATALOG).normalized},
+            {'id': 2, 'normalized': validate_item(item(), CATALOG).normalized}]
+    sent = []
+
+    def respond(items):
+        sent.append([(i['stagingId'], i['ageClassification']) for i in items])
+        if len(sent) == 1:
+            return [{'stagingId': 1, 'result': 'FAILED', 'error': 'ageClassification 값이 비어 있습니다'},
+                    {'stagingId': 2, 'result': 'CREATED', 'worksId': 50}]
+        return [{'stagingId': 1, 'result': 'UPDATED', 'worksId': 50}]
+
+    store = FakeStore(rows)
+    run_import(store, FakeClient(respond))
+    assert sent[1] == [(1, None)] and len(sent) == 2
+    assert store.imported == {2: 50, 1: 50}

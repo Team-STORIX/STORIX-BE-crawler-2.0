@@ -72,8 +72,9 @@ def test_ridi_keywords_from_keyword_tab():
            '{"tagId":4,"name":"평점4점이상"},{"tagId":5,"name":"소설원작"},{"tagId":6,"name":"연하공"},'
            '{"tagId":7,"name":"1만원~2만원"},{"tagId":8,"name":"10000~15000원"},{"tagId":9,"name":"5권이상"},'
            '{"tagId":10,"name":"기다리면무료"},{"tagId":11,"name":"연재"},{"tagId":12,"name":"고수위"}]}')
-    # 통계 · 상태 태그와 중복은 빼고, 메타 태그의 작가명 · 출판사는 쓰지 않는다
-    assert parse_ridi_keywords(src) == ['헤테로공', '연하공', '개그/코믹BL', '소설원작', '고수위']
+    # 통계 · 상태 태그와 중복은 빼고, 메타 태그의 작가명 · 출판사는 쓰지 않는다.
+    # '소설원작' 은 검수(clean_hashtags)와 같은 잡음 판정(is_noise_tag)으로 크롤러에서도 빠진다 (#122)
+    assert parse_ridi_keywords(src) == ['헤테로공', '연하공', '개그/코믹BL', '고수위']
 
 
 def test_ridi_keywords_fallback_to_buttons():
@@ -84,6 +85,6 @@ def test_ridi_keywords_fallback_to_buttons():
 
 
 def test_ridi_discount_keyword_is_not_hashtag():
-    from modules.crawler.ridibooks_crawler import RIDI_META_KEYWORDS
-    assert RIDI_META_KEYWORDS.match('10%할인') and RIDI_META_KEYWORDS.match('2만원초과')
-    assert not RIDI_META_KEYWORDS.match('다정공')
+    from review.hashtags import is_noise_tag
+    assert is_noise_tag('10%할인') and is_noise_tag('2만원초과') and is_noise_tag('기다리면 무료')
+    assert not is_noise_tag('다정공')

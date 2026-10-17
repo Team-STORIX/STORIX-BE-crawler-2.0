@@ -14,7 +14,8 @@ from dataclasses import dataclass, field
 from review.artists import normalize_artists
 from review.catalog import EnumCatalog
 from review.hashtags import clean_hashtags, genre_alias
-from review.landing import canonical_landing_url
+from review.landing import canonical_landing_url, is_pre_contract_url
+from modules.crawler.classify import is_age_gate_cover
 from modules.crawler.titles import NOT_A_TITLE, strip_volume_suffix  # noqa: F401 — 제목 규칙은 한 곳 (#122)
 
 AUTO_PASS = 'AUTO_PASS'
@@ -56,18 +57,11 @@ ENUM_FIELDS = {
 # 같은 작품의 네이버 웹툰 · 카카오 · 리디 장르가 유지된다. '순정' 을 로맨스로 매핑하면 로판 작품이 로맨스가 된다
 NOT_A_GENRE = {'순정', '소년', '소녀', '청년'}
 
-# 정식 계약 전 작품 (네이버 웹툰 도전만화·베스트도전, 네이버 웹소설 베스트리그·챌린지리그). 받지 않는다
-PRE_CONTRACT_URL = re.compile(r'comic\.naver\.com/(?:challenge|bestChallenge)/|novel\.naver\.com/(?:best|challenge)/')
 
 # 표지가 아닌 썸네일. 비율이 다른 작품과 안 맞거나 작품을 알아볼 수 없어 사람이 확인한다
 #  - 네이버 웹소설 og:image 정사각형(type=n200_200): 작가가 따로 올리는 공유용 이미지
 #  - 네이버 웹소설 장르 기본 표지(romance_320_12.png 등): 작가가 표지를 안 올린 작품
 SQUARE_THUMBNAIL = re.compile(r'novel-phinf\.pstatic\.net/.+[?&]type=n\d+_\d+')
-# 19금 가림 이미지. 성인 인증이 안 된 화면에서 표지 대신 나온다. 표지로 쓰면 안 되므로 비우고 사람이 본다
-#  - 리디 static.ridicdn.net/…/book_cover/cover_adult.png (크롤러는 책 ID 로 실제 표지를 다시 받는다)
-#  - 카카오페이지 로그인 · 성인 인증이 풀린 화면의 og:image (사이트 공용 공유 이미지)
-AGE_GATE_COVER = re.compile(r'book_cover/cover_adult|cover_adult\.|adult_cover|thumb_adult|/adult/(?:cover|thumb)'
-                            r'|page\.kakaocdn\.net/pageweb/shared/ogImage')
 DEFAULT_COVER = re.compile(r'novel-phinf\.pstatic\.net/20221231_\d+/novel_\w+_PNG/[a-z]+_(?:320_)?\d+\.png')
 
 TEXT_FIELDS = (
@@ -112,7 +106,7 @@ def validate_item(item: dict, catalog: EnumCatalog, mappings: dict[tuple[str, st
     url = normalized['source_url']
     if url and not url.startswith(('http://', 'https://')):
         violations.append(_violation('source_url', 'INVALID_URL', url, REJECTED))
-    if PRE_CONTRACT_URL.search(url):
+    if is_pre_contract_url(url):
         violations.append(_violation('source_url', 'PRE_CONTRACT_WORK', url, REJECTED))
     if normalized['works_name'] in NOT_A_TITLE:
         violations.append(_violation('works_name', 'NOT_A_TITLE', normalized['works_name'], REJECTED))
@@ -147,7 +141,7 @@ def validate_item(item: dict, catalog: EnumCatalog, mappings: dict[tuple[str, st
             violations.append(_violation(f, 'MISSING', None, NEEDS_REVIEW))
 
     thumb = normalized['thumbnail_url']
-    if AGE_GATE_COVER.search(thumb):
+    if is_age_gate_cover(thumb):
         # 빈 값으로 보내면 BE 가 기존 표지를 덮어쓰지 않는다. 가림 표지가 나왔다면 성인 작품일 가능성이 크다
         normalized['thumbnail_url'] = ''
         violations.append(_violation('thumbnail_url', 'AGE_GATE_COVER', thumb, NEEDS_REVIEW))

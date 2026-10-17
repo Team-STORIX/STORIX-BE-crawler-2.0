@@ -10,6 +10,7 @@ import time
 
 from .base_crawler import PASS_THROUGH, BaseCrawler, HttpUnavailable, SessionExpiredError, manual_login_timeout
 from .cookies import apply_cookies, read_cookies, write_cookies
+from review.hashtags import is_noise_tag
 from .classify import age_from_text
 from config import MRBLUE_COOKIE_FILE
 
@@ -33,9 +34,8 @@ _SYNOPSIS = re.compile(r'<div class="txt-box">(.*?)</div>', re.S)
 # 판매 · 통계 · 형식 키워드는 해시태그로 쓰지 않는다
 #   스크롤 · 오리지널 · 2만~3만원 · 50화이상 · 별점4점이상 · 리뷰100개+ · 완결 · 대여 · 19+
 #   미블뿐 · 할인이벤트 · 선물함 · 기다리면무료 · 4주이내신작 · 후방주의
-MRBLUE_META_TAGS = re.compile(
-    r'^(?:스크롤|오리지널|독점|완결|연재중?|대여|소장|무료|단행본|미블뿐|할인이벤트|선물함|기다리면\s*무료|후방주의|\d+\s*[주일]\s*이내\s*신작|\d+\+|.*\d+\s*[만천]?\s*원.*|\d+\s*화\s*(?:이상|이하|미만)?'
-    r'|(?:별점|평점|리뷰)\s*\d+.*)$')
+# 미스터블루만의 표기. 판매 · 연재 상태 공통 표기는 review.hashtags.is_noise_tag
+MRBLUE_META_TAGS = re.compile(r'^(?:미블뿐|선물함)$')
 
 
 def mrblue_work(url: str) -> tuple[str, str] | None:
@@ -89,7 +89,7 @@ def parse_mrblue_page(src: str, url: str) -> dict | None:
         'description': _text(synopsis.group(1)) if synopsis else '',
         'genre': _text(genre.group(1)) if genre else '',
         'hashtags': list(dict.fromkeys(k for k in (html.unescape(x).strip() for x in _KEYWORD.findall(src))
-                                       if k and not MRBLUE_META_TAGS.match(k))),
+                                       if not (is_noise_tag(k) or MRBLUE_META_TAGS.match(k)))),
         'thumbnail_url': COVER.format(pid=pid),
         'works_type': _TYPES.get(section, ''),
         'source_url': f'{SITE}/{section}/{pid}',

@@ -10,7 +10,8 @@ from selenium.common.exceptions import TimeoutException
 
 from .base_crawler import PASS_THROUGH, AuthExpiredError, BaseCrawler, manual_login_timeout, HttpUnavailable, SessionExpiredError
 from .cookies import apply_cookies, write_cookies
-from .classify import artist_fields, works_type_from_category
+from review.hashtags import is_noise_tag
+from .classify import artist_fields, is_age_gate_cover, works_type_from_category
 from config import RIDIBOOKS_COOKIE_FILE, RIDIBOOKS_LOGIN_URL, RIDIBOOKS_ID, RIDIBOOKS_PW
 
 # 로그인하면 생기는 쿠키. 세션 등록 API(api/session_api.py)도 같은 쿠키로 로그인을 판단한다
@@ -623,13 +624,9 @@ def ridi_type_hint(card_text: str) -> str | None:
     return None
 
 
-# 성인 인증이 안 된 화면에서 표지 대신 나오는 가림 이미지
-RIDI_ADULT_COVER = re.compile(r'ridicdn\.net/.*book_cover/cover_adult')
-
-
 def ridi_real_cover(thumb: str, book_url: str) -> str:
     """가림 이미지면 책 ID 로 실제 표지 주소를 만든다. 리디 이미지 서버는 성인 책도 표지를 준다."""
-    if not RIDI_ADULT_COVER.search(thumb or ''):
+    if not is_age_gate_cover(thumb):
         return thumb
     m = re.search(r'/books/(\d+)', book_url or '')
     return f'https://img.ridicdn.net/cover/{m.group(1)}/xxlarge' if m else ''
@@ -637,9 +634,8 @@ def ridi_real_cover(thumb: str, book_url: str) -> str:
 
 # 리디가 키워드 목록에 같이 넣는 통계 · 가격 · 권수 · 판매 · 연재 상태 태그. 작품 내용이 아니라 해시태그로 쓰지 않는다
 #   별점1000개이상 · 리뷰500개이상 · 평점4점이상 · 1만원~2만원 · 2만원초과 · 10000~15000원 · 5권이상 · 기다리면무료 · 연재완결
-RIDI_META_KEYWORDS = re.compile(
-    r'^(?:(?:별점|리뷰|평점)\d+.*|.*\d+\s*[만천]?\s*원(?:이상|이하|미만|초과)?|\d+\s*권(?:이상|이하|미만)?|\d+\s*~\s*\d+\s*권'
-    r'|연재(?:완결|중)?|완결|ebook|전자책|만웹대여제|단행본|기다리면\s*무료|무료|대여|소장|\d+\s*%\s*할인)$')
+# 리디만의 표기. 판매 · 연재 상태 공통 표기(별점 · 가격 · 권수 · 완결 등)는 review.hashtags.is_noise_tag
+RIDI_META_KEYWORDS = re.compile(r'^(?:만웹대여제)$')
 
 
 def parse_ridi_keywords(src: str) -> list[str]:
@@ -659,7 +655,7 @@ def parse_ridi_keywords(src: str) -> list[str]:
         names = [html.unescape(n) for n in re.findall(r'<span>#<!-- -->([^<]+)</span>', src)]
     seen, out = set(), []
     for n in (x.strip() for x in names):
-        if n and n not in seen and not RIDI_META_KEYWORDS.match(n):
+        if n and n not in seen and not (is_noise_tag(n) or RIDI_META_KEYWORDS.match(n)):
             seen.add(n)
             out.append(n)
     return out

@@ -11,6 +11,7 @@ import time
 
 from .base_crawler import PASS_THROUGH, BaseCrawler, HttpUnavailable, SessionExpiredError, manual_login_timeout
 from .cookies import apply_cookies, read_cookies, write_cookies
+from review.hashtags import is_noise_tag
 from config import BOMTOON_COOKIE_FILE
 
 SITE = 'https://www.bomtoon.com'
@@ -24,8 +25,9 @@ _ALIAS = re.compile(r'bomtoon\.com/detail/([^/?#\s]+)')
 
 # 첫 태그는 장르다. 연재 요일 · 봄툰 자체 분류 · 이벤트 태그는 작품 내용이 아니라 해시태그로 쓰지 않는다
 #   토요연재 · 열흘연재 · 4일/14일/24일 · 2/12/22일 · 단편선 · 오직봄툰 · 기다봄 · 웹툰판 · 월드드랍 · 봄툰공모전_당선웹툰 · BL비엘
+# 봄툰만의 표기 (연재 요일 · 봄툰 브랜드 · 판 구분). 판매 · 연재 상태 공통 표기는 review.hashtags.is_noise_tag
 BOMTOON_META_TAGS = re.compile(
-    r'^(?:.+연재|\d+(?:일)?(?:/\d+(?:일)?)*일|단편선|오직봄툰|기다봄|웹툰판|소설판|월드드랍|BL비엘|GL지엘|.*공모전.*|.*봄툰.*)$')
+    r'^(?:.+연재|\d+(?:일)?(?:/\d+(?:일)?)*일|단편선|오직봄툰|기다봄|웹툰판|소설판|BL비엘|GL지엘|.*공모전.*|.*봄툰.*)$')
 # 작가가 직접 다는 자유 태그(isExtra)는 '츤데레수' · '혐관' 같은 키워드도 있지만 문장('드실래요_잘생긴..감자♥') ·
 # 캐릭터 커플링('도해x단조')이 섞여 있다. 짧은 단어형만 남긴다
 _EXTRA_KEYWORD = re.compile(r'^[가-힣A-Za-z0-9/]{1,8}$')
@@ -36,7 +38,7 @@ _TYPES = {'COMIC': '웹툰', 'CARTOON': '만화', 'NOVEL': '웹소설'}
 
 def _keep_tag(tag: dict) -> bool:
     name = (tag.get('name') or '').strip()
-    if not name or BOMTOON_META_TAGS.match(name):
+    if is_noise_tag(name) or BOMTOON_META_TAGS.match(name):
         return False
     if tag.get('isExtra'):
         return bool(_EXTRA_KEYWORD.match(name)) and not _PAIRING.search(name)

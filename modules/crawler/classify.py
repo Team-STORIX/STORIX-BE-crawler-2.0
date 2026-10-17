@@ -4,6 +4,7 @@
 글자를 읽는 크롤러는 모두 여기를 쓴다. 코드 · 플래그로 내려오는 값(레진 등급 코드, 봄툰 isAdult, 리디 is_adult_only)은
 플랫폼 파서가 바꾸되 결과는 같은 이름(AGE_*)을 쓴다.
 """
+import re
 
 AGE_18, AGE_15, AGE_12, AGE_ALL = '18세 이용가', '15세 이용가', '12세 이용가', '전체연령가'
 
@@ -56,3 +57,15 @@ def artist_fields(role: str | None) -> tuple[str, ...]:
     if '원작' in r:
         return ('original_author',)
     return ('author',)
+
+
+# 19금 가림 이미지. 성인 인증이 안 된 화면에서 표지 대신 나온다. 표지로 쓰면 안 되므로 비우고 사람이 본다
+#  - 리디 static.ridicdn.net/…/book_cover/cover_adult.png (크롤러는 책 ID 로 실제 표지를 다시 받는다)
+#  - 카카오페이지 로그인 · 성인 인증이 풀린 화면의 og:image (사이트 공용 공유 이미지)
+AGE_GATE_COVER = re.compile(r'book_cover/cover_adult|cover_adult\.|adult_cover|thumb_adult|/adult/(?:cover|thumb)'
+                            r'|page\.kakaocdn\.net/pageweb/shared/ogImage')
+
+
+def is_age_gate_cover(url: str | None) -> bool:
+    """표지 대신 나온 19금 가림 이미지인지. 검수(표지 비움)와 리디 크롤러(실제 표지로 바꿈)가 같이 쓴다 (#122)."""
+    return bool(AGE_GATE_COVER.search(url or ''))

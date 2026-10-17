@@ -11,6 +11,7 @@ import time
 
 from .base_crawler import PASS_THROUGH, BaseCrawler, HttpUnavailable, SessionExpiredError, manual_login_timeout
 from .cookies import apply_cookies, read_cookies, write_cookies
+from review.hashtags import is_noise_tag
 from config import LEZHIN_COOKIE_FILE
 
 SITE = 'https://www.lezhin.com'
@@ -33,7 +34,8 @@ LEZHIN_AGES = {'19': '18세 이용가', '18': '18세 이용가', '15': '15세 �
 _ROLES = {'writer': 'author', 'scripter': 'author', 'painter': 'illustrator', 'original': 'original_author'}
 # 레진 이벤트 · 순위 · 분류 태그와 영문 표기 태그는 해시태그로 쓰지 않는다
 #   월드드랍 · WorldDrop · 여성인기19 · 남성인기19 · 스낵타임 · 후방주의
-LEZHIN_META_TAGS = re.compile(r'^(?:월드드랍|스낵타임|후방주의|.*인기\d*|[A-Za-z0-9 _-]+)$')
+# 레진만의 표기 (이벤트 · 순위 · 영문 분류 태그). 판매 · 연재 상태 공통 표기는 review.hashtags.is_noise_tag
+LEZHIN_META_TAGS = re.compile(r'^(?:스낵타임|.*인기\d*|[A-Za-z0-9 _-]+)$')
 
 
 def lezhin_alias(url: str) -> str | None:
@@ -76,7 +78,7 @@ def parse_lezhin_content(c: dict, url: str) -> dict:
     codes = c.get('genres') or []
     genre = LEZHIN_GENRES.get(codes[0], codes[0]) if codes else ''
     tags = [t.strip() for t in (c.get('properties') or {}).get('tags') or [] if isinstance(t, str) and t.strip()]
-    hashtags = list(dict.fromkeys(t for t in tags if not LEZHIN_META_TAGS.match(t)))
+    hashtags = list(dict.fromkeys(t for t in tags if not (is_noise_tag(t) or LEZHIN_META_TAGS.match(t))))
     rating = str(c.get('rating') or '').strip()
     return {
         'platform': 'LEZHIN',

@@ -235,3 +235,21 @@ def test_comic_candidates_include_ebook_cards():
     from modules.crawler.base_crawler import pick_candidates
     cands = [{'url': 'a', 'type_hint': '웹툰'}, {'url': 'b', 'type_hint': '단행본'}, {'url': 'c', 'type_hint': '만화'}]
     assert [c['url'] for c in pick_candidates(cands, '만화')] == ['c', 'b']
+
+
+@pytest.mark.parametrize('results,expected', [
+    # 본편 없이 판본만 있으면 판본을 모두 수집한다 (BE 가 각각 다른 작품으로 본다)
+    (['가나다 [개정판]', '가나다 [19세 완전판]'], ['가나다 [개정판]', '가나다 [19세 완전판]']),
+    # 본편이 있으면 본편 하나 + 판본 모두. 앞뒤 [] 라벨이 붙은 본편도 본편이다
+    (['[독점] 가나다 [완결]', '가나다 [개정판]', '가나다 [19세 완전판]'],
+     ['[독점] 가나다 [완결]', '가나다 [개정판]', '가나다 [19세 완전판]']),
+])
+def test_editions_are_all_collected(results, expected):
+    cands = BaseCrawler.rank_candidates('가나다', [(t, t, '웹툰') for t in results])
+
+    class Crawler:
+        def crawl_detail_with_retry(self, url):
+            return {'works_type': '웹툰', 'source_url': url}
+
+    got = _crawl_for_type(Crawler(), cands, '웹툰', {})
+    assert [r['source_url'] for r in got] == expected

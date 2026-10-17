@@ -96,7 +96,7 @@ def _normalize_record(data: dict, platform: str, mode: str) -> dict:
         elif 'productNo=' in source:
             data['platform_work_id'] = source.split('productNo=')[-1].split('&')[0]
 
-    return {
+    record = {
         'schema_version': '2.0',
         'crawled_at': datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
         'platform': data.get('platform') or platform,
@@ -115,6 +115,11 @@ def _normalize_record(data: dict, platform: str, mode: str) -> dict:
         'thumbnail_url': data.get('thumbnail_url', ''),
         'works_type': data.get('works_type', ''),
     }
+    # e북으로 대신한 웹소설의 새 작품용 연령 (search_titles, #119). 있을 때만 쓴다 — 모든 행에 빈 키를 더하면
+    # 수집 내용 지문(store.content_fingerprint)이 전부 바뀌어 이미 반영한 작품까지 다시 검수 · 반영 대상이 된다
+    if data.get('create_age_classification'):
+        record['create_age_classification'] = data['create_age_classification']
+    return record
 
 
 class JSONLWriter:

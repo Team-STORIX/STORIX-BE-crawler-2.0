@@ -17,7 +17,6 @@ from modules.crawler.cookies import browser_cookies, merge_cookies, read_cookies
 
 
 def save_cookies(driver, path: Path) -> int:
-    """브라우저 쿠키를 기존 파일에 합쳐 저장한다. 바뀐 쿠키 수를 돌려준다."""
     old = read_cookies(path)
     merged = merge_cookies(old, browser_cookies(driver))
     before = {c['name']: c.get('value') for c in old}

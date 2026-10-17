@@ -46,7 +46,6 @@ def utc_bounds(start: date, end: date) -> tuple[datetime, datetime]:
 
 
 def headline(label: str, count: int) -> str:
-    """원글 (markdown 블록으로 보낸다)"""
     return f'**:bell: [{label}] 크롤러 작품 추가 알림**\n\n<{count}건 추가>'
 
 
@@ -110,7 +109,6 @@ def multi_platform(rows: list[dict]) -> list[str]:
 
 
 def chunks(groups: list[tuple[str, list[str]]]) -> list[str]:
-    """스레드 답글들. 플랫폼마다 하나, THREAD_CHUNK 줄이 넘으면 나눈다 (제목에 '이어서')"""
     out = []
     for label, lines in groups:
         for i in range(0, len(lines), THREAD_CHUNK):

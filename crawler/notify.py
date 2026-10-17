@@ -49,7 +49,7 @@ def _api(method: str, body: dict) -> dict | None:
 
 
 def post(text: str, blocks: list | None = None, channel: str | None = None, thread_ts: str | None = None) -> str | None:
-    """메시지를 보내고 그 메시지의 ts 를 돌려준다 (스레드 답글을 달 때 쓴다). 못 보내면 None. 성공 여부는 응답의 ok 로 본다."""
+    """돌려주는 ts 는 스레드 답글을 달 때 쓴다. 못 보내면 None."""
     channel = channel or os.getenv('SLACK_CHANNEL_ID', '')
     if not channel:
         return None
@@ -86,7 +86,7 @@ def dm(user: str, text: str) -> bool:
 
 
 def report_message(mode: str, data: dict | None = None) -> str | None:
-    """수집 리포트에서 알릴 내용을 만든다. 런 실패(세션 만료 · 차단 · 수집 0건)가 없으면 None."""
+    """런 실패(세션 만료 · 차단 · 수집 0건)가 없으면 None."""
     data = data or report.summary()
     fatal = [f for f in data['failures'] if f['status'] in report.FATAL]
     if not fatal:
@@ -113,7 +113,7 @@ RERUN_ACTION = 'rerun'
 
 
 def rerun_blocks(text: str) -> list[dict]:
-    """다시 로그인 완료 답글 + [못 긁은 작품 다시 긁기] 버튼. 버튼은 크롤러 슬랙 앱의 Interactivity(Lambda)로 간다."""
+    """다시 로그인 완료 답글에 단다. 버튼은 크롤러 슬랙 앱의 Interactivity(Lambda)로 간다."""
     return [
         {'type': 'section', 'text': {'type': 'mrkdwn', 'text': text}},
         {'type': 'actions', 'elements': [
@@ -123,7 +123,7 @@ def rerun_blocks(text: str) -> list[dict]:
 
 
 def relogin_blocks(text: str, platforms: list[str]) -> list[dict]:
-    """알림 본문 + 만료된 플랫폼마다 [다시 로그인] 버튼. 버튼은 크롤러 슬랙 앱의 Interactivity(Lambda)로 간다."""
+    """버튼은 크롤러 슬랙 앱의 Interactivity(Lambda)로 간다."""
     return [
         {'type': 'section', 'text': {'type': 'mrkdwn', 'text': text}},
         {'type': 'actions', 'elements': [

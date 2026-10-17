@@ -52,7 +52,7 @@ def work_id(url: str, platform: str) -> str | None:
 
 
 def platform_work_key(url: str) -> tuple[str, str] | None:
-    """작품 링크 → (플랫폼, 플랫폼 작품 ID). 수집 이력(works_source)의 키. 모르는 주소면 None."""
+    """(플랫폼, 플랫폼 작품 ID) — 수집 이력(works_source)의 키."""
     for pattern, _, platform in _RULES:
         m = pattern.search(url or '')
         if m:

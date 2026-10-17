@@ -38,14 +38,14 @@ MAX_LENGTH = {
     'thumbnail_url': 500,
 }
 
-# enum 필드: (카탈로그 kind, 못 맞추면 판정)
-# platform 은 크롤러 코드가 상수로 넣는 값이라 안 맞으면 크롤러 버그다
 # 비어도 import 를 막지 않는 값. 기존 작품에 붙으면 BE 가 빈 값을 무시하고(연령은 올리기만),
 # 새로 만들어야 하면 BE 가 FAILED("… 값이 비어 있습니다")를 돌려줘 그때 검수 대기로 돌린다 (importer)
 # 리디 웹툰은 연령 공지가 거의 없고 네이버 웹소설은 19세만 표시하며, 시리즈 독자층 분류는 장르가 아니다
 OPTIONAL_ON_UPDATE = {'genre', 'age_classification'}
 INFO = 'INFO'  # 기록만 하고 판정에는 영향 없음
 
+# enum 필드: (카탈로그 kind, 못 맞추면 판정)
+# platform 은 크롤러 코드가 상수로 넣는 값이라 안 맞으면 크롤러 버그다
 ENUM_FIELDS = {
     'platform': ('platform', REJECTED),
     'genre': ('genre', NEEDS_REVIEW),
@@ -92,10 +92,9 @@ MAPPED = 'MAPPED'
 def validate_item(item: dict, catalog: EnumCatalog, mappings: dict[tuple[str, str], str] | None = None) -> Verdict:
     """mappings: Layer 3 매핑 {(필드, 원문): enum name}. 카탈로그로 못 맞춘 원문에만 쓴다."""
     normalized: dict = {f: _clean(item.get(f)) for f in TEXT_FIELDS}
-    # 작가명은 크롤러마다 형식이 달라 한 형식('a, b')으로 맞춘다 (역할 라벨 제거, 이름 단위 중복 제거)
     normalized.update(normalize_artists(item))
     normalized['works_name'] = strip_volume_suffix(normalized['works_name'])
-    # 작품 링크는 플랫폼별 대표 주소로 맞춘다 (BE 에 landingUrl 로 저장되고, staging 중복 판정 키로도 쓴다)
+    # BE 에 landingUrl 로 저장되고, staging 중복 판정 키로도 쓴다
     normalized['source_url'] = canonical_landing_url(normalized['source_url'])
     violations: list[dict] = []
 
@@ -133,7 +132,7 @@ def validate_item(item: dict, catalog: EnumCatalog, mappings: dict[tuple[str, st
     if create_age:
         normalized['_create_age'] = create_age
 
-    # 장르와 같은 태그 · 플랫폼 태그 · 표기만 다른 중복을 뺀다 (장르가 정해진 뒤에 한다)
+    # 장르와 같은 태그를 빼므로 장르가 정해진 뒤에 한다
     normalized['hashtags'] = clean_hashtags(item.get('hashtags'), normalized['genre'], catalog)
 
     for f in NOT_NULL_FIELDS:
@@ -163,15 +162,11 @@ def validate_item(item: dict, catalog: EnumCatalog, mappings: dict[tuple[str, st
     return Verdict(status, normalized, violations)
 
 
-# ---------------------------------------------------------------------------
 # Layer 1.5 — 런 단위 서킷 브레이커
-#
 # 건별로는 못 잡는 게 있다. 연령이 20/20 전부 "18세 이용가" 면 값 하나하나는 유효하지만
 # 파서가 깨진 것이다. 분포를 봐야 잡힌다.
-#
 # 장르 힌트로 긁는 목록(리디 BL 스테디 등)은 원래 한 장르라 오탐이 난다.
 # 그래서 걸리면 버리지 않고 런을 보류만 한다. 사람이 보고 /runs/{id}/release 로 푼다.
-# ---------------------------------------------------------------------------
 
 MIN_RUN_SIZE = 20             # 이보다 적으면 분포 규칙은 건너뛴다 (표본이 작아 오탐만 난다)
 MAX_SINGLE_AGE_RATIO = 0.8

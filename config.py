@@ -12,7 +12,6 @@ for stream in (sys.stdout, sys.stderr):
 
 load_dotenv()
 
-# 디렉토리 및 파일 경로
 BASE_DIR = pathlib.Path(__file__).parent
 SESSIONS_DIR = BASE_DIR / "sessions"
 SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
@@ -36,10 +35,7 @@ DAILY_PLUS_URL = 'https://comic.naver.com/webtoon?tab=dailyPlus'
 # 2차 크롤링 URL + 수집 개수 제한 (completed - 완결)
 COMPLETED_URL = 'https://comic.naver.com/webtoon?tab=finish'
 
-# 신작 URL
 NAVER_NEW_URL = 'https://comic.naver.com/webtoon?tab=new'
-
-# ----------------------
 
 # ---- 네이버 웹소설 설정 ----
 NAVER_NOVEL_BASE_URL = 'https://novel.naver.com/webnovel/genre?genre='
@@ -96,7 +92,6 @@ RIDIBOOKS_INITIAL_TARGETS = [
     ("https://ridibooks.com/category/bestsellers/4250", "adult_exclude=y&period=monthly", "웹툰 BL 월간 성인제외",      200, "BL",       "웹툰"),
 ]
 
-# ---- 리디북스 new_works 대상 ----
 # (base_url, 추가 파라미터, 레이블, 최대 수집 수, 장르 힌트, 작품 유형)
 RIDIBOOKS_NEW_TARGETS = [
     ("https://ridibooks.com/category/bestsellers/1612", "adult_exclude=y&period=monthly", "웹툰 로판 월간 성인제외",    100, "로판",   "웹툰"),
@@ -105,7 +100,6 @@ RIDIBOOKS_NEW_TARGETS = [
     ("https://ridibooks.com/category/bestsellers/4250", "adult_exclude=y&period=monthly", "웹툰 BL 월간 성인제외",     100, "BL",    "웹툰"),
 ]
 
-# 로그인 자격증명
 NAVER_ID = os.getenv("NAVER_ID", "")
 NAVER_PW = os.getenv("NAVER_PW", "")
 KAKAO_ID = os.getenv("KAKAO_ID", "")
@@ -113,7 +107,6 @@ KAKAO_PW = os.getenv("KAKAO_PW", "")
 RIDIBOOKS_ID = os.getenv("RIDIBOOKS_ID", "")
 RIDIBOOKS_PW = os.getenv("RIDIBOOKS_PW", "")
 
-# 데이터베이스 설정
 MYSQL_CONFIG = {
     'host': os.getenv("MYSQL_DATABASE_HOST", "127.0.0.1"),
     'port': int(os.getenv("MYSQL_DATABASE_PORT", "13306")),

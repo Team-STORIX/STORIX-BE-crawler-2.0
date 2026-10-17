@@ -22,7 +22,7 @@ WORKERS = 3
 
 
 def platform_of_url(url: str) -> str | None:
-    """작품 주소 → 플랫폼 key. 링크 판정(review/landing)의 규칙과 등록부를 그대로 쓴다 (#105)"""
+    """링크 판정(review/landing)의 규칙과 등록부를 그대로 쓴다 (#105)"""
     found = platform_work_key(url)
     return platforms.get(found[0]).key if found else None
 

@@ -18,7 +18,6 @@ def parse_artists(artist_name_raw):
     if not artist_name_raw:
         return None, None, None
 
-    # 정규화
     text = artist_name_raw.replace('∙', ' ').replace(':', ' ')
     text = text.replace('글/그림', '글 그림').replace('글/원작', '글 원작')
 
@@ -152,7 +151,7 @@ class JSONLWriter:
         record = _normalize_record(raw_data, self._platform, self._mode)
         key = self._record_key(record)
         with self._lock:
-            self._records[key] = record  # 동일 작품이면 덮어씌움
+            self._records[key] = record
 
     @property
     def count(self) -> int:

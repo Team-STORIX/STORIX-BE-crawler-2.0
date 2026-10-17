@@ -118,7 +118,7 @@ def run_import(store: StagingStore, client: BackendClient, limit: int = 500, run
 
 def _send(store: StagingStore, client: BackendClient, rows: list[dict], summary: dict, final: bool,
           create: bool = False) -> list[dict]:
-    """rows 를 청크로 보내고 결과를 staging 에 반영한다. final=False 면 생성 필수값 거절 건을 돌려준다(재전송용).
+    """final=False 면 생성 필수값 거절 건을 반영하지 않고 돌려준다(재전송용).
     create=True 면 비어 있는 연령을 새 작품용 연령(_create_age)으로 채워 보낸다."""
     retry: list[dict] = []
     for start in range(0, len(rows), CHUNK_SIZE):
@@ -138,7 +138,7 @@ def _send(store: StagingStore, client: BackendClient, rows: list[dict], summary:
             summary['failed'] += len(chunk)
             continue
         except (urllib.error.URLError, TimeoutError, ValueError) as e:
-            # 청크 단위 실패(BE 다운 등). 건별 결과가 없으니 청크 전체를 실패로 남긴다
+            # BE 다운 등. 건별 결과가 없다
             log.error('청크 실패 %s stagingId=%s', e, [r['id'] for r in chunk])
             for r in chunk:
                 store.mark_import_failed(r['id'], f'BE 호출 실패: {e}')
@@ -169,7 +169,6 @@ def _send(store: StagingStore, client: BackendClient, rows: list[dict], summary:
                 summary['skipped'] += 1
                 log.info('stagingId=%s %s candidates=%s %s', r['id'], result, candidates, _label(r))
             elif needs_value:
-                # 새 작품을 만들어야 하는데 빈 값(연령 · 장르 등)이 있어 BE 가 만들지 않았다 → 사람이 채운다
                 store.mark_create_needs_value(r['id'], res['error'])
                 summary['needs_value'] = summary.get('needs_value', 0) + 1
                 log.info('stagingId=%s %s → 검수 대기 error=%s %s', r['id'], result, res['error'], _label(r))

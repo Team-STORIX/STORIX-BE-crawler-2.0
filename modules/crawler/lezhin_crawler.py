@@ -43,7 +43,6 @@ def lezhin_alias(url: str) -> str | None:
 
 
 def lezhin_content(src: str) -> dict | None:
-    """작품 페이지 HTML → content 객체. 데이터가 없으면 None."""
     chunks = _FLIGHT.findall(src or '')
     if not chunks:
         return None
@@ -140,8 +139,6 @@ class LezhinCrawler(BaseCrawler):
             self._log.warning('crawl_detail 실패 (%s): %s', url, e)
             return None
 
-    # ---------------------------------------------------------------- 로그인
-
     def _http_adult_ok(self) -> bool:
         try:
             return self.crawl_detail_http(f'{SITE}/ko/comic/jinx') is not None
@@ -186,7 +183,7 @@ class LezhinCrawler(BaseCrawler):
         return False
 
     def search_candidates(self, title: str) -> list[dict]:
-        """레진 검색 결과 → 후보 목록 (일치도 순). 로그인 없이도 성인 작품까지 나온다 (#107)"""
+        """로그인 없이도 성인 작품까지 나온다 (#107)"""
         import urllib.parse
         self.driver.get(f'{SITE}/ko/search?q={urllib.parse.quote(title)}')
         time.sleep(3)

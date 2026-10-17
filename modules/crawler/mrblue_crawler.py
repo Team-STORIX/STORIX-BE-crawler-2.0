@@ -142,8 +142,6 @@ class MrblueCrawler(BaseCrawler):
             self._log.warning('crawl_detail 실패 (%s): %s', url, e)
             return None
 
-    # ---------------------------------------------------------------- 로그인
-
     def _http_adult_ok(self) -> bool:
         try:
             return self.crawl_detail_http(f'{SITE}/webtoon/wt_000070142') is not None
@@ -188,7 +186,7 @@ class MrblueCrawler(BaseCrawler):
         return False
 
     def search_candidates(self, title: str) -> list[dict]:
-        """미스터블루 검색 결과 → 후보 목록 (일치도 순). 로그인 없이도 성인 작품까지 나온다 (#107)"""
+        """로그인 없이도 성인 작품까지 나온다 (#107)"""
         import urllib.parse
         self.driver.get(f'{SITE}/search?keyword={urllib.parse.quote(title)}')
         time.sleep(3)

@@ -32,7 +32,6 @@ class HttpUnavailable(Exception):
 # crawl_detail 이 삼키지 말고 위로 올려야 하는 예외. 크롤러마다 except 로 다시 던진다
 PASS_THROUGH = (InvalidSessionIdException, SessionExpiredError, _DriverTimeoutError, RateLimitedError, AuthExpiredError)
 
-# 차단 화면의 제목 · 본문 표시
 _BLOCK_MARKERS = ('403 Forbidden', '429 Too Many', 'Too Many Requests', 'Access Denied', '요청이 너무 많', '비정상적인 접근')
 
 USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
@@ -79,8 +78,6 @@ def _check_empty_list(fn):
 
 
 class BaseCrawler:
-    # 제목 검색 매칭 임계값. 완전일치·부분일치(포함)로 못 잡은 후보 중
-    # 정규화 문자열 유사도가 이 값 이상이면 마지막 순위로 채택한다.
     TITLE_FUZZY_THRESHOLD: float = 0.9
     # 페이지 이동(driver.get) 사이 최소 간격(초). 리디는 연달아 열면 403 이 나서 넉넉히 둔다
     REQUEST_INTERVAL: float = 0.5
@@ -89,7 +86,6 @@ class BaseCrawler:
     MAX_RATE_LIMITS: int = 3
     # 로그인 페이지 주소 표시. 목록 0건이 세션 만료 때문인지 가린다
     LOGIN_URL_MARKERS: tuple[str, ...] = ()
-    # 수집 리포트에 쓰는 플랫폼 이름 (crawler/report.py)
     REPORT_PLATFORM: str = ''
     # HTTP 403 을 차단으로 볼지. 아니면 브라우저로 다시 연다 (로그인이 필요한 작품일 수 있다)
     HTTP_403_IS_BLOCK: bool = False
@@ -360,7 +356,6 @@ class BaseCrawler:
         HttpUnavailable = 브라우저로 다시 열어야 함. 구현한 크롤러만 쓴다 (_has_http_detail)."""
         raise HttpUnavailable('HTTP 수집기 없음')
 
-    # 추상 메서드
     def login(self):
         raise NotImplementedError
 

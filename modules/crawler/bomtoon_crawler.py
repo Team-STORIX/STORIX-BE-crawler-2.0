@@ -19,7 +19,7 @@ SITE = 'https://www.bomtoon.com'
 CONTENTS_API = SITE + '/api/balcony-api-v2/contents/{}'
 # 로그인 세션(next-auth). user.accessToken.token 을 API 에 Authorization: Bearer 로 붙인다 (쿠키만으로는 성인 작품이 안 열림)
 SESSION_API = SITE + '/api/auth/session'
-# 작품명 검색 (화면 검색과 같은 API)
+# 화면 검색과 같은 API
 SEARCH_API = SITE + '/api/balcony-api-v2/search/title'
 API_HEADERS = {'Accept': 'application/json', 'x-balcony-id': 'BOMTOON_COM', 'x-balcony-timeZone': 'Asia/Seoul'}
 
@@ -50,7 +50,6 @@ def bomtoon_alias(url: str) -> str | None:
 
 
 def parse_bomtoon_contents(data: dict, url: str) -> dict:
-    """작품 API 의 data → 수집 결과."""
     tags = [t for t in data.get('tags') or [] if (t.get('name') or '').strip()]
     genre = tags[0]['name'].strip() if tags else ''
     hashtags = list(dict.fromkeys(t['name'].strip() for t in tags[1:] if _keep_tag(t)))
@@ -104,7 +103,7 @@ class BomtoonCrawler(BaseCrawler):
         self._token: tuple[str, float] | None = None  # (토큰, 만료 시각 epoch 초)
 
     def _access_token(self) -> str:
-        """저장된 쿠키로 세션 토큰을 받는다. 만료 전까지 재사용. 로그인 세션이 없으면 ''."""
+        """저장된 쿠키로 받는 세션 토큰. 로그인 세션이 없으면 ''."""
         if self._token and self._token[1] - 60 > time.time():
             return self._token[0]
         cookie = self._cookie_header()
@@ -175,8 +174,6 @@ class BomtoonCrawler(BaseCrawler):
                  })
                  .then(r => r.text()).then(done).catch(e => done(String(e)));""",
             api_url, API_HEADERS, SESSION_API)
-
-    # ---------------------------------------------------------------- 로그인
 
     def _adult_check(self) -> str:
         """성인 작품 API 결과 코드. SUCCESS 면 로그인 · 성인 인증이 된 것이다."""
@@ -250,7 +247,7 @@ class BomtoonCrawler(BaseCrawler):
         return False
 
     def search_candidates(self, title: str) -> list[dict]:
-        """봄툰 검색 API → 후보 (일치도 순). 성인 작품도 받으려면 로그인 세션 토큰이 필요하다."""
+        """성인 작품도 받으려면 로그인 세션 토큰이 필요하다."""
         import urllib.parse
         headers = dict(API_HEADERS)
         token = self._access_token()

@@ -14,7 +14,6 @@ SUPPORTED_PLATFORMS = ['naver_webtoon', 'naver_series', 'kakao_page', 'ridibooks
 # m.series 로 들어오면 로딩 타임아웃이 난다.
 _SERIES_MOBILE_RE = re.compile(r'^(https?://)m\.series\.naver\.com')
 
-# 네이버 웹툰 단건 상세 URL 판별: ?titleId=<숫자>
 _NAVER_TITLE_ID_RE = re.compile(r'titleId=(\d+)')
 
 
@@ -33,18 +32,7 @@ def _to_naver_work_url(url: str) -> str:
 
 
 def parse_url_to_platform(url: str) -> tuple[str, str]:
-    """
-    URL을 파싱해서 (platform, page_type) 반환.
-
-    Returns:
-        (platform, page_type): 예) ('naver_webtoon', 'dailyPlus'),
-                               시리즈 단건은 ('naver_series', 'detail'),
-                               리디 단건은 ('ridibooks', 'book'),
-                               리디 카테고리는 ('ridibooks', 'category')
-
-    Raises:
-        ValueError: 지원하지 않는 URL
-    """
+    """예: ('naver_webtoon', 'dailyPlus'), ('naver_series', 'detail'), ('ridibooks', 'book'), ('ridibooks', 'category')"""
     parsed = urlparse(url)
     domain = parsed.netloc.lower()
 
@@ -60,7 +48,6 @@ def parse_url_to_platform(url: str) -> tuple[str, str]:
     if 'series.naver.com' in domain:
         return 'naver_series', ('detail' if 'detail.series' in parsed.path else 'list')
 
-    # 네이버 웹툰: ?titleId=<id> 단건 상세 vs 요일/완결 등 목록 탭
     if 'naver.com' in domain:
         params = parse_qs(parsed.query)
         if params.get('titleId'):
@@ -68,12 +55,10 @@ def parse_url_to_platform(url: str) -> tuple[str, str]:
         tab = params.get('tab', [''])[0] or 'dailyPlus'
         return 'naver_webtoon', tab
 
-    # 카카오페이지: /content/<id> 단건 상세 vs 목록(메뉴·랭킹) 페이지
     # 실제 서비스 도메인은 page.kakao.com. kakaopage.com 은 구 도메인이라 같이 받는다.
     elif 'page.kakao.com' in domain or 'kakaopage.com' in domain:
         return 'kakao_page', ('content' if found else 'list')
 
-    # 리디북스: /books/<id> 단건 상세 vs 카테고리(베스트셀러) 목록
     elif 'ridibooks.com' in domain:
         return 'ridibooks', ('book' if found else 'category')
 
@@ -82,13 +67,6 @@ def parse_url_to_platform(url: str) -> tuple[str, str]:
 
 
 def run_custom_url(url: str, count: int | None = None) -> None:
-    """
-    URL 기반 커스텀 크롤링.
-    
-    Args:
-        url: 크롤링할 URL
-        count: 크롤링 개수 (None이면 무제한)
-    """
     print(f'\n{"="*70}')
     print(f'🔗 URL 크롤링 시작')
     print(f'{"="*70}')
@@ -130,11 +108,6 @@ def _crawl_detail(platform: str, url: str) -> None:
 
 
 def _crawl_naver(url: str, tab: str, count: int | None) -> None:
-    """네이버 웹툰 커스텀 크롤링.
-
-    tab == 'detail' → ?titleId=<id> 단건 상세 1건 크롤 (회차 URL도 작품 URL로 변환)
-    그 외           → 해당 탭 목록에서 작품 URL 수집 후 각 상세 크롤
-    """
     crawler = NaverCrawler()
 
     print(f'\n🔐 네이버 로그인...')
@@ -225,11 +198,6 @@ def _crawl_naver_series(url: str, page_type: str) -> None:
 
 
 def _crawl_kakao(url: str, page_type: str, count: int | None) -> None:
-    """카카오페이지 커스텀 크롤링.
-
-    page_type == 'content' → /content/<id> 단건 상세 1건 크롤
-    page_type == 'list'    → 목록 페이지에서 작품 URL 수집 후 각 상세 크롤
-    """
     crawler = KakaoCrawler()
 
     print(f'\n🔐 카카오 로그인...')
@@ -272,11 +240,6 @@ def _crawl_kakao(url: str, page_type: str, count: int | None) -> None:
 
 
 def _crawl_ridibooks(url: str, page_type: str, count: int | None) -> None:
-    """리디북스 커스텀 크롤링.
-
-    page_type == 'book'     → /books/<id> 단건 상세 1건 크롤
-    page_type == 'category' → 베스트셀러 등 카테고리 목록에서 URL 수집 후 각 상세 크롤
-    """
     crawler = RidibooksCrawler()
 
     print(f'\n🔐 리디북스 로그인...')
@@ -292,7 +255,6 @@ def _crawl_ridibooks(url: str, page_type: str, count: int | None) -> None:
             book_urls = [url]
             print(f'\n📡 단건 상세 크롤링...')
         else:
-            # 카테고리 URL → base + query 로 분리해 목록 수집
             sp = urlsplit(url)
             base_url = urlunsplit((sp.scheme, sp.netloc, sp.path, '', ''))
             print(f'\n📡 카테고리 목록 수집...')
@@ -316,20 +278,17 @@ def _crawl_ridibooks(url: str, page_type: str, count: int | None) -> None:
 
 
 def _fetch_naver_works(crawler, url: str, tab: str, count: int | None) -> list:
-    """네이버에서 작품 URL 목록 수집."""
     crawler.driver.get(url)
     
     works = []
-    max_items = count or 500  # 기본 500개
+    max_items = count or 500
     
-    # 무한 스크롤 시뮬레이션
     import time
     from selenium.webdriver.common.by import By
     
     last_height = crawler.driver.execute_script("return document.body.scrollHeight")
     
     while len(works) < max_items:
-        # 모든 작품 링크 수집
         elements = crawler.driver.find_elements(By.CSS_SELECTOR, "a.item")
         
         for elem in elements:
@@ -347,7 +306,6 @@ def _fetch_naver_works(crawler, url: str, tab: str, count: int | None) -> list:
         if len(works) >= max_items:
             break
         
-        # 스크롤
         crawler.driver.execute_script("window.scrollBy(0, window.innerHeight);")
         time.sleep(1)
         
@@ -360,11 +318,10 @@ def _fetch_naver_works(crawler, url: str, tab: str, count: int | None) -> list:
 
 
 def _fetch_kakao_works(crawler, url: str, count: int | None) -> list:
-    """카카오페이지에서 작품 URL 목록 수집."""
     crawler.driver.get(url)
     
     works = []
-    max_items = count or 500  # 기본 500개
+    max_items = count or 500
     
     import time
     from selenium.webdriver.common.by import By
@@ -372,7 +329,6 @@ def _fetch_kakao_works(crawler, url: str, count: int | None) -> list:
     last_height = crawler.driver.execute_script("return document.body.scrollHeight")
     
     while len(works) < max_items:
-        # 모든 작품 링크 수집
         elements = crawler.driver.find_elements(By.CSS_SELECTOR, "a[href*='/content/']")
         
         for elem in elements:
@@ -390,7 +346,6 @@ def _fetch_kakao_works(crawler, url: str, count: int | None) -> list:
         if len(works) >= max_items:
             break
         
-        # 스크롤
         crawler.driver.execute_script("window.scrollBy(0, window.innerHeight);")
         time.sleep(1)
         

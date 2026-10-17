@@ -20,7 +20,6 @@ WORKERS = 3
 
 
 def _make_dedup_writer(writer: JSONLWriter):
-    """source_url 기준 중복 방지 래퍼. 스레드 안전."""
     seen: set[str] = set()
     lock = threading.Lock()
 

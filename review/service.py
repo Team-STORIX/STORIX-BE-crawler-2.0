@@ -35,8 +35,7 @@ def read_jsonl(path: Path) -> list[dict]:
 
 def load_run(store: StagingStore, catalog: EnumCatalog, items: list[dict],
              source: str, source_file: str | None = None) -> dict:
-    """크롤 산출물 하나를 staging 에 넣고 Layer 1 · 1.5 판정까지 한다.
-    판정 전에 쌓인 사람 판정을 매핑으로 승격해(Layer 3) Layer 1 이 쓰게 한다."""
+    """판정 전에 쌓인 사람 판정을 매핑으로 승격해(Layer 3) Layer 1 이 쓰게 한다."""
     store.promote_mappings(PROMOTE_MIN)
     mappings = store.mappings()
     verdicts = [validate_item(it, catalog, mappings) for it in items]
@@ -115,14 +114,11 @@ def approve(store: StagingStore, catalog: EnumCatalog, staging_id: int,
     return {'id': staging_id, 'status': APPROVED, 'normalized': normalized}
 
 
-# ---------------------------------------------------------------------------
 # 바깥 검수 제안 (#68)
-#
 # Layer 1 이 못 정한 검수 대기 행에 레포 밖 도구(로컬 claude -p 등)가 낸 제안을 붙인다.
 # 제안은 llm_verdict 에 남기기만 하고, 사람이 apply_suggestions 를 돌릴 때 approve · reject 로 반영한다.
 #   {"staging_id": 12, "action": "approve", "overrides": {"genre": "판타지"}, "confidence": 0.9, "reason": "..."}
 #   action: approve(고친 값으로 승인) | reject(거절) | skip(사람이 직접 봄)
-# ---------------------------------------------------------------------------
 
 SUGGEST_ACTIONS = ('approve', 'reject', 'skip')
 # 제안으로 고칠 수 있는 값. 작품을 특정하는 값(작품명 · 플랫폼 · 링크)은 고치지 않는다
@@ -131,7 +127,6 @@ SUGGEST_FIELDS = ('artist_name', 'author', 'illustrator', 'original_author', 'de
 
 
 def parse_suggestion(raw: dict) -> dict:
-    """제안 하나를 검사해 llm_verdict 로 남길 형태로 바꾼다."""
     if not isinstance(raw, dict):
         raise ReviewError('제안은 객체여야 함')
     try:
@@ -201,7 +196,6 @@ def review_export(store: StagingStore, catalog: EnumCatalog, run_ids: list[str] 
                                        'original_author', 'works_type', 'genre', 'age_classification',
                                        'thumbnail_url', 'hashtags')},
             'description': (raw.get('description') or '')[:1500],
-            # 판정에 영향 없는 기록(INFO)은 뺀다
             'violations': [v for v in (r.get('violations') or []) if v.get('severity') != 'INFO'],
         })
     return {
@@ -222,7 +216,7 @@ def review_export(store: StagingStore, catalog: EnumCatalog, run_ids: list[str] 
 
 
 def save_suggestions(store: StagingStore, suggestions: list[dict], by: str) -> dict:
-    """제안을 검사해 검수 대기 행에 남긴다. 하나라도 형식이 틀리면 아무것도 남기지 않는다."""
+    """하나라도 형식이 틀리면 아무것도 남기지 않는다."""
     parsed = [parse_suggestion(s) for s in suggestions]
     saved, missed = 0, []
     for p in parsed:

@@ -103,3 +103,21 @@ def test_parse_mrblue_search():
         ('https://www.mrblue.com/webtoon/wt_bossbaby_wz', '보스 빗치 베이비', '웹툰'),
         ('https://www.mrblue.com/comic/C000065505', '보스 빗치 베이비 [단행본]', '단행본'),
         ('https://www.mrblue.com/novel/nv_1', '톰 & 제리', '웹소설')]
+
+
+def test_session_tools_match_registry():
+    """exe 로 따로 빌드하는 세션 등록 툴은 등록부를 못 불러온다. 대응표가 등록부와 같아야 한다 (#122)."""
+    import ast
+    from pathlib import Path
+    from modules.crawler import platforms
+    src = (Path(__file__).parent.parent / 'tools' / 'register_session.py').read_text(encoding='utf-8')
+    table = next(ast.literal_eval(n.value) for n in ast.parse(src).body
+                 if isinstance(n, ast.Assign) and getattr(n.targets[0], 'id', '') == 'PLATFORMS')
+    assert {k: (v[2], v[4]) for k, v in table.items()} == {
+        k: (cookie, platforms.cookie_file(k).name) for k, cookie in platforms.LOGIN_COOKIES.items()}
+
+
+def test_general_search_targets_are_one_list():
+    from crawler.modes import requests, search_titles
+    from modules.crawler import platforms
+    assert requests.FALLBACK_KEYS == search_titles._ALL_TARGETS == list(platforms.GENERAL_SEARCH)

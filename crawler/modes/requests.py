@@ -20,6 +20,7 @@ from datetime import datetime
 from pathlib import Path
 
 from config import OUTPUT_DIR, RUN_DIR
+from modules.crawler import platforms
 from review.notion import DEFAULT_MIN_ID, NotionError, NotionRequests, Request
 
 SOURCE = 'notion_requests'
@@ -37,7 +38,7 @@ PLATFORM_KEYS = {
     '미스터블루': ['mrblue'],
 }
 # '기타' 만 적혔을 때 찾아볼 곳
-FALLBACK_KEYS = ['naver_webtoon', 'naver_novel', 'naver_series', 'kakao_page', 'ridibooks']
+FALLBACK_KEYS = list(platforms.GENERAL_SEARCH)
 # 노션 '작품 형태' → 목록 섹션 (cli._TYPE_HEADERS). 단행본은 소설 e북일 수도 만화책일 수도 있어 웹소설 · 만화로 찾는다
 # (웹소설은 e북을 대신 고르는 규칙. 지박소년 하나코 군 단행본 요청이 리디에 만화로만 있어 못 찾았다)
 TYPE_SECTIONS = {'웹툰': ['웹툰'], '웹소설': ['웹소설'], '단행본': ['웹소설', '만화'], '만화': ['만화']}

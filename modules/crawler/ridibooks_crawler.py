@@ -7,10 +7,9 @@ import pickle
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import TimeoutException, InvalidSessionIdException
-from urllib3.exceptions import ReadTimeoutError as _DriverTimeoutError
+from selenium.common.exceptions import TimeoutException
 
-from .base_crawler import PASS_THROUGH, AuthExpiredError, BaseCrawler, manual_login_timeout, HttpUnavailable, SessionExpiredError, pick_candidates
+from .base_crawler import PASS_THROUGH, AuthExpiredError, BaseCrawler, manual_login_timeout, HttpUnavailable, SessionExpiredError
 from .classify import artist_fields, works_type_from_category
 from config import RIDIBOOKS_COOKIE_FILE, RIDIBOOKS_LOGIN_URL, RIDIBOOKS_ID, RIDIBOOKS_PW
 
@@ -234,16 +233,6 @@ class RidibooksCrawler(BaseCrawler):
         raw = [(f"https://ridibooks.com/books/{book_id}", text, ridi_type_hint(card))
                for book_id, text, card in cards if text]
         return self.rank_candidates(title, raw)
-
-    def search_url_by_title(self, title: str, works_type: str | None = None) -> str | None:
-        """제목으로 리디북스 작품 URL 검색. 원하는 유형이 있으면 그 유형 후보를 먼저 고른다."""
-        picked = pick_candidates(self.search_candidates(title), works_type)
-        if not picked:
-            print(f"   ⚠️  '{title}'과 일치하는 검색 결과 없음 — 스킵")
-            return None
-        c = picked[0]
-        print(f"   ↳ 검색 결과 ({c['kind']}): {c['url']} [{c['text']}]")
-        return c['url']
 
     def get_category_urls(self, base_url: str, extra_params: str, max_count: int) -> list[str]:
         """카테고리 베스트셀러 URL 목록 수집 (스크롤 + 더보기 버튼)."""

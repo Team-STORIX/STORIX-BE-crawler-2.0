@@ -3,8 +3,6 @@ import time
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import InvalidSessionIdException
-from urllib3.exceptions import ReadTimeoutError as _DriverTimeoutError
 
 from .naver_crawler import NaverCrawler
 from .base_crawler import PASS_THROUGH, BaseCrawler, SessionExpiredError
@@ -40,76 +38,6 @@ class NaverNovelCrawler(NaverCrawler):
             if text:
                 raw.append((href, text, '웹소설'))
         return self.rank_candidates(title, raw)
-
-    def search_url_by_title(self, title: str) -> str | None:
-        """제목으로 네이버 웹소설(novel.naver.com) URL 검색.
-
-        검색결과 영역(.component_section)만 스코프해 우측 랭킹 사이드바(.league_wrap)를
-        배제한다. 정식 웹소설 결과만 보고 매치품질(정확 > 부분 > 유사) 순으로 고른다.
-        정식에 매치가 없으면 None (베스트리그·챌린지리그에만 있어도 None).
-        """
-        import urllib.parse
-
-        self.driver.get(
-            f"https://novel.naver.com/search?keyword={urllib.parse.quote(title)}"
-        )
-        time.sleep(2)
-
-        norm_title = self._norm_title(title)
-
-        # 검색결과 카드 링크만 (사이드바 랭킹은 .league_wrap 아래라 제외됨).
-        anchors = self.driver.find_elements(
-            By.CSS_SELECTOR, ".component_section a[href*='novelId=']"
-        )
-
-        # 후보 선택 키: (품질, -유사도) — 튜플이 작을수록 우선.
-        # 품질 0=정확, 1=부분, 2=유사(≥임계값).
-        best_key = None
-        best = None  # (href, text, quality, ratio)
-        league_only = False
-        for a in anchors:
-            href = a.get_attribute('href') or ''
-            if any(p in href for p in self._LEAGUE_PATHS):
-                league_only = True
-                continue
-            if self._OFFICIAL_PATH not in href:
-                continue
-
-            try:
-                text = a.find_element(By.CSS_SELECTOR, '.title').text.strip()
-            except Exception:
-                text = (a.get_attribute('title') or a.text or '').strip()
-            if not text:
-                continue
-            norm_text = self._norm_title(text)
-
-            if norm_text == norm_title:
-                quality, ratio = 0, 1.0
-            # 부분 일치는 앞부분 일치만 (BaseCrawler.title_match 와 같은 기준)
-            elif norm_text.startswith(norm_title) or norm_title.startswith(norm_text):
-                quality, ratio = 1, 0.0
-            else:
-                ratio = self._title_ratio(norm_title, norm_text)
-                if ratio < self.TITLE_FUZZY_THRESHOLD:
-                    continue
-                quality = 2
-
-            key = (quality, -ratio)
-            if best_key is None or key < best_key:
-                best_key = key
-                best = (href, text, quality, ratio)
-
-        if best:
-            href, text, quality, ratio = best
-            kind = {0: '정확', 1: '부분'}.get(quality, f'유사 {ratio:.0%}')
-            print(f"   ↳ 검색 결과 (정식·{kind}): {href} [{text}]")
-            return href
-
-        if league_only:
-            print(f"   ⚠️  '{title}' 정식 웹소설 없음 (베스트리그·챌린지리그만 있음) — 스킵")
-        else:
-            print(f"   ⚠️  '{title}' 네이버 웹소설 검색 결과 없음 — 스킵")
-        return None
 
     def get_genre_urls(self, genre_url: str) -> list[str]:
         print(f"📂 URL 수집 시작: {genre_url}")

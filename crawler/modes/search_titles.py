@@ -13,12 +13,13 @@ from selenium.common.exceptions import InvalidSessionIdException, WebDriverExcep
 from urllib3.exceptions import ReadTimeoutError as _DriverTimeoutError
 
 from crawler import report
-from modules.crawler.base_crawler import AuthExpiredError, RateLimitedError, SessionExpiredError, is_edition, pick_candidates
+from modules.crawler.base_crawler import AuthExpiredError, RateLimitedError, SessionExpiredError, pick_candidates
+from modules.crawler.titles import is_edition
 from modules.crawler import platforms
 from crawler.output.jsonl_writer import JSONLWriter
 from crawler.parallel import run_platforms
 
-# 제목 검색(search_url_by_title) 단계에서 드라이버가 멈추면 나는 예외들.
+# 제목 검색(search_candidates) 단계에서 드라이버가 멈추면 나는 예외들.
 # crawl_detail_with_retry 와 달리 이 단계는 재시작 보호가 없어 여기서 직접 처리한다.
 _DRIVER_ERRORS = (
     InvalidSessionIdException,

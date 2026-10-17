@@ -196,11 +196,6 @@ class LezhinCrawler(BaseCrawler):
         time.sleep(3)
         return self.rank_candidates(title, parse_lezhin_search(self.driver.page_source))
 
-    def search_url_by_title(self, title: str) -> str | None:
-        candidates = self.search_candidates(title)
-        return candidates[0]['url'] if candidates else None
-
-
 # 검색 결과 카드 (결과가 없으면 같은 화면에 인기 순위가 나오는데, 그 카드는 이 모양이 아니다)
 _LEZHIN_CARD = re.compile(r'<a class="flex w-full[^"]*" href="(/ko/comic/[^"/?#]+)".*?<p class="[^"]*text-default[^"]*">(.*?)</p>', re.S)
 

@@ -6,7 +6,8 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from modules.crawler.base_crawler import AuthExpiredError, BaseCrawler, is_edition  # noqa: E402
+from modules.crawler.base_crawler import AuthExpiredError, BaseCrawler  # noqa: E402
+from modules.crawler.titles import is_edition  # noqa: E402
 from modules.crawler.classify import age_from_text, artist_fields, works_type_from_category  # noqa: E402
 
 

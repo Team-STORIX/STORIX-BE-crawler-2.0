@@ -39,10 +39,12 @@ _BLOCK_MARKERS = ('403 Forbidden', '429 Too Many', 'Too Many Requests', 'Access 
 USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
 
 
-# 플랫폼이 제목 뒤에 붙이는 라벨. 제목 비교 전에 뗀다 ('넷카마 펀치!!! [완결]' → '넷카마 펀치!!!')
-# 판본 표기(19세 완전판 · 개정판)는 떼지 않는다 — BE 가 다른 작품으로 보고, 본편과 따로 수집한다
-# 리디 e북은 개정판만 팔 때 제목 앞에 '개정판 | ' 을 붙인다 ('개정판 | 블랙 스완'). 판본 표기가 아니라 판매 표기다
-_TITLE_LABELS = re.compile(r'\s*\[(?:완결|독점|단행본|휴재|연재)\]|^\s*\[e북\]\s*|^\s*개정판\s*\|\s*')
+# 플랫폼이 제목에 붙이는 라벨. 제목 비교 전에 뗀다
+#   [] 는 앞이든 뒤든 뗀다 — '넷카마 펀치!!! [완결]' · '[e북] 마도조사' · '[과다분출 단편선] 네 꿈을 꿀게'
+#   단, 판본 표기([19세 완전판] · [개정판])는 떼지 않는다 — BE 가 다른 작품으로 보고, 본편과 따로 수집한다
+#   리디 e북은 개정판만 팔 때 제목 앞에 '개정판 | ' 을 붙인다 ('개정판 | 블랙 스완'). 판본 표기가 아니라 판매 표기다
+# 비교할 때만 떼고, 수집하는 작품명은 플랫폼 제목 그대로다
+_TITLE_LABELS = re.compile(r'\s*\[(?![^\]]*(?:완전판|개정판))[^\]]*\]\s*|^\s*개정판\s*\|\s*')
 
 
 # 본편에 딸린 이야기. 같은 작품이라 따로 수집하지 않는다 — 검색어에 없으면 후보에서 뺀다.
@@ -264,8 +266,11 @@ class BaseCrawler:
         options.add_argument("--disable-features=WebUSB")
         # 메모리 절감 (#7). 썸네일은 이미지 주소 문자열만 쓰므로 이미지를 받지 않는다.
         # DOM 이 만들어지면 바로 넘어간다 — 화면 요소는 크롤러마다 WebDriverWait 로 기다린다
+        # 리눅스 Chrome 은 --lang 을 무시한다. 사이트가 보는 언어(Accept-Language)를 직접 정한다 — 영어면 네이버 캡차가 영어로 나온다
+        prefs = {'intl.accept_languages': 'ko-KR,ko'}
         if self.block_images:
-            options.add_experimental_option('prefs', {'profile.managed_default_content_settings.images': 2})
+            prefs['profile.managed_default_content_settings.images'] = 2
+        options.add_experimental_option('prefs', prefs)
         options.page_load_strategy = 'eager'
 
         if headless:

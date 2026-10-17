@@ -296,7 +296,9 @@ EventBridge Scheduler 01:00 → EC2 StopInstances   (멈췄을 때 안전망)
 ```
 - 들어오는 포트는 열지 않습니다 (터널은 서버에서 나가는 연결). 링크는 무작위 주소 + 1회용 VNC 비밀번호, 한 기기만 접속, 30분 뒤 닫힘
 - 크롤러 전용 슬랙 앱(`deploy/slack-app-manifest.yml`)을 씁니다. Interactivity Request URL = Lambda Function URL
-- 서버가 켜져 있을 때(야간 실행 중)는 켜지 않고 "꺼진 뒤 다시 눌러 달라"고 답합니다
+- 서버가 켜져 있을 때(야간 실행 중)는 태그 crawler:mode=login-after 만 달고, nightly.sh 가 수집을 마친 뒤 끄기 전에 원격 로그인합니다. 켜지는 중 · 꺼지는 중이면 잠시 뒤 다시 눌러 달라고 답합니다
+- 세션 만료로 못 찾은 노션 요청은 노션에 표시하지 않고 남겨 둡니다 — 다시 로그인하면 다음 자정 실행에서 다시 찾습니다
+- 다시 로그인 완료 답글에 `[🔄 못 긁은 작품 다시 긁기]` 버튼이 붙습니다. 누르면 같은 방식(crawler:mode=rerun · rerun-after)으로 노션 요청 처리만 바로 다시 돌고, 결과를 그 스레드에 답니다
 
 맥에서는 직접 로그인해 올려도 됩니다 (서버가 꺼져 있어도 됨).
 
@@ -304,6 +306,8 @@ EventBridge Scheduler 01:00 → EC2 StopInstances   (멈췄을 때 안전망)
 python cli.py login --platform kakao_page   # 로컬에서 다시 로그인
 deploy/push_sessions.sh kakao               # 그 쿠키만 S3 에 (인자 없으면 sessions/*.pkl 전부)
 ```
+**쿠키 갱신** — 야간 실행은 노션 요청 처리 전에 `python cli.py keepalive` 로 쿠키 파일이 있는 플랫폼을 모두 쿠키로 열어 봅니다. 열리면 사이트가 새로 내려준 쿠키를 파일에 합쳐 저장하고(쓸 때마다 연장되는 세션 유지), 안 열리면 그날 요청이 없어도 만료 알림을 보냅니다. 같은 날 같은 쿠키의 만료 알림은 한 번만 갑니다. 서버를 끄기 전에 S3 보다 새 쿠키를 올립니다.
+
 서버는 다음 자정 부팅 때 S3 쪽이 서버 파일보다 새 것만 받습니다. 만료된 플랫폼만 올려야 서버가 실행 중 다시 저장한 다른 쿠키를 덮지 않습니다.
 
 **주간 작품 추가 알림** — 월요일 자정 실행 때 지난주(월~일, 한국 시간)에 BE 에 새로 만든(CREATED) 작품을 보냅니다. 원글에는 안내 · 건수만, 작품명은 스레드 답글로 답니다. 없으면 보내지 않습니다. 직접 보기: `python cli.py stage weekly --env prod [--date YYYY-MM-DD] [--send]`

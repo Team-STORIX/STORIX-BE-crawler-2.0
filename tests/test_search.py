@@ -12,6 +12,9 @@ from modules.crawler.ridibooks_crawler import ridi_type_hint  # noqa: E402
     ('감옥 게임', '감옥게임', 0),
     ('넷카마 펀치!!!', '넷카마 펀치!!! [완결]', 0),
     ('마도조사', '[e북] 마도조사', 0),
+    ('네 꿈을 꿀게', '[과다분출 단편선] 네 꿈을 꿀게', 0),  # 제목 앞뒤 [] 는 무엇이든 떼고 비교한다
+    ('네 꿈을 꿀게', '네 꿈을 꿀게 [단편]', 0),
+    ('네 꿈을 꿀게', '[단편] 네 꿈을 꿀게 [완결]', 0),
     ('레지나레나', '레지나레나 - 용서받지 못한 그대에게', 1),
     # 앞에 다른 말이 붙은 다른 작품은 부분 일치로 보지 않는다 (2026-10 E2E)
     ('헌터는 조용히 살고 싶다', '은퇴한 C급 헌터는 조용히 살고 싶다', None),
@@ -159,6 +162,7 @@ def test_ebook_age_not_sent_for_web_novel():
     crawled = {}
     [r] = _crawl_for_type(Crawler(), cands, '웹소설', crawled)
     assert r['age_classification'] == ''
+    assert r['create_age_classification'] == '18세 이용가'  # 새 작품을 만들 때만 쓴다
     assert crawled['ebook']['age_classification'] == '18세 이용가'  # 단행본 섹션에서 쓸 원본은 그대로
     [r] = _crawl_for_type(Crawler(), cands, '단행본', crawled)
     assert r['age_classification'] == '18세 이용가'
@@ -231,3 +235,21 @@ def test_comic_candidates_include_ebook_cards():
     from modules.crawler.base_crawler import pick_candidates
     cands = [{'url': 'a', 'type_hint': '웹툰'}, {'url': 'b', 'type_hint': '단행본'}, {'url': 'c', 'type_hint': '만화'}]
     assert [c['url'] for c in pick_candidates(cands, '만화')] == ['c', 'b']
+
+
+@pytest.mark.parametrize('results,expected', [
+    # 본편 없이 판본만 있으면 판본을 모두 수집한다 (BE 가 각각 다른 작품으로 본다)
+    (['가나다 [개정판]', '가나다 [19세 완전판]'], ['가나다 [개정판]', '가나다 [19세 완전판]']),
+    # 본편이 있으면 본편 하나 + 판본 모두. 앞뒤 [] 라벨이 붙은 본편도 본편이다
+    (['[독점] 가나다 [완결]', '가나다 [개정판]', '가나다 [19세 완전판]'],
+     ['[독점] 가나다 [완결]', '가나다 [개정판]', '가나다 [19세 완전판]']),
+])
+def test_editions_are_all_collected(results, expected):
+    cands = BaseCrawler.rank_candidates('가나다', [(t, t, '웹툰') for t in results])
+
+    class Crawler:
+        def crawl_detail_with_retry(self, url):
+            return {'works_type': '웹툰', 'source_url': url}
+
+    got = _crawl_for_type(Crawler(), cands, '웹툰', {})
+    assert [r['source_url'] for r in got] == expected

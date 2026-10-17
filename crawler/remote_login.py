@@ -76,7 +76,9 @@ def run(platform: str, user: str, channel: str, thread: str | None) -> int:
 
         # 기존 로그인 명령을 원격 화면에 띄운다. DOCKER_ENV 를 빼야 수동 로그인 화면을 연다
         env = {k: v for k, v in os.environ.items() if k != 'DOCKER_ENV'}
-        env.update(DISPLAY=DISPLAY, CHROME_WINDOW_SIZE=WINDOW, LOGIN_WAIT_SEC=str(LIMIT_SEC - 120))
+        # 리눅스 Chrome 은 화면 언어를 환경변수로 정한다. 없으면 영어라 캡차도 영어로 나온다
+        env.update(DISPLAY=DISPLAY, CHROME_WINDOW_SIZE=WINDOW, LOGIN_WAIT_SEC=str(LIMIT_SEC - 120),
+                   LANGUAGE='ko', LANG='ko_KR.UTF-8')
         try:
             done = subprocess.run([sys.executable, 'cli.py', 'login', '--platform', login_platform],
                                   env=env, timeout=LIMIT_SEC, capture_output=True, text=True)

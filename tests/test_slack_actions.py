@@ -27,7 +27,7 @@ class FakeEC2:
         self.state, self.tags, self.started = 'stopped', [], False
 
     def describe_instances(self, InstanceIds):
-        return {'Reservations': [{'Instances': [{'State': {'Name': self.state}}]}]}
+        return {'Reservations': [{'Instances': [{'State': {'Name': self.state}, 'Tags': self.tags}]}]}
 
     def create_tags(self, Resources, Tags):
         self.tags = Tags
@@ -58,9 +58,9 @@ def event(payload: dict, ts: int | None = None, secret: str = SECRET) -> dict:
     return {'headers': {'X-Slack-Request-Timestamp': ts, 'X-Slack-Signature': sig}, 'body': body}
 
 
-def click(user='U1', platform='kakao_page'):
+def click(user='U1', platform='kakao_page', action='relogin'):
     return {'user': {'id': user}, 'response_url': 'https://hooks.slack.com/x',
-            'actions': [{'action_id': f'relogin:{platform}', 'value': platform}],
+            'actions': [{'action_id': f'{action}:{platform}', 'value': platform}],
             'container': {'channel_id': 'C1', 'message_ts': '111.222'}}
 
 
@@ -85,8 +85,39 @@ def test_tags_and_starts_server(mod):
     assert '켜는 중' in mod.replies[0]
 
 
-def test_does_not_start_when_already_running(mod):
+def test_running_server_logs_in_after_nightly_run(mod):
     mod.fake_ec2.state = 'running'
     mod.handler(event(click()), None)
+    assert not mod.fake_ec2.started
+    assert {t['Key']: t['Value'] for t in mod.fake_ec2.tags}['crawler:mode'] == 'login-after'
+    assert '끝나면 이어서' in mod.replies[0]
+
+
+def test_running_server_keeps_earlier_request(mod):
+    mod.fake_ec2.state = 'running'
+    mod.fake_ec2.tags = [{'Key': 'crawler:mode', 'Value': 'login'}, {'Key': 'crawler:login-platform', 'Value': 'kakao_page'}]
+    mod.handler(event(click(platform='naver_series')), None)
+    assert mod.fake_ec2.tags[1]['Value'] == 'kakao_page'
+    assert '이미 처리를 기다리는' in mod.replies[0]
+
+
+@pytest.mark.parametrize('state', ['pending', 'stopping'])
+def test_does_nothing_while_booting_or_stopping(mod, state):
+    mod.fake_ec2.state = state
+    mod.handler(event(click()), None)
     assert not mod.fake_ec2.started and mod.fake_ec2.tags == []
-    assert 'running' in mod.replies[0]
+    assert state in mod.replies[0]
+
+
+def test_rerun_starts_stopped_server(mod):
+    mod.handler(event(click(platform='requests', action='rerun')), None)
+    assert mod.fake_ec2.started
+    assert {t['Key']: t['Value'] for t in mod.fake_ec2.tags}['crawler:mode'] == 'rerun'
+    assert '다시 긁고' in mod.replies[0]
+
+
+def test_rerun_while_running_waits(mod):
+    mod.fake_ec2.state = 'running'
+    mod.handler(event(click(platform='requests', action='rerun')), None)
+    assert not mod.fake_ec2.started
+    assert {t['Key']: t['Value'] for t in mod.fake_ec2.tags}['crawler:mode'] == 'rerun-after'

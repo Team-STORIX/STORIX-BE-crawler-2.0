@@ -134,6 +134,24 @@ def cmd_login(args):
             crawler.close_driver()
 
 
+def cmd_keepalive(args):
+    """로그인 쿠키를 열어 갱신한다. 만료된 플랫폼은 슬랙으로 알린다 (다시 로그인 버튼)."""
+    import json
+    from datetime import datetime
+
+    from config import OUTPUT_DIR
+    from crawler import notify, report
+    from crawler.modes.keepalive import run_keepalive
+
+    report.reset()
+    result = run_keepalive(args.platform)
+    report.save(OUTPUT_DIR / datetime.now().strftime('%Y-%m-%d'), 'keepalive')
+    notify.notify_report('keepalive')
+    print(json.dumps(result, ensure_ascii=False))
+    if report.failed():
+        sys.exit(1)
+
+
 def cmd_crawl(args):
     mode = args.mode
     platform = args.platform
@@ -440,6 +458,9 @@ def main():
                          help='naver_webtoon | kakao_page | ridibooks | bomtoon | lezhin | mrblue | all (bomtoon · lezhin · mrblue 는 all 에 안 들어감). '
                               'BE enum(KAKAO_PAGE) · 네이버 웹소설 · 시리즈도 받는다')
 
+    keep_p = subparsers.add_parser('keepalive', help='로그인 쿠키를 열어 갱신 · 만료면 슬랙 알림 (서버 야간 실행)')
+    keep_p.add_argument('--platform', nargs='*', help='플랫폼 (기본: 쿠키 파일이 있는 플랫폼 전부)')
+
     stage_p = subparsers.add_parser('stage', help='검수 파이프라인 (works_staging → BE import API)')
     stage_sub = stage_p.add_subparsers(dest='stage_command')
 
@@ -524,6 +545,8 @@ def main():
         cmd_stage(args)
     elif args.command == 'requests':
         cmd_requests(args)
+    elif args.command == 'keepalive':
+        cmd_keepalive(args)
     else:
         parser.print_help()
         sys.exit(1)

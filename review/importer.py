@@ -64,10 +64,12 @@ _FIELD_MAP = {
 }
 
 
-def to_request_item(staging_id: int, normalized: dict) -> dict:
+def to_request_item(staging_id: int, normalized: dict, create: bool = False) -> dict:
     item = {'stagingId': staging_id}
     for src, dst in _FIELD_MAP.items():
         item[dst] = normalized.get(src) or None
+    if create and not item['ageClassification']:
+        item['ageClassification'] = normalized.get('_create_age') or None
     item['hashtags'] = item['hashtags'] or []
     if normalized.get('_target_works_id'):
         item['targetWorksId'] = normalized['_target_works_id']
@@ -100,18 +102,28 @@ def run_import(store: StagingStore, client: BackendClient, limit: int = 500, run
     retry = _send(store, client, rows, summary, final=False)
     if retry and not summary['locked']:
         log.info('생성 필수값이 비어 거절된 %d건 재전송', len(retry))
-        _send(store, client, retry, summary, final=True)
+        if any(r['normalized'].get('_create_age') for r in retry):
+            # 그래도 붙을 작품이 없으면 새로 만든다 — 그때만 새 작품용 연령(e북 연령)을 채운다.
+            # 먼저 채우면 다른 행이 만든 작품의 연령을 e북 연령으로 올릴 수 있다
+            retry = _send(store, client, retry, summary, final=False)
+            if retry and not summary['locked']:
+                log.info('붙을 작품이 없어 새 작품용 연령을 채워 %d건 재전송', len(retry))
+                _send(store, client, retry, summary, final=True, create=True)
+        else:
+            _send(store, client, retry, summary, final=True)
 
     log.info('import 끝 %s', summary)
     return summary
 
 
-def _send(store: StagingStore, client: BackendClient, rows: list[dict], summary: dict, final: bool) -> list[dict]:
-    """rows 를 청크로 보내고 결과를 staging 에 반영한다. final=False 면 생성 필수값 거절 건을 돌려준다(재전송용)."""
+def _send(store: StagingStore, client: BackendClient, rows: list[dict], summary: dict, final: bool,
+          create: bool = False) -> list[dict]:
+    """rows 를 청크로 보내고 결과를 staging 에 반영한다. final=False 면 생성 필수값 거절 건을 돌려준다(재전송용).
+    create=True 면 비어 있는 연령을 새 작품용 연령(_create_age)으로 채워 보낸다."""
     retry: list[dict] = []
     for start in range(0, len(rows), CHUNK_SIZE):
         chunk = rows[start:start + CHUNK_SIZE]
-        payload = [to_request_item(r['id'], r['normalized']) for r in chunk]
+        payload = [to_request_item(r['id'], r['normalized'], create) for r in chunk]
         try:
             results = client.import_works(payload)
         except urllib.error.HTTPError as e:

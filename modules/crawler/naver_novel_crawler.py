@@ -14,14 +14,11 @@ class NaverNovelCrawler(NaverCrawler):
     # 네이버 웹툰 작품 정보 API 는 웹툰 전용이다. 상세는 브라우저로 연다
     crawl_detail_http = BaseCrawler.crawl_detail_http
 
-    """novel.naver.com 웹소설 크롤러. 로그인은 NaverCrawler와 동일한 쿠키 재사용."""
-
 
     # 정식 웹소설만 수집한다. 베스트리그·챌린지리그는 정식 계약 전 작품이라 제외
     _OFFICIAL_PATH = '/webnovel/list'
 
     def search_candidates(self, title: str) -> list[dict]:
-        """네이버 웹소설 검색 결과 → 정식 웹소설 후보 목록 (일치도 순). 베스트 · 챌린지리그는 뺀다."""
         import urllib.parse
 
         self.driver.get(f"https://novel.naver.com/search?keyword={urllib.parse.quote(title)}")
@@ -87,8 +84,8 @@ class NaverNovelCrawler(NaverCrawler):
             if "nid.naver.com" in self.driver.current_url:
                 raise SessionExpiredError(f"네이버 로그인 리다이렉트 감지: {url}")
 
-            # 베스트리그·챌린지리그는 정식 계약 전 작품이라 수집하지 않는다
-            if is_pre_contract_url(self.driver.current_url):   # 베스트리그 · 챌린지리그 (검수와 같은 기준)
+            # 베스트리그·챌린지리그는 정식 계약 전 작품이라 수집하지 않는다 (검수와 같은 기준)
+            if is_pre_contract_url(self.driver.current_url):
                 self._log.info("베스트리그·챌린지리그 작품이라 건너뜀: %s", self.driver.current_url)
                 return None
 
@@ -99,7 +96,6 @@ class NaverNovelCrawler(NaverCrawler):
                 self._log.warning("페이지 로딩 시간 초과: %s", url)
                 return None
 
-            # 제목
             title = ""
             for sel in ["h2.title", "h2.tit", ".title_area h2", ".tit_area h2", "h2", "h1"]:
                 try:
@@ -119,7 +115,7 @@ class NaverNovelCrawler(NaverCrawler):
             if not title:
                 return None
 
-            # 작가: href에 target=author가 있는 링크가 가장 신뢰할 수 있는 셀렉터
+            # target=author 링크가 가장 믿을 만하다
             author = ""
             for sel in ["a[href*='target=author']", ".author em", ".writer em", ".author a", ".writer a", ".author", ".writer"]:
                 try:
@@ -137,7 +133,7 @@ class NaverNovelCrawler(NaverCrawler):
                 except Exception:
                     pass
 
-            # 설명: #summaryText가 "더보기" 링크를 제외한 본문만 담고 있음
+            # #summaryText 는 "더보기" 링크를 뺀 본문만 담는다
             desc = ""
             for sel in ["#summaryText", ".synopsis", ".des", ".story", ".synopsis_wrap", ".introduce"]:
                 try:
@@ -156,7 +152,6 @@ class NaverNovelCrawler(NaverCrawler):
                 except Exception:
                     pass
 
-            # 장르: .info_group의 .item 중 링크가 없고 연재 상태가 아닌 첫 번째 텍스트
             _STATUS_WORDS = {"자유연재", "완결", "휴재", "연재중", "연재", "독점", "기다무"}
             genre = ""
             hashtags: list[str] = []
@@ -172,14 +167,13 @@ class NaverNovelCrawler(NaverCrawler):
             except Exception:
                 pass
 
-            # 해시태그: .tag_collection의 a.tag 요소들
             try:
                 tag_els = self.driver.find_elements(By.CSS_SELECTOR, ".tag_collection a.tag")
                 hashtags = [el.text.strip().lstrip('#') for el in tag_els if el.text.strip()]
             except Exception:
                 pass
 
-            # fallback: 장르/해시태그 둘 다 못 찾은 경우 기존 방식 시도
+            # 예전 화면 구조
             if not genre and not hashtags:
                 for sel in [".genre_area a", ".badge_list a", ".category a", ".genre a", ".tag_list a"]:
                     try:
@@ -192,8 +186,7 @@ class NaverNovelCrawler(NaverCrawler):
                     except Exception:
                         pass
 
-            # 썸네일: 화면에 보이는 세로 표지(type=f200_276_2)를 쓴다.
-            # og:image 는 작가가 따로 올리는 공유용 정사각형 이미지(320x320, type=n200_200_2)라 표지가 아니다
+            # 화면의 세로 표지(type=f200_276_2)를 쓴다. og:image 는 작가가 따로 올리는 공유용 정사각형 이미지(320x320, type=n200_200_2)라 표지가 아니다
             thumb = ""
             for sel in [".section_area_info a.thumbnail img", "a.thumbnail img"]:
                 try:

@@ -39,7 +39,6 @@ VOLATILE_KEYS = ('crawled_at', 'mode', 'schema_version')
 
 
 def content_fingerprint(item: dict) -> str:
-    """수집 내용 해시 (제목 · 작가 · 연령 · 장르 · 소개 · 썸네일 · 해시태그 등). 수집 시각 · 모드는 뺀다."""
     body = {k: v for k, v in item.items() if k not in VOLATILE_KEYS}
     return hashlib.sha256(json.dumps(body, ensure_ascii=False, sort_keys=True).encode('utf-8')).hexdigest()
 
@@ -68,8 +67,7 @@ _BASELINES = (('works_source', '0002'), ('staging_run', '0001'))
 
 
 def ensure_schema() -> None:
-    """staging DB 를 만들고 테이블 구조를 최신 리비전으로 올린다 (alembic upgrade head). 매번 불러도 된다.
-    Alembic 도입 전에 만든 DB 는 있는 테이블을 보고 기준 리비전을 먼저 찍는다 (alembic stamp)."""
+    """매번 불러도 된다. Alembic 도입 전에 만든 DB 는 있는 테이블을 보고 기준 리비전을 먼저 찍는다 (alembic stamp)."""
     server_cfg = {k: v for k, v in MYSQL_CONFIG.items() if k != 'database'}
     conn = mysql.connector.connect(**server_cfg)
     try:
@@ -118,8 +116,6 @@ class StagingStore:
     def _cursor(self):
         return self._conn.cursor(dictionary=True)
 
-    # ------------------------------------------------------------------ runs
-
     def previous_count(self, source: str) -> int | None:
         cur = self._cursor()
         cur.execute('SELECT item_count FROM staging_run WHERE source = %s '
@@ -129,7 +125,7 @@ class StagingStore:
 
     def save_run(self, source: str, source_file: str | None,
                  items: list[dict], verdicts: list[Verdict], hold_reasons: list[str]) -> str:
-        """런 하나를 통째로 적재한다. 같은 source_url 은 갱신된다."""
+        """같은 source_url 은 갱신된다."""
         run_id = datetime.now().strftime('%Y%m%d_%H%M%S_') + uuid.uuid4().hex[:6]
         cur = self._cursor()
         try:
@@ -188,10 +184,10 @@ class StagingStore:
                 (*values, source_url),
             )
 
-    # ------------------------------------------------------------------ works_source (#28)
+    # works_source (#28)
 
     def _record_source_success(self, cur, item: dict, normalized: dict, fingerprint: str) -> None:
-        """수집에 성공한 작품의 이력을 갱신한다. 제목은 검색어 목록에 더한다 (제목이 바뀌어도 옛 제목으로 찾게)."""
+        """제목은 검색어 목록에 더한다 (제목이 바뀌어도 옛 제목으로 찾게)."""
         url = normalized.get('source_url') or ''
         key = platform_work_key(url)
         if not key:
@@ -219,7 +215,7 @@ class StagingStore:
                 (*values, *key, SOURCE_SUCCESS))
 
     def record_source_failure(self, url: str, status: str, error: str = '', at: datetime | None = None) -> int | None:
-        """수집 실패를 이력에 남기고 연속 실패 횟수를 돌려준다. 이력에 없던 링크도 행을 만든다.
+        """연속 실패 횟수를 돌려준다.
         at 이 마지막 수집 시각보다 이르면 이미 반영한 실패라 세지 않는다 (같은 리포트를 다시 읽어도 한 번만).
         MAX_SOURCE_FAILS 번 이상 실패하면 그 링크의 staging 행을 검수 대기로 돌린다."""
         url = canonical_landing_url(url)
@@ -331,8 +327,6 @@ class StagingStore:
         self._conn.commit()
         return cur.rowcount > 0
 
-    # ------------------------------------------------------------------ review
-
     def get(self, staging_id: int) -> dict | None:
         cur = self._cursor()
         cur.execute('SELECT * FROM works_staging WHERE id = %s', (staging_id,))
@@ -370,7 +364,7 @@ class StagingStore:
             self._conn.rollback()
             raise
 
-    # ------------------------------------------------------------------ Layer 3 매핑 (#70)
+    # Layer 3 매핑 (#70)
 
     def mappings(self) -> dict[tuple[str, str], str]:
         """{(필드, 원문): enum name}. Layer 1 이 카탈로그로 못 맞춘 원문에 쓴다."""
@@ -423,8 +417,6 @@ class StagingStore:
         fmt = lambda keys: [f'{f}: {raw}' for f, raw in keys]
         return {'added': fmt(added), 'changed': fmt(changed), 'removed': fmt(removed), 'total': len(wanted)}
 
-    # ------------------------------------------------------------------ import
-
     def _importable_where(self, run_id: str | None, staging_ids: list[int] | None = None) -> tuple[str, tuple]:
         marks = ', '.join(['%s'] * len(IMPORTABLE))
         where = f'WHERE s.status IN ({marks}) AND NOT r.held'
@@ -439,7 +431,6 @@ class StagingStore:
         return where, params
 
     def importable(self, limit: int = 500, run_id: str | None = None, staging_ids: list[int] | None = None) -> list[dict]:
-        """보류되지 않은 런의 AUTO_PASS / APPROVED 건. run_id 를 주면 그 런만, staging_ids 를 주면 그 행만."""
         where, params = self._importable_where(run_id, staging_ids)
         cur = self._cursor()
         cur.execute(
@@ -471,7 +462,7 @@ class StagingStore:
                     f'FROM works_staging WHERE source_url IN ({", ".join(["%s"] * len(urls))})', tuple(urls))
         return [_loads(r, 'violations') for r in cur.fetchall()]
 
-    # ------------------------------------------------------------------ 바깥 검수 제안 (#68)
+    # 바깥 검수 제안 (#68)
 
     def review_rows(self, run_ids: list[str] | None, limit: int | None = None) -> list[dict]:
         """검수 대기 행. 바깥 검수(stage queue)로 내보낸다. run_ids 가 None 이면 런과 상관없이 전체 (#72)."""
@@ -503,7 +494,6 @@ class StagingStore:
                     'import_result = %s, imported_at = UTC_TIMESTAMP() WHERE id = %s',
                     (IMPORTED, works_id, result, staging_id))
         if works_id:
-            # 수집 이력에 BE 작품을 연결한다
             cur.execute('UPDATE works_source ws JOIN works_staging s ON s.source_url = ws.source_url '
                         'SET ws.works_id = %s WHERE s.id = %s', (works_id, staging_id))
         self._conn.commit()
@@ -572,8 +562,6 @@ class StagingStore:
         )
         return [{'field': r['field'], 'raw_value': r['raw_value'], 'decided_value': r['decided_value'],
                  'count': r['n'], 'by_human': int(r['by_human']) > 0} for r in cur.fetchall()]
-
-    # ------------------------------------------------------------------ stats
 
     def stats(self) -> dict:
         cur = self._cursor()

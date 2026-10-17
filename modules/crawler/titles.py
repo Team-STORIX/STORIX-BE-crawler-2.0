@@ -66,12 +66,10 @@ def strip_title_labels(title: str) -> str:
 
 
 def norm_title(s: str) -> str:
-    """제목 비교용 정규화: 공백·괄호·구분기호(·∙#) 제거 후 소문자화."""
     return re.sub(r'[\s\[\]()·∙#]', '', s or '').lower()
 
 
 def title_ratio(norm_a: str, norm_b: str) -> float:
-    """정규화된 두 제목의 유사도(0.0~1.0). SequenceMatcher 기반."""
     if not norm_a or not norm_b:
         return 0.0
     return SequenceMatcher(None, norm_a, norm_b).ratio()

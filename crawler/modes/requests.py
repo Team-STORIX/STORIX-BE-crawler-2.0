@@ -21,6 +21,7 @@ from pathlib import Path
 
 from config import OUTPUT_DIR, RUN_DIR
 from modules.crawler import platforms
+from modules.crawler.classify import REQUEST_SECTIONS
 from review.notion import DEFAULT_MIN_ID, NotionError, NotionRequests, Request
 
 SOURCE = 'notion_requests'
@@ -39,9 +40,6 @@ PLATFORM_KEYS = {
 }
 # '기타' 만 적혔을 때 찾아볼 곳
 FALLBACK_KEYS = list(platforms.GENERAL_SEARCH)
-# 노션 '작품 형태' → 목록 섹션 (cli._TYPE_HEADERS). 단행본은 소설 e북일 수도 만화책일 수도 있어 웹소설 · 만화로 찾는다
-# (웹소설은 e북을 대신 고르는 규칙. 지박소년 하나코 군 단행본 요청이 리디에 만화로만 있어 못 찾았다)
-TYPE_SECTIONS = {'웹툰': ['웹툰'], '웹소설': ['웹소설'], '단행본': ['웹소설', '만화'], '만화': ['만화']}
 # 웹소설 요청이 네이버 쪽이면 네이버 웹소설도 본다
 NOVEL_EXTRA = {'naver_series': 'naver_novel'}
 
@@ -57,7 +55,7 @@ def plan(requests: list[Request]) -> dict[str, list[tuple[str, str | None]]]:
         if not keys or '기타' in r.platforms:
             keys += FALLBACK_KEYS
         keys = list(dict.fromkeys(keys))
-        sections = [s for t in r.types for s in TYPE_SECTIONS.get(t, [])] or [None]
+        sections = [s for t in r.types for s in REQUEST_SECTIONS.get(t, ())] or [None]
         for key in keys:
             for sec in dict.fromkeys(sections):
                 targets = [key] + ([NOVEL_EXTRA[key]] if sec == '웹소설' and key in NOVEL_EXTRA else [])
@@ -106,7 +104,7 @@ def run_requests(target: str, min_id: int | None = None, dry_run: bool = False, 
     if not requests:
         return {'requests': 0}
 
-    # 1) 수집. 요청 제목 → 수집한 작품 링크
+    # 요청 제목 → 수집한 작품 링크
     found: dict[str, list[str]] = defaultdict(list)
 
     def on_found(title: str, result: dict) -> None:
@@ -115,7 +113,7 @@ def run_requests(target: str, min_id: int | None = None, dry_run: bool = False, 
     for platform, titles in plan(requests).items():
         run_search_titles(platform, titles, mode=MODE, on_found=on_found)
 
-    # 2) 검수 적재 → BE 반영. 수집한 게 없으면 DB 에 붙지 않는다
+    # 수집한 게 없으면 DB 에 붙지 않는다
     day_dir = RUN_DIR
     files = sorted(day_dir.glob(f'*_{MODE}.jsonl')) if found else []
     summary = {'requests': len(requests), 'done': 0, 'review': 0, 'runs': []}
@@ -134,7 +132,7 @@ def run_requests(target: str, min_id: int | None = None, dry_run: bool = False, 
                 summary['runs'].append(result['run_id'])
                 print(f'📥 {f.name}: {json.dumps(result, ensure_ascii=False)}')
         if dry_run:
-            # 3) 미리 보기. --resume 이 다시 수집하지 않고 이어받도록 요청 · 수집 링크 · 런을 남긴다 (#68)
+            # --resume 이 다시 수집하지 않고 이어받도록 요청 · 수집 링크 · 런을 남긴다 (#68)
             _report(store, requests, found)
             summary['state'] = str(save_state(day_dir, target, min_id, requests, found, summary['runs']))
             print(f"💾 이어받기 상태: {summary['state']}")
@@ -190,7 +188,6 @@ def resume_requests(target: str, state_path: str | None = None) -> dict:
 
 
 def _finish(store, notion: NotionRequests, requests: list[Request], found: dict[str, list[str]], summary: dict) -> None:
-    """BE 반영 → 노션 표시."""
     from review.app import BACKEND, BACKEND_MISSING
     from review.importer import BackendClient, run_import
 
@@ -213,7 +210,6 @@ def _finish(store, notion: NotionRequests, requests: list[Request], found: dict[
 
 
 def _report(store, requests: list[Request], found: dict[str, list[str]]) -> list[tuple[Request, Outcome]]:
-    """요청별 결과를 정하고 출력한다."""
     from crawler import report
 
     expired = {p for p, counts in report.summary()['by_platform'].items() if report.AUTH_EXPIRED in counts}
@@ -232,9 +228,7 @@ def _report(store, requests: list[Request], found: dict[str, list[str]]) -> list
     return out
 
 
-# ---------------------------------------------------------------------------
 # dry-run 상태 파일 (#68). output/<날짜>/requests_state_<env>.json
-# ---------------------------------------------------------------------------
 
 def state_file(day_dir: Path, target: str) -> Path:
     return Path(day_dir) / f'{MODE}_state_{target}.json'
@@ -258,7 +252,6 @@ def save_state(day_dir: Path, target: str, min_id: int, requests: list[Request],
 
 
 def latest_state(target: str, output_dir: Path | None = None) -> Path | None:
-    """아직 반영하지 않은 가장 최근 dry-run 상태 파일."""
     files = sorted(Path(output_dir or OUTPUT_DIR).glob(f'*/{MODE}_state_{target}.json'),
                    key=lambda p: p.stat().st_mtime, reverse=True)
     for f in files:

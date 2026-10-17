@@ -17,8 +17,8 @@ from config import (BOMTOON_COOKIE_FILE, KAKAO_COOKIE_FILE, LEZHIN_COOKIE_FILE, 
 @dataclass(frozen=True)
 class Platform:
     key: str        # cli --platform · 리포트 · 수집 파일 이름 (crawler.REPORT_PLATFORM)
-    enum: str       # BE Platform enum name
-    label: str      # 사람이 보는 이름
+    enum: str
+    label: str
     crawler: str    # 'modules.crawler.<모듈>:<클래스>' (selenium 을 늦게 불러오려고 문자열로 둔다)
     login: str      # 로그인 쿠키를 같이 쓰는 플랫폼 key (네이버 웹툰 · 웹소설 · 시리즈는 네이버 쿠키 하나)
 

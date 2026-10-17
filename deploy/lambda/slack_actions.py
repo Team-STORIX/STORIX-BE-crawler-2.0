@@ -55,7 +55,6 @@ def allowed(user_id: str) -> bool:
 
 
 def reply(response_url: str, text: str) -> None:
-    """누른 사람에게만 보이는 답 (ephemeral). 원래 알림은 그대로 둔다."""
     req = urllib.request.Request(response_url, method='POST',
                                  data=json.dumps({'response_type': 'ephemeral', 'replace_original': False,
                                                   'text': text}).encode(),

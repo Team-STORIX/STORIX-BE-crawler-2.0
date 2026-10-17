@@ -70,7 +70,7 @@ class NaverCrawler(BaseCrawler):
 
 
     def _is_logged_in(self) -> bool:
-        """NID_AUT 쿠키 존재 여부로 네이버 로그인 확인 (XPATH보다 신뢰성 높음)."""
+        """화면(XPATH)보다 NID_AUT 쿠키가 믿을 만하다."""
         self.driver.get("https://www.naver.com")
         time.sleep(1)
         return any(c['name'] == 'NID_AUT' for c in self.driver.get_cookies())
@@ -83,7 +83,6 @@ class NaverCrawler(BaseCrawler):
         print(f"   로그인 완료 시 자동으로 감지됩니다 (최대 {timeout_sec // 60}분).")
         print("=" * 60 + "\n")
 
-        # 1단계: 로그인 후 nid.naver.com 이탈 대기 (최대 timeout_sec)
         phase1_deadline = time.time() + timeout_sec
         while time.time() < phase1_deadline:
             time.sleep(3)
@@ -96,7 +95,7 @@ class NaverCrawler(BaseCrawler):
             print("⏰ 로그인 대기 시간 초과.")
             return False
 
-        # 2단계: NID_AUT 쿠키로 로그인 확인 (내비게이션 없이 현재 페이지에서)
+        # 페이지를 옮기지 않고 지금 페이지에서 NID_AUT 를 본다
         print("   ↳ 로그인 감지됨. 로그인 상태를 확인합니다...")
         phase2_deadline = time.time() + 30
         while time.time() < phase2_deadline:
@@ -111,7 +110,7 @@ class NaverCrawler(BaseCrawler):
         return False
 
     def _js_set_input(self, element, value):
-        """네이버 React 입력 필드에 값을 주입한다. send_keys는 봇 감지에 걸리므로 JS native setter를 사용."""
+        """send_keys 는 봇 감지에 걸려 React 입력 칸에 JS native setter 로 넣는다."""
         self.driver.execute_script("""
             var setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
             setter.call(arguments[0], arguments[1]);
@@ -120,7 +119,6 @@ class NaverCrawler(BaseCrawler):
         """, element, value)
 
     def _login_with_credentials(self) -> bool:
-        """NAVER_ID / NAVER_PW 환경변수로 자동 로그인을 시도한다."""
         if not NAVER_ID or not NAVER_PW:
             return False
         print("🔑 환경변수 자격증명으로 네이버 로그인을 시도합니다.")
@@ -185,7 +183,7 @@ class NaverCrawler(BaseCrawler):
         return False
 
     def login_with_cookies(self):
-        """워커 전용: 쿠키 파일로만 로그인. 수동 입력 없이 실패 시 False 반환."""
+        """워커 전용: 사람 입력 없이 쿠키로만."""
         if not NAVER_COOKIE_FILE.exists():
             return False
         try:
@@ -201,7 +199,7 @@ class NaverCrawler(BaseCrawler):
             return False
 
     def search_candidates(self, title: str) -> list[dict]:
-        """네이버 웹툰 검색 API → 후보 목록 (일치도 순). 브라우저를 쓰지 않는다."""
+        """검색 API 라 브라우저를 쓰지 않는다."""
         import json
         import urllib.parse
         import urllib.request
@@ -214,7 +212,6 @@ class NaverCrawler(BaseCrawler):
                for x in data['searchWebtoonResult']['searchViewList']]
         return self.rank_candidates(title, raw)
 
-    # 무한 스크롤 로직
     def _scroll_down(self):
         self.driver.execute_script("window.scrollBy(0, Math.floor(window.innerHeight * 0.85));")
 
@@ -297,12 +294,10 @@ class NaverCrawler(BaseCrawler):
 
             wait = WebDriverWait(self.driver, 10)
             
-            # 제목 추출 및 전처리
             title_raw = wait.until(EC.visibility_of_element_located((By.XPATH, '//*[@id="content"]/div[1]/div/h2'))).text
             title = clean_work_name(title_raw).replace("휴재", "").strip()
 
-            # 작가 영역: 작가 한 명당 span 하나 (`이름 ∙ 역할` 구조, 역할 = 글|그림|원작|글/그림)
-            # 역할 라벨은 빼고 이름만 모으고, 역할별 필드도 채운다.
+            # 작가 한 명당 span 하나: `이름 ∙ 역할` (역할 = 글|그림|원작|글/그림)
             author = illustrator = original_author = ""
             artist_names = []
             for _span in self.driver.find_elements(By.XPATH, '//*[@id="content"]/div[1]/div/div[1]/span'):
@@ -330,7 +325,7 @@ class NaverCrawler(BaseCrawler):
             try:
                 all_tags = self.driver.find_elements(By.XPATH, "//*[@id='content']/div[1]/div/div[2]/div/div/a")
                 
-                # 첫 번째(장르)를 제외한 나머지
+                # 첫 태그는 장르
                 if len(all_tags) > 1:
                     hashtags = [t for tag in all_tags[1:] if (t := tag.text.strip().lstrip('#'))]
             except NoSuchElementException:

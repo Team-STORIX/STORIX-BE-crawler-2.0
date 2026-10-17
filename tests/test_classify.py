@@ -78,3 +78,16 @@ def test_custom_url_detects_platform_like_landing():
 def test_genre_alias_same_for_genre_and_tags():
     from review.hashtags import genre_alias
     assert genre_alias('로맨스판타지') == genre_alias('로맨스 판타지') == '로판'
+
+
+def test_book_request_searches_novel_and_manga_on_every_entry(tmp_path):
+    """'단행본' 을 노션 요청 · 제목 파일이 같은 섹션(웹소설 · 만화)으로 찾는다 (#122)."""
+    import argparse
+    from cli import _load_titles
+    from crawler.modes.requests import plan
+    from review.notion import Request
+    f = tmp_path / 'titles.txt'
+    f.write_text('## 단행본\n지박소년 하나코 군\n', encoding='utf-8')
+    from_file = _load_titles(argparse.Namespace(titles_file=str(f), titles=None))
+    from_notion = plan([Request('a', 1, '지박소년 하나코 군', ['단행본'], ['리디북스'])])['ridibooks']
+    assert from_file == from_notion == [('지박소년 하나코 군', '웹소설'), ('지박소년 하나코 군', '만화')]

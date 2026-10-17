@@ -14,6 +14,7 @@ from urllib3.exceptions import ReadTimeoutError as _DriverTimeoutError
 
 from crawler import report
 from modules.crawler.base_crawler import AuthExpiredError, RateLimitedError, SessionExpiredError, pick_candidates
+from modules.crawler.classify import REQUEST_SECTIONS
 from modules.crawler.titles import is_edition
 from modules.crawler import platforms
 from crawler.output.jsonl_writer import JSONLWriter
@@ -48,12 +49,8 @@ _PLATFORM_TYPES = {
 }
 
 # 목록 파일 섹션 → 찾을 유형. '전체' 는 웹툰 · 웹소설을 각각 찾아 있는 판을 다 수집한다
-# (단행본 섹션은 없앴다 — 웹소설 연재판이 없으면 e북을 대신 고르는 규칙이 있다. cli._TYPE_HEADERS)
 # 만화(출판 만화)는 웹툰과 다른 작품이라 ## 웹툰 에서 받지 않는다. ## 만화 로 따로 찾는다 (#64)
 SECTION_TYPES = {'웹툰': {'웹툰'}, '웹소설': {'웹소설'}, '만화': {'만화'}, '전체': {'웹툰', '웹소설'}}
-
-# titles.txt 에서 인정하는 섹션 (cli._TYPE_HEADERS 의 값)
-_VALID_TYPES = set(SECTION_TYPES)
 
 
 def run_search_titles(
@@ -78,7 +75,6 @@ def run_search_titles(
     found: set[tuple[str, str | None]] = set()
 
     def run(p: str) -> None:
-        # 이 플랫폼이 취급하는 타입의 작품만 추린다. (타입 None은 항상 포함)
         accepted = _PLATFORM_TYPES.get(p, set())
         # 같은 제목이 여러 섹션에 있어도 한 플랫폼에서 두 번 검색하지는 않는다.
         # (시리즈·카카오·리디는 웹툰·웹소설·단행본을 다 받아서 같은 제목이 겹쳐 들어옴)
@@ -110,23 +106,21 @@ def _remove_found_from_file(titles_file: str, found: set[tuple[str, str | None]]
         print(f'\nℹ️  찾은 작품이 없어 {path.name}을 그대로 둡니다.')
         return
 
-    # 헤더(##)·주석(#)·빈 줄은 그대로 유지하고, 찾은 제목 줄만 제거한다.
     # 섹션을 따라가며 (제목, 타입) 단위로 지운다 — 같은 제목이 ## 웹툰 / ## 웹소설 에
     # 각각 있으면 서로 다른 작품이므로, 한쪽을 찾아도 다른 쪽 줄은 남긴다.
     lines = path.read_text(encoding='utf-8').splitlines()
     remaining: list[str] = []
     removed = 0
-    current_type: str | None = None
+    current_types: tuple[str, ...] = ()
     for ln in lines:
         stripped = ln.strip()
         if stripped.startswith('##'):
             header = stripped.lstrip('#').strip()
-            # 모르는 헤더 아래 제목은 애초에 크롤되지 않아 found 에 없다 → None 으로 둬도 안전
-            header = '웹소설' if header == '단행본' else header  # 옛 단행본 섹션은 웹소설로 읽었다
-            current_type = header if header in _VALID_TYPES else None
+            # 섹션 해석은 제목 파일을 읽을 때와 같은 표. 모르는 헤더 아래 제목은 크롤되지 않아 found 에 없다
+            current_types = REQUEST_SECTIONS.get(header, ())
             remaining.append(ln)
             continue
-        if stripped and not stripped.startswith('#') and (stripped, current_type) in found:
+        if stripped and not stripped.startswith('#') and any((stripped, t) in found for t in current_types):
             removed += 1
             continue
         remaining.append(ln)
@@ -167,7 +161,6 @@ def _found_slots(
 
 
 def _crawl_types(sections: set[str | None], platform: str) -> list[str | None]:
-    """목록 섹션 → 이 플랫폼에서 찾을 유형 (전체 → 웹툰 · 웹소설). 플랫폼이 안 다루는 유형은 뺀다."""
     types: set[str | None] = {None} if None in sections else set()
     for section in sections - {None}:
         types |= SECTION_TYPES[section] & _PLATFORM_TYPES[platform]
@@ -238,12 +231,7 @@ def _search_and_write(
     mode: str = 'search_titles',
     on_found=None,
 ) -> set[tuple[str, str | None]]:
-    """wanted(제목 → 그 제목이 나온 섹션 타입들)를 순회하며 검색·크롤·저장.
-    성공한 (제목, 타입) 을 in-place 로 found 에 추가한다.
-
-    한 작품에서 드라이버가 멈추거나(타임아웃) 예외가 나도 그 작품만 건너뛰고
-    나머지를 계속한다. 드라이버 이상이면 재시작 후 이어서 진행한다.
-    """
+    """wanted 는 제목 → 그 제목이 나온 섹션 타입들. 성공한 (제목, 타입) 은 호출자의 found 에 in-place 로 더한다."""
     label = platforms.get(platform).label
 
     crawler = platforms.crawler_class(platform)()
@@ -287,13 +275,11 @@ def _search_and_write(
                     # 차단이 계속되거나 재로그인이 실패했다 — 이 플랫폼은 여기서 멈춘다 (리포트는 crawl_detail_with_retry 가 남김)
                     raise
                 except _DRIVER_ERRORS as e:
-                    # 제목 검색 단계의 드라이버 다운. 재시작 후 다음 작품 계속.
                     print(f'  ♻️  드라이버 이상 — 재시작 후 계속: {e}')
                     crawler._restart_driver()
                     fail_count += 1
                     continue
                 except Exception as e:
-                    # 그 외 예기치 못한 오류도 이 작품만 스킵.
                     print(f'  ❌ 예기치 못한 오류 — 스킵: {e}')
                     fail_count += 1
                     continue

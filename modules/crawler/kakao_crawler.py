@@ -30,7 +30,7 @@ class KakaoCrawler(BaseCrawler):
             print(f"⚠️ 카카오 쿠키 저장 실패: {e}")
 
     def login_with_cookies(self):
-        """워커 전용: 쿠키 파일로만 로그인. 수동 입력 없이 실패 시 False 반환."""
+        """워커 전용: 사람 입력 없이 쿠키로만."""
         if not KAKAO_COOKIE_FILE.exists():
             return False
         try:
@@ -57,7 +57,6 @@ class KakaoCrawler(BaseCrawler):
         print("=" * 60 + "\n")
         deadline = time.time() + timeout_sec
 
-        # 1단계: kakao auth 이탈 대기
         while time.time() < deadline:
             time.sleep(3)
             try:
@@ -70,7 +69,7 @@ class KakaoCrawler(BaseCrawler):
             print("⏰ 로그인 대기 시간 초과.")
             return False
 
-        # 2단계: 현재 페이지(page.kakao.com)에서 내비게이션 없이 반복 확인
+        # 페이지를 옮기지 않고 지금 페이지(page.kakao.com)에서 본다
         inner_deadline = time.time() + min(120, max(0, deadline - time.time()))
         while time.time() < inner_deadline:
             time.sleep(4)
@@ -87,7 +86,6 @@ class KakaoCrawler(BaseCrawler):
         return False
 
     def _login_with_credentials(self) -> bool:
-        """KAKAO_ID / KAKAO_PW 환경변수로 자동 로그인을 시도한다."""
         if not KAKAO_ID or not KAKAO_PW:
             return False
         print("🔑 환경변수 자격증명으로 카카오 로그인을 시도합니다.")
@@ -129,7 +127,6 @@ class KakaoCrawler(BaseCrawler):
             return False
 
     def login(self):
-        # 쿠키 파일이 있으면 자동 로그인 먼저 시도
         if KAKAO_COOKIE_FILE.exists():
             print("🍪 [카카오] 기존 쿠키 파일을 적용합니다.")
             if self.login_with_cookies():
@@ -160,10 +157,7 @@ class KakaoCrawler(BaseCrawler):
         return False
 
     def search_candidates(self, title: str) -> list[dict]:
-        """카카오페이지 검색 결과 → 후보 목록 (일치도 순, 카드에 보이는 유형 힌트 포함).
-
-        카카오 검색은 쉼표 · 기호가 든 검색어로 못 찾을 때가 있다. 정확 일치가 없으면 기호를 빼고 한 번 더 찾는다.
-        """
+        """카카오 검색은 쉼표 · 기호가 든 검색어로 못 찾을 때가 있다. 정확 일치가 없으면 기호를 빼고 한 번 더 찾는다."""
         cands = self.rank_candidates(title, self._search_cards(title))
         if not any(c['kind'] == '정확' for c in cands):
             alt = ' '.join(re.sub(r'[,:;!?~·]', ' ', title).split())
@@ -195,7 +189,6 @@ class KakaoCrawler(BaseCrawler):
                 raw.append((href, name, type_hint))
         return raw
 
-    # 무한 스크롤 (개수 기반 + Wiggle)
     def load_all_items(self, item_xpath):
         print("📜 [카카오] 무한 스크롤 로딩 시작...")
         
@@ -230,17 +223,14 @@ class KakaoCrawler(BaseCrawler):
         self.driver.get(genre_url)
         
         try:
-            # 리스트 컨테이너 대기 
             WebDriverWait(self.driver, 15).until(
                 EC.presence_of_element_located((By.XPATH, "//div[contains(@class, 'grid')]"))
             )
             
-            # 작품 링크 XPath
             item_xpath = "//a[contains(@href, '/content/')]"
             
             self.load_all_items(item_xpath)
             
-            # URL 추출
             elems = self.driver.find_elements(By.XPATH, item_xpath)
             urls = []
             for e in elems:
@@ -276,7 +266,6 @@ class KakaoCrawler(BaseCrawler):
 
     def crawl_detail(self, url):
         try:
-            # 작품 정보 탭 이동
             target_url = url
             if "tab_type=about" not in url:
                 target_url += "&tab_type=about" if "?" in url else "?tab_type=about"
@@ -293,20 +282,19 @@ class KakaoCrawler(BaseCrawler):
                 self.driver.get(target_url)
                 time.sleep(2)
 
-            # 페이지 로딩 대기: React 앱 루트만 확인
             try:
                 wait.until(EC.presence_of_element_located((By.ID, "__next")))
             except Exception:
                 self._log.warning("페이지 로딩 시간 초과: %s", url)
                 return None
 
-            # 하단 정보 로딩
+            # 아래쪽 정보는 스크롤해야 그려진다
             self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
             time.sleep(1.0)
             self.driver.execute_script("window.scrollTo(0, 0);")
             time.sleep(0.5)
 
-            # 설명 더보기 클릭 (접혀 있을 때 DOM에 텍스트가 없는 경우 대비)
+            # 설명이 접혀 있으면 DOM 에 글자가 없을 때가 있다
             try:
                 more_btn = self.driver.find_element(
                     By.XPATH,
@@ -317,11 +305,10 @@ class KakaoCrawler(BaseCrawler):
             except Exception:
                 pass
 
-            # 제목. h1 · h2 는 "줄거리" · "키워드" 같은 섹션 제목이라 쓰지 않는다 (2026-10 화면 개편 후 전부 "줄거리"로 수집됨)
+            # h1 · h2 는 "줄거리" · "키워드" 같은 섹션 제목이라 쓰지 않는다 (2026-10 화면 개편 후 전부 "줄거리"로 수집됨)
             title = parse_kakao_title(*self._title_sources())
 
-            # 설명 - JS innerText로 \n 보존 (og:description은 개행 제거됨)
-            # whitespace-pre-wrap span이 실제 설명 컨테이너 (class*="pre-wrap" 으로 매칭)
+            # og:description 은 줄바꿈이 빠져 innerText 로 읽는다. 설명 상자는 whitespace-pre-wrap span 이다
             desc = ""
             try:
                 desc = self.driver.execute_script("""
@@ -362,7 +349,6 @@ class KakaoCrawler(BaseCrawler):
                     desc = ""
             desc = clean_kakao_synopsis(desc)
 
-            # 상세 정보 리스트
             author, illustrator, original_author, age, genre, works_type = "", "", "", "", "", ""
             
             try:
@@ -392,7 +378,6 @@ class KakaoCrawler(BaseCrawler):
 
             if genre == "무협": genre = "무협"
 
-            # artist_name 조합
             artist_map = {} 
             if author: artist_map.setdefault(author, set()).add("글")
             if illustrator: artist_map.setdefault(illustrator, set()).add("그림")
@@ -406,13 +391,11 @@ class KakaoCrawler(BaseCrawler):
             
             artist_name = " / ".join(artist_list)
 
-            # 썸네일
             thumb = ""
             try:
                 thumb = self.driver.find_element(By.XPATH, "//img[@alt='썸네일']").get_attribute("src")
             except Exception: pass
 
-            # 해시태그
             hashtags = []
             try:
                 wait.until(EC.presence_of_element_located((By.XPATH, "//a[contains(@href, 'themekeyword')]")))

@@ -4,21 +4,12 @@ import sys
 from pathlib import Path
 
 import config  # noqa: F401  (stdout/stderr UTF-8 재설정 + .env 로드)
+from modules.crawler.classify import REQUEST_SECTIONS
 
 
-# 섹션 헤더 텍스트 → 작품 타입
-# 이 타입은 DB 의 works_type 이 아니라 '어느 플랫폼에서 검색할지' 고르는 필터로만 쓰인다
-# (search_titles._PLATFORM_TYPES). 적재되는 works_type 은 크롤러가 상세페이지에서 다시 판정한다.
-# '전체' 는 웹툰 · 웹소설을 각각 찾아 있는 판을 다 수집한다. 옛 '단행본' 섹션은 경고 후 웹소설로 읽는다
-_TYPE_HEADERS = {'웹툰': '웹툰', '웹소설': '웹소설', '만화': '만화', '전체': '전체'}
-_DEPRECATED_HEADERS = {'단행본': '웹소설'}
-
-
+# 섹션 → 찾을 유형은 노션 요청과 같은 표 (classify.REQUEST_SECTIONS). 이 유형은 DB 의 works_type 이 아니라
+# '어느 플랫폼에서 검색할지' 고르는 필터다 — 적재되는 works_type 은 크롤러가 상세에서 다시 판정한다
 def _load_titles(args) -> list[tuple[str, str | None]]:
-    """--titles-file(섹션 헤더 형식) 또는 --titles에서 (제목, 타입) 목록을 읽어 반환.
-
-    타입은 '웹툰' | '웹소설' | None(인라인 입력 → 타입 미지정).
-    """
     titles_file = getattr(args, 'titles_file', None)
     titles_str = getattr(args, 'titles', None)
 
@@ -53,14 +44,13 @@ def _parse_titles_file(path: Path) -> list[tuple[str, str | None]]:
         ## 전체            ← 웹툰판 · 웹소설판을 각각 찾아 있는 판을 다 수집
         패밀리 레스토랑 가자
 
-    '#' 주석 줄과 빈 줄은 무시. 헤더 없이 나온 제목은 스킵한다.
     같은 섹션에 같은 제목이 여러 번 있으면 첫 줄만 쓴다(같은 작품을 두 번 크롤하지 않도록).
     다른 섹션에 같은 제목이 있는 건 별개 레코드일 수 있으므로 그대로 둔다.
     """
     result: list[tuple[str, str | None]] = []
     seen: set[tuple[str, str]] = set()
     dupes = 0
-    current_type: str | None = None
+    current_types: tuple[str, ...] | None = None
 
     # utf-8-sig: 메모장 등으로 편집해 BOM 이 붙어도 첫 줄이 깨지지 않게
     for raw in path.read_text(encoding='utf-8-sig').splitlines():
@@ -69,28 +59,24 @@ def _parse_titles_file(path: Path) -> list[tuple[str, str | None]]:
             continue
         if line.startswith('##'):
             header = line.lstrip('#').strip()
-            current_type = _TYPE_HEADERS.get(header)
-            if header in _DEPRECATED_HEADERS:
-                current_type = _DEPRECATED_HEADERS[header]
-                print(f'⚠️  "## {header}" 섹션은 없어졌습니다 — 웹소설로 찾습니다 '
-                      f'(웹소설 연재판이 없으면 e북을 대신 고릅니다). 웹툰판도 필요하면 "## 전체" 를 쓰세요')
-                continue
-            if current_type is None:
+            current_types = REQUEST_SECTIONS.get(header)
+            if current_types is None:
                 print(f'⚠️  알 수 없는 섹션 헤더 무시: "{line}" '
-                      f'({" | ".join(_TYPE_HEADERS)} 만 지원)')
+                      f'({" | ".join(REQUEST_SECTIONS)} 만 지원)')
             continue
         if line.startswith('#'):
-            continue  # 주석
-        if current_type is None:
+            continue
+        if current_types is None:
             print(f'⚠️  타입 헤더 없이 나온 제목 스킵: "{line}" '
-                  f'({" / ".join("## " + h for h in _TYPE_HEADERS)} 아래에 배치)')
+                  f'({" / ".join("## " + h for h in REQUEST_SECTIONS)} 아래에 배치)')
             continue
-        key = (line, current_type)
-        if key in seen:
-            dupes += 1
-            continue
-        seen.add(key)
-        result.append((line, current_type))
+        for current_type in current_types:
+            key = (line, current_type)
+            if key in seen:
+                dupes += 1
+                continue
+            seen.add(key)
+            result.append((line, current_type))
 
     if dupes:
         print(f'ℹ️  중복 제목 {dupes}개 제외 — 검색 대상 {len(result)}개')
@@ -116,7 +102,6 @@ def cmd_login(args):
         print(f'🔐 [{p.key}] 로그인 세션 저장')
         print(f'{"="*60}')
 
-        # 기존 세션 초기화
         cookie_file = platforms.cookie_file(p.key)
         if cookie_file.exists():
             cookie_file.unlink()
@@ -155,7 +140,6 @@ def cmd_crawl(args):
     mode = args.mode
     platform = args.platform
 
-    # custom_url 모드는 platform 불필요
     if mode != 'custom_url' and not platform:
         print('❌ custom_url 제외한 모드는 --platform이 필수입니다.')
         sys.exit(1)

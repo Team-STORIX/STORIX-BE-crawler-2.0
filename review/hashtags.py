@@ -23,7 +23,7 @@ GENRE_TAG_ALIASES = {
 
 
 def genre_alias(text: str) -> str:
-    """플랫폼 장르 표기 → BE 장르 dbValue. 별칭이 없으면 그대로. 띄어쓰기는 무시한다 ('로맨스 판타지')."""
+    """띄어쓰기는 무시한다 ('로맨스 판타지')."""
     return GENRE_TAG_ALIASES.get(''.join((text or '').split()), text)
 
 # 작품 내용이 아니라 플랫폼이 붙이는 태그 (2026-10-10 네이버 웹툰 연재작 400개 · 수집 결과 80작품 태그 분포에서 추림)
@@ -58,8 +58,7 @@ def _key(tag: str) -> str:
 
 
 def _genre_of(tag: str, genres: dict[str, str]) -> str | None:
-    """장르 표기 태그 → BE 장르 dbValue. 장르 표기가 아니면 None. genres: 정규화 키 → dbValue.
-    장르명 그대로 · 별칭 · '○○물' 만 장르로 본다. 세부 장르('오컬트판타지')는 장르로 합치지 않는다."""
+    """genres: 정규화 키 → dbValue. 세부 장르('오컬트판타지')는 장르로 합치지 않는다."""
     k = _key(tag)
     if k in genres:
         return genres[k]
@@ -72,7 +71,7 @@ def _genre_of(tag: str, genres: dict[str, str]) -> str | None:
 
 
 def clean_hashtags(tags: list, genre_name: str | None, catalog: EnumCatalog) -> list[str]:
-    """크롤러 해시태그 → BE 로 보낼 해시태그. genre_name 은 작품 장르의 카탈로그 name (예: FANTASY, 없으면 None)."""
+    """genre_name 은 dbValue 가 아니라 카탈로그 name (예: FANTASY)."""
     genres = {_key(v['dbValue']): v['dbValue'] for v in catalog.raw['genre']['values'] if v.get('dbValue')}
     work_genre = None
     if genre_name:

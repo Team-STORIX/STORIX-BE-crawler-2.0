@@ -23,7 +23,7 @@ import requests
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 
-LOGIN_TIMEOUT_S = 600  # 로그인 대기 최대 10분
+LOGIN_TIMEOUT_S = 600
 POLL_INTERVAL_S = 2
 
 # platform → (표시명, 로그인 URL, 로그인 완료 판정 쿠키, 로그인 후 이동 URL, pkl 파일명)

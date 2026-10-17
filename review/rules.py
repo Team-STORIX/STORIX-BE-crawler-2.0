@@ -161,6 +161,11 @@ def validate_item(item: dict, catalog: EnumCatalog, mappings: dict[tuple[str, st
         elif name is None:
             violations.append(_violation(f, 'UNKNOWN_ENUM', raw, severity))
 
+    # 새 작품을 만들 때만 쓰는 연령 (e북으로 대신한 웹소설, search_titles). 기존 작품엔 보내지 않는다
+    create_age = catalog.resolve('ageClassification', _clean(item.get('create_age_classification')))
+    if create_age:
+        normalized['_create_age'] = create_age
+
     # 장르와 같은 태그 · 플랫폼 태그 · 표기만 다른 중복을 뺀다 (장르가 정해진 뒤에 한다)
     normalized['hashtags'] = clean_hashtags(item.get('hashtags'), normalized['genre'], catalog)
 

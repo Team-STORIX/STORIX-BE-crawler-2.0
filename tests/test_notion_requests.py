@@ -38,6 +38,7 @@ def test_plan_maps_platforms_and_types():
     assert ('외모지상주의', '웹툰') in p['naver_webtoon'] and ('외모지상주의', '웹툰') in p['naver_series']
     assert p['kakao_page'] == [('블랙 스완', '웹툰'), ('블랙 스완', '웹소설')]
     assert ('천관사복', '웹소설') in p['naver_novel']  # 시리즈 웹소설 요청은 네이버 웹소설도 본다
+    assert ('천관사복', '만화') in p['naver_series']  # 단행본은 만화책일 수도 있다 (지박소년 하나코 군)
 
 
 def test_plan_lezhin_mrblue_and_other():

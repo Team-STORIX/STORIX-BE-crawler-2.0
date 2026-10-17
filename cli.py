@@ -427,6 +427,8 @@ def cmd_stage(args):
 
 
 def main():
+    from modules.crawler import platforms
+
     parser = argparse.ArgumentParser(prog='cli.py', description='STORIX-BE-Crawler 2.0')
     subparsers = parser.add_subparsers(dest='command')
 
@@ -486,8 +488,8 @@ def main():
 
     stage_recover_p = stage_sub.add_parser('recover', parents=[env_p],
                                            help='상세 수집이 실패한 작품의 링크를 다시 찾는다 (크롬 사용)')
-    stage_recover_p.add_argument('--platform', choices=('NAVER_WEBTOON', 'NAVER_NOVEL', 'NAVER_SERIES',
-                                                        'KAKAO_PAGE', 'RIDIBOOKS'))
+    # 검색 후보를 내는 크롤러만 복구한다 (platforms.searchable). 목록은 등록부에서
+    stage_recover_p.add_argument('--platform', choices=[p.enum for p in platforms.PLATFORMS])
     stage_recover_p.add_argument('--limit', type=int, default=50)
 
     stage_promote_p = stage_sub.add_parser('promote', parents=[env_p],

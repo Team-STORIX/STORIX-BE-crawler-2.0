@@ -31,7 +31,7 @@ _DRIVER_ERRORS = (
 # 봄툰 · 레진코믹스 · 미스터블루는 성인 인증 세션이 필요해 all 에 넣지 않는다 (--platform 으로 따로 · 노션 요청 연재처로 돌린다)
 SUPPORTED_PLATFORMS = ['naver_webtoon', 'naver_novel', 'naver_series', 'kakao_page', 'ridibooks', 'bomtoon', 'lezhin', 'mrblue', 'all']
 
-_ALL_TARGETS = ['naver_webtoon', 'naver_novel', 'naver_series', 'kakao_page', 'ridibooks']
+_ALL_TARGETS = list(platforms.GENERAL_SEARCH)
 
 # 플랫폼이 취급하는 작품 유형. 여기 없는 유형의 작품은 해당 플랫폼에서 검색하지 않는다.
 # (유형 None = 인라인 입력 → 유형 무관하게 전 플랫폼 검색)

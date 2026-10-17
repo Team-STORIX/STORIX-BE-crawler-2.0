@@ -18,21 +18,14 @@ from pathlib import Path
 from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field
 
-from config import (
-    KAKAO_COOKIE_FILE,
-    NAVER_COOKIE_FILE,
-    RIDIBOOKS_COOKIE_FILE,
-    SESSIONS_DIR,
-)
+from config import SESSIONS_DIR
+from modules.crawler import platforms
 
 API_TOKEN = os.getenv('SESSION_API_TOKEN', '')
 
 # platform → (pkl 경로, 로그인 상태를 증명하는 필수 쿠키 이름)
 _PLATFORMS: dict[str, tuple[Path, str]] = {
-    'naver_webtoon': (NAVER_COOKIE_FILE, 'NID_AUT'),
-    'kakao_page': (KAKAO_COOKIE_FILE, '_kawlt'),
-    'ridibooks': (RIDIBOOKS_COOKIE_FILE, 'ridi-at'),
-}
+    key: (platforms.cookie_file(key), cookie) for key, cookie in platforms.LOGIN_COOKIES.items()}
 
 app = FastAPI(title='STORIX Crawler Session API', version='1.0')
 

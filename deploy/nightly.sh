@@ -55,20 +55,12 @@ react() {
     --data "{\"channel\":\"$2\",\"timestamp\":\"$3\",\"name\":\"$1\"}"
 }
 
-# 서버에서 갱신한 쿠키(keepalive · 원격 로그인)를 S3 에 올린다. S3 쪽이 더 새 것(그사이 로컬에서 올림)은 덮지 않는다
+# 서버에서 갱신한 쿠키(keepalive · 원격 로그인)를 S3 에 올린다. S3 쪽이 더 새 것(그사이 로컬에서 올림)은 덮지 않는다.
+# 올리는 건 deploy/push_sessions.sh 하나가 한다
 upload_sessions() {
-  local file key modified remote
   [ -d sessions ] || return 0
-  for file in sessions/*.pkl; do
-    [ -e "$file" ] || continue
-    key="sessions/${file##*/}"
-    modified=$(aws s3api head-object --bucket "$SESSIONS_BUCKET" --key "$key" --query LastModified --output text 2>/dev/null)
-    remote=$( [ -n "$modified" ] && date -d "$modified" +%s || echo 0 )
-    if [ "$(stat -c %Y "$file")" -gt "$remote" ] \
-       && aws s3 cp --only-show-errors --sse AES256 "$file" "s3://$SESSIONS_BUCKET/$key"; then
-      log "쿠키 올림 ${file##*/}"
-    fi
-  done
+  SESSIONS_BUCKET=$SESSIONS_BUCKET bash deploy/push_sessions.sh --newer | while read -r line; do log "$line"; done
+  return "${PIPESTATUS[0]}"
 }
 
 finish() {
@@ -153,7 +145,7 @@ clear_tags() { aws ec2 delete-tags --resources "$instance_id" --tags "${LOGIN_TA
 
 # 태그대로 원격 로그인. 다음 부팅이 또 로그인 모드가 되지 않게 태그는 바로 지운다
 remote_login() {
-  local platform user channel thread code cookie
+  local platform user channel thread code
   platform=$(tag crawler:login-platform) user=$(tag crawler:login-user)
   channel=$(tag crawler:login-channel) thread=$(tag crawler:login-thread)
   clear_tags
@@ -162,8 +154,8 @@ remote_login() {
     --platform "$platform" --user "$user" --channel "$channel" ${thread:+--thread "$thread"}
   code=$?
   if [ "$code" -eq 0 ]; then
-    case "$platform" in naver_*) cookie=naver ;; kakao_page) cookie=kakao ;; *) cookie=$platform ;; esac
-    if aws s3 cp --only-show-errors --sse AES256 "sessions/${cookie}_cookies.pkl" "s3://$SESSIONS_BUCKET/sessions/${cookie}_cookies.pkl"; then
+    # 방금 저장한 쿠키가 S3 보다 새 것이라 올라간다. 플랫폼 → 쿠키 파일 대응은 파이썬 등록부(platforms.py)에만 둔다
+    if upload_sessions; then
       text=":white_check_mark: *$platform* 다시 로그인 완료 — 쿠키를 갱신했습니다. 못 긁은 작품은 다음 자정에 다시 찾고, 지금 바로 하려면 아래 버튼을 누르세요"
       react white_check_mark "$channel" "$thread"
     else

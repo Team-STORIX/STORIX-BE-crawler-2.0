@@ -1109,3 +1109,20 @@ def test_genre_field_uses_same_alias_as_tags():
     """'로맨스판타지' 가 해시태그로는 로판, 장르 필드로는 모르는 값이었다 (#121)."""
     v = validate_item(item(genre='로맨스판타지'), CATALOG)
     assert v.normalized['genre'] == 'ROFAN'
+
+
+def test_ebook_create_age_survives_jsonl_to_review(tmp_path):
+    """수집 결과 → JSONL 파일 → 검수 전체 경로에서 새 작품용 연령이 남는다 (JSONL 이 필드를 버려 논 제로섬이 또 거절됐다, #119)."""
+    from crawler.output.jsonl_writer import JSONLWriter
+    from review.service import read_jsonl
+    ebook = {'platform': 'RIDIBOOKS', 'works_name': '논 제로섬', 'source_url': 'https://ridibooks.com/books/793013046',
+             'author': '손이불', 'age_classification': '', 'create_age_classification': '18세 이용가',
+             'genre': 'BL', 'works_type': '웹소설', 'description': 'x', 'thumbnail_url': 'https://img.ridicdn.net/x'}
+    plain = {**ebook, 'source_url': 'https://ridibooks.com/books/1', 'create_age_classification': ''}
+    with JSONLWriter('ridibooks', 'requests', output_dir=tmp_path) as w:
+        w.write(ebook)
+        w.write(plain)
+    rows = {r['source_url']: r for r in read_jsonl(w.path)}
+    assert validate_item(rows[ebook['source_url']], CATALOG).normalized['_create_age'] == 'AGE_18'
+    # 새 작품용 연령이 없는 행에는 키를 더하지 않는다 (지문이 바뀌면 이미 반영한 작품이 다시 대상이 된다)
+    assert 'create_age_classification' not in rows[plain['source_url']]

@@ -10,6 +10,7 @@ import re
 import time
 
 from .base_crawler import PASS_THROUGH, BaseCrawler, HttpUnavailable, SessionExpiredError, manual_login_timeout
+from .classify import age_from_text
 from config import MRBLUE_COOKIE_FILE
 
 SITE = 'https://www.mrblue.com'
@@ -76,11 +77,7 @@ def parse_mrblue_page(src: str, url: str) -> dict | None:
                     roles['illustrator'] = roles['illustrator'] or name
 
     age = _AGE.search(src)
-    age_text = age.group(1) if age else ''
-    if age_text.startswith('19'):
-        age_text = '18세 이용가'
-    elif age_text.startswith('전체'):
-        age_text = '전체연령가'
+    age_text = age_from_text(age.group(1)) if age else ''
     genre = _GENRE.search(src)
     synopsis = _SYNOPSIS.search(src)
     return {

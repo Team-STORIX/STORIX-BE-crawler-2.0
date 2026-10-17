@@ -19,7 +19,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
 
-from config import OUTPUT_DIR
+from config import OUTPUT_DIR, RUN_DIR
 from review.notion import DEFAULT_MIN_ID, NotionError, NotionRequests, Request
 
 SOURCE = 'notion_requests'
@@ -115,7 +115,7 @@ def run_requests(target: str, min_id: int | None = None, dry_run: bool = False, 
         run_search_titles(platform, titles, mode=MODE, on_found=on_found)
 
     # 2) 검수 적재 → BE 반영. 수집한 게 없으면 DB 에 붙지 않는다
-    day_dir = Path(OUTPUT_DIR) / datetime.now().strftime('%Y-%m-%d')
+    day_dir = RUN_DIR
     files = sorted(day_dir.glob(f'*_{MODE}.jsonl')) if found else []
     summary = {'requests': len(requests), 'done': 0, 'review': 0, 'runs': []}
     conn = store = None

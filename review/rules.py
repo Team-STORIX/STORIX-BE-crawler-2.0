@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 
 from review.artists import normalize_artists
 from review.catalog import EnumCatalog
-from review.hashtags import clean_hashtags
+from review.hashtags import clean_hashtags, genre_alias
 from review.landing import canonical_landing_url
 
 AUTO_PASS = 'AUTO_PASS'
@@ -51,10 +51,6 @@ ENUM_FIELDS = {
     'works_type': ('worksType', NEEDS_REVIEW),
 }
 
-# 플랫폼 장르 표기 → BE 카탈로그 장르. 카탈로그 이름 · 값과 다르게 쓰는 플랫폼 표기만 둔다
-GENRE_ALIASES = {
-    '무협/사극': '무협',  # 네이버 웹툰 (2026-10 장르 이름 변경)
-}
 # 장르가 아니라 독자층 분류(네이버 시리즈 웹툰). 장르로 쓰지 않고 비운다 — 빈 장르는 BE 가 덮어쓰지 않아
 # 같은 작품의 네이버 웹툰 · 카카오 · 리디 장르가 유지된다. '순정' 을 로맨스로 매핑하면 로판 작품이 로맨스가 된다
 NOT_A_GENRE = {'순정', '소년', '소녀', '청년'}
@@ -147,7 +143,7 @@ def validate_item(item: dict, catalog: EnumCatalog, mappings: dict[tuple[str, st
     for f, (kind, severity) in ENUM_FIELDS.items():
         original = raw = _clean(item.get(f))
         if f == 'genre':
-            raw = '' if raw in NOT_A_GENRE else GENRE_ALIASES.get(raw, raw)
+            raw = '' if raw in NOT_A_GENRE else genre_alias(raw)   # 별칭은 해시태그와 같은 표 (review/hashtags)
         name = catalog.resolve(kind, raw)
         if name is None and raw and mappings:
             # 사람이 같은 원문을 같은 값으로 여러 번 승인한 매핑. 카탈로그에 있는 값일 때만 쓴다

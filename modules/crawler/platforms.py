@@ -59,6 +59,12 @@ def crawler_class(name: str):
     return getattr(importlib.import_module(module), cls)
 
 
+def searchable(name: str) -> bool:
+    """제목 검색 후보(search_candidates)를 내는 크롤러인지. 링크 채우기 · 복구가 같이 쓴다 (#121)"""
+    from modules.crawler.base_crawler import BaseCrawler
+    return crawler_class(name).search_candidates is not BaseCrawler.search_candidates
+
+
 def cookie_file(name: str):
     return COOKIE_FILES[get(name).login]
 

@@ -11,6 +11,7 @@ from selenium.common.exceptions import TimeoutException, InvalidSessionIdExcepti
 from urllib3.exceptions import ReadTimeoutError as _DriverTimeoutError
 
 from .base_crawler import PASS_THROUGH, AuthExpiredError, BaseCrawler, manual_login_timeout, HttpUnavailable, SessionExpiredError, pick_candidates
+from .classify import artist_fields, works_type_from_category
 from config import RIDIBOOKS_COOKIE_FILE, RIDIBOOKS_LOGIN_URL, RIDIBOOKS_ID, RIDIBOOKS_PW
 
 # 로그인하면 생기는 쿠키. 세션 등록 API(api/session_api.py)도 같은 쿠키로 로그인을 판단한다
@@ -62,15 +63,7 @@ def ridi_genre_and_type(cat_texts: list[str], section: str = '') -> tuple[str, s
     '만화 e북' 카테고리(출판 만화)는 만화다 (#64)."""
     cat_blob = ' '.join(cat_texts)
     genre = next((canonical for kw, canonical in _RIDI_GENRE_KEYWORDS if kw in cat_blob), '')
-    if '웹툰' in cat_blob:
-        return genre, '웹툰'
-    if '만화' in cat_blob:
-        return genre, '만화'
-    if any(k in cat_blob for k in ('웹소설', '소설', '노벨', 'e북')):
-        return genre, '웹소설'
-    if '소설' in section:
-        return genre, '웹소설'
-    return genre, '웹툰'
+    return genre, works_type_from_category(cat_blob, '웹소설' if '소설' in section else '웹툰')
 
 
 class RidibooksCrawler(BaseCrawler):
@@ -448,17 +441,10 @@ class RidibooksCrawler(BaseCrawler):
                         if not name:
                             continue
                         # li 전체 텍스트에서 이름을 뺀 나머지가 역할 (예: "유한려 저자" → "저자")
-                        role = li.text.replace(name, '').strip()
-                        role = role.replace('/', '').replace('·', '').replace(' ', '')
-                        if '글' in role and '그림' in role:      # 글그림 / 글·그림
-                            if not author: author = name
-                            if not illustrator: illustrator = name
-                        elif '그림' in role or '그린이' in role:
-                            if not illustrator: illustrator = name
-                        elif '원작' in role:
-                            if not original_author: original_author = name
-                        else:  # 저자/글/지은이/글쓴이/역할없음 → 글作家
-                            if not author: author = name
+                        fields = artist_fields(li.text.replace(name, ''))
+                        author = author or (name if 'author' in fields else '')
+                        illustrator = illustrator or (name if 'illustrator' in fields else '')
+                        original_author = original_author or (name if 'original_author' in fields else '')
                     except Exception:
                         continue
             except Exception:
@@ -481,17 +467,11 @@ class RidibooksCrawler(BaseCrawler):
                     name = parts[1].strip()
                     if not name:
                         continue
-                    if role in ("글", "지은이", "작가", "저자"):
-                        if not author: author = name
-                    elif role in ("그림", "그린이"):
-                        if not illustrator: illustrator = name
-                    elif role == "원작":
-                        if not original_author: original_author = name
-                    elif role == "글/그림":
-                        if not author: author = name
-                        if not illustrator: illustrator = name
-                    else:
-                        if not author: author = name
+                    # 역할 판정은 HTTP 경로와 같다 — 번역 · 감수 등은 작가에 넣지 않는다 (#121)
+                    fields = artist_fields(role)
+                    author = author or (name if 'author' in fields else '')
+                    illustrator = illustrator or (name if 'illustrator' in fields else '')
+                    original_author = original_author or (name if 'original_author' in fields else '')
             except Exception:
                 pass
 
@@ -705,9 +685,6 @@ def parse_ridi_keywords(src: str) -> list[str]:
 
 _NEXT_DATA = re.compile(r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>', re.S)
 
-# 작가 묶음 제목 → 역할. 번역 · 감수 등은 작가로 넣지 않는다
-_RIDI_SKIP_ROLES = ('번역', '옮긴이', '감수', '편집', '기획')
-
 
 def _ridi_cells(src: str) -> dict:
     m = _NEXT_DATA.search(src or '')
@@ -761,20 +738,12 @@ def parse_ridi_book_page(src: str, url: str) -> dict | None:
 
     author = illustrator = original_author = ''
     for group in info.get('authorGroups') or []:
-        role = (group.get('title') or '').replace('/', '').replace('·', '').replace(' ', '')
         names = [(a.get('name') or '').strip() for a in group.get('authors') or []]
         name = next((n for n in names if n), '')
-        if not name or any(r in role for r in _RIDI_SKIP_ROLES):
-            continue
-        if '글' in role and '그림' in role:
-            author = author or name
-            illustrator = illustrator or name
-        elif '그림' in role or '그린이' in role:
-            illustrator = illustrator or name
-        elif '원작' in role:
-            original_author = original_author or name
-        else:  # 저자 · 글 · 지은이
-            author = author or name
+        fields = artist_fields(group.get('title')) if name else ()
+        author = author or (name if 'author' in fields else '')
+        illustrator = illustrator or (name if 'illustrator' in fields else '')
+        original_author = original_author or (name if 'original_author' in fields else '')
 
     desc = _ridi_intro_text((cells.get('BookDetailHomeBookIntroduction') or {}).get('introductionHtml') or '')
     if not desc:

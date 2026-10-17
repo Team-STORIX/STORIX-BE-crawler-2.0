@@ -5,6 +5,8 @@ from modules.crawler.naver_series_crawler import NaverSeriesCrawler
 from modules.crawler.kakao_crawler import KakaoCrawler
 from modules.crawler.ridibooks_crawler import RidibooksCrawler
 from crawler.output.jsonl_writer import JSONLWriter
+from modules.crawler import platforms
+from review.landing import canonical_landing_url, platform_work_key
 
 SUPPORTED_PLATFORMS = ['naver_webtoon', 'naver_series', 'kakao_page', 'ridibooks']
 
@@ -51,6 +53,13 @@ def parse_url_to_platform(url: str) -> tuple[str, str]:
     """
     parsed = urlparse(url)
     domain = parsed.netloc.lower()
+
+    # 작품 링크는 링크 판정(review/landing)과 같은 규칙으로 플랫폼을 정한다 (#121).
+    # 아래 도메인 분기는 'naver.com' 을 모두 웹툰으로 봐서 네이버 웹소설 작품이 웹툰으로 갔다.
+    # 목록 · 탭 주소가 있는 네 플랫폼은 아래 분기가 그대로 처리한다
+    found = platform_work_key(url)
+    if found and platforms.get(found[0]).key not in SUPPORTED_PLATFORMS:
+        return platforms.get(found[0]).key, 'detail'
 
     # 네이버 시리즈 — 아래 'naver.com' 분기가 모든 네이버 도메인을 웹툰으로
     # 삼켜버리므로 반드시 먼저 걸러야 한다. (m.series 포함)
@@ -108,6 +117,22 @@ def run_custom_url(url: str, count: int | None = None) -> None:
         _crawl_kakao(url, page_type, count)
     elif platform == 'ridibooks':
         _crawl_ridibooks(url, page_type, count)
+    else:
+        _crawl_detail(platform, url)
+
+
+def _crawl_detail(platform: str, url: str) -> None:
+    """목록 수집기가 없는 플랫폼(네이버 웹소설 · 봄툰 · 레진 · 미스터블루)의 작품 링크 한 건."""
+    work_url = canonical_landing_url(url)
+    with platforms.open_crawler(platform, required=False) as crawler:
+        detail = crawler.crawl_detail_with_retry(work_url)
+        if not detail:
+            print('❌ 크롤링 실패')
+            return
+        print(f'   ↳ {detail.get("works_name")} | {detail.get("works_type")} | {detail.get("genre")}')
+        with JSONLWriter(platform=platform, mode='custom_url') as writer:
+            writer.write(detail)
+        print(f'✅ 완료: {writer.count}건 저장')
 
 
 def _crawl_naver(url: str, tab: str, count: int | None) -> None:

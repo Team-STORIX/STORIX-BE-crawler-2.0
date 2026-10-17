@@ -12,20 +12,21 @@ BE 는 같은 작품으로 판정해 링크를 바꾼다. 못 찾으면 SEARCH_F
 from crawler import report
 from modules.crawler import platforms
 from crawler.output.jsonl_writer import JSONLWriter
-from modules.crawler.base_crawler import AuthExpiredError, BaseCrawler, RateLimitedError, pick_candidates
+from modules.crawler.base_crawler import AuthExpiredError, BaseCrawler, RateLimitedError, is_edition, pick_candidates
 from review.artists import artist_keys, normalize_artists
 from review.landing import canonical_landing_url
-
-# 복구하는 플랫폼 (이력의 BE enum name). 검색 후보를 내는 크롤러만
-RECOVER_PLATFORMS = ('NAVER_WEBTOON', 'NAVER_NOVEL', 'NAVER_SERIES', 'KAKAO_PAGE', 'RIDIBOOKS')
 # 검색어 하나에서 열어 볼 후보 수
 MAX_CANDIDATES = 3
 
 
 def matches_source(source: dict, keyword: str, result: dict) -> bool:
-    """찾은 작품이 이력의 작품과 같은지: 제목이 검색어와 맞고, 작품 유형이 같고, 작가가 한 명 이상 겹친다.
-    이력에 작품 유형 · 작가가 없으면 그 조건은 건너뛴다."""
-    if BaseCrawler.title_match(keyword, result.get('works_name') or '') is None:
+    """찾은 작품이 이력의 작품과 같은지: 제목이 검색어와 맞고, 판본 여부가 같고, 작품 유형이 같고, 작가가 한 명 이상 겹친다.
+    이력에 작품 유형 · 작가가 없으면 그 조건은 건너뛴다.
+    판본([19세 완전판] · [개정판])은 BE 가 다른 작품으로 본다 — 본편 링크를 판본으로 바꾸지 않는다 (fill_links 와 같은 기준, #121)"""
+    name = result.get('works_name') or ''
+    if BaseCrawler.title_match(keyword, name) is None:
+        return False
+    if is_edition(name) != is_edition(source.get('title_snapshot') or keyword):
         return False
     want_type = source.get('works_type')
     if want_type and (result.get('works_type') or '').strip() != want_type:
@@ -64,7 +65,8 @@ def run_recover(store, platform: str | None = None, limit: int = 50) -> dict:
 
     by_platform: dict[str, list[dict]] = {}
     for s in sources:
-        if s['platform'] in RECOVER_PLATFORMS:
+        # 검색 후보를 내는 크롤러만 (링크 채우기와 같은 기준). 고정 목록이라 봄툰 · 레진 · 미스터블루가 빠져 있었다
+        if platforms.searchable(s['platform']):
             by_platform.setdefault(s['platform'], []).append(s)
 
     for enum_name, rows in by_platform.items():

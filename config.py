@@ -19,6 +19,10 @@ SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
 NAVER_COOKIE_FILE = SESSIONS_DIR / "naver_cookies.pkl"
 KAKAO_COOKIE_FILE = SESSIONS_DIR / "kakao_cookies.pkl"
 OUTPUT_DIR = BASE_DIR / "output"
+# 이번 실행의 날짜 (output/<날짜>/). 처음 정한 날짜를 끝까지 쓴다 — 수집이 자정을 넘기면 수집 파일과
+# 적재 · 리포트가 다른 날짜 폴더를 봤다 (#121). 시간대는 실행 환경 그대로 (서버 컨테이너는 UTC)
+RUN_DATE = __import__('datetime').datetime.now().strftime('%Y-%m-%d')
+RUN_DIR = OUTPUT_DIR / RUN_DATE
 
 # ---- 네이버 웹툰 설정 ----
 

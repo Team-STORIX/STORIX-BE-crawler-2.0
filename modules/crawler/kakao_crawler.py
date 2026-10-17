@@ -5,11 +5,11 @@ import pickle
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import TimeoutException, InvalidSessionIdException
-from urllib3.exceptions import ReadTimeoutError as _DriverTimeoutError
+from selenium.common.exceptions import TimeoutException
 
-from .base_crawler import PASS_THROUGH, AuthExpiredError, BaseCrawler, manual_login_timeout, SessionExpiredError, pick_candidates
+from .base_crawler import PASS_THROUGH, AuthExpiredError, BaseCrawler, manual_login_timeout, SessionExpiredError
 from .classify import age_from_text, works_type_from_category
+from .titles import NOT_A_TITLE, clean_work_name
 from config import KAKAO_COOKIE_FILE, KAKAO_LOGIN_URL, KAKAO_ID, KAKAO_PW
 
 # 쿠키 로그인 확인용 성인 작품 (「최악의 매칭 가이드 [19세 완전판]」). 로그인 · 성인 인증이 안 되면 연령 확인 화면이 뜬다
@@ -198,16 +198,6 @@ class KakaoCrawler(BaseCrawler):
             if name:
                 raw.append((href, name, type_hint))
         return raw
-
-    def search_url_by_title(self, title: str, works_type: str | None = None) -> str | None:
-        """제목으로 카카오페이지 작품 URL 검색. 원하는 유형이 있으면 그 유형 후보를 먼저 고른다."""
-        picked = pick_candidates(self.search_candidates(title), works_type)
-        if not picked:
-            print(f"   ⚠️  '{title}'과 일치하는 검색 결과 없음 — 스킵")
-            return None
-        c = picked[0]
-        print(f"   ↳ 검색 결과 ({c['kind']}): {c['url']} [{c['text']}]")
-        return c['url']
 
     # 무한 스크롤 (개수 기반 + Wiggle)
     def load_all_items(self, item_xpath):
@@ -461,10 +451,6 @@ class KakaoCrawler(BaseCrawler):
 
 
 _KAKAO_SITE_NAMES = {'카카오페이지', '콘텐츠홈', ''}  # 화면이 그려지기 전 기본값
-# [19세 완전판] 은 떼지 않는다. 떼면 BE 가 본편과 같은 작품으로 보고 본편을 19세판 정보로 덮어쓴다
-_KAKAO_TITLE_LABELS = re.compile(r'\s*\[(완결|독점|휴재)\]')
-# 정보 탭 섹션 제목. 작품명 자리에 이게 들어오면 잘못 읽은 것이다
-KAKAO_SECTION_TITLES = {'줄거리', '키워드', '상세정보', '동일작', '이 작가의 다른 작품'}
 
 
 def parse_kakao_title(og_title: str, doc_title: str, big_title: str) -> str:
@@ -473,8 +459,9 @@ def parse_kakao_title(og_title: str, doc_title: str, big_title: str) -> str:
     doc = re.sub(r'\s*\|\s*카카오페이지\s*$', '', doc_title or '')
     doc = re.sub(r'\s+-\s+(웹툰|웹소설|책)\s*$', '', doc)
     for raw in (og_title, doc, big_title):
-        t = _KAKAO_TITLE_LABELS.sub('', (raw or '').strip()).replace('휴재', '').strip()
-        if t and t not in _KAKAO_SITE_NAMES and t not in KAKAO_SECTION_TITLES:
+        # 상태 라벨 · 작품명이 아닌 값(섹션 제목)은 다른 플랫폼과 같은 규칙 (titles)
+        t = clean_work_name(raw).replace('휴재', '').strip()
+        if t and t not in _KAKAO_SITE_NAMES and t not in NOT_A_TITLE:
             return t
     return ''
 

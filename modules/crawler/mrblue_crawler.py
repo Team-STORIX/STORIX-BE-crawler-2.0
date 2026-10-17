@@ -199,11 +199,6 @@ class MrblueCrawler(BaseCrawler):
         time.sleep(3)
         return self.rank_candidates(title, parse_mrblue_search(self.driver.page_source))
 
-    def search_url_by_title(self, title: str) -> str | None:
-        candidates = self.search_candidates(title)
-        return candidates[0]['url'] if candidates else None
-
-
 # 검색 결과의 작품 제목 링크. 주소의 webtoon · comic · novel 로 유형을 안다
 _MRBLUE_RESULT = re.compile(r'<span class="tit[^"]*">\s*<a href="(/(webtoon|comic|novel)/[A-Za-z0-9_]+)" title="([^"]*)"')
 _MRBLUE_TYPE = {'webtoon': '웹툰', 'comic': '만화', 'novel': '웹소설'}

@@ -12,7 +12,8 @@ BE 는 같은 작품으로 판정해 링크를 바꾼다. 못 찾으면 SEARCH_F
 from crawler import report
 from modules.crawler import platforms
 from crawler.output.jsonl_writer import JSONLWriter
-from modules.crawler.base_crawler import AuthExpiredError, BaseCrawler, RateLimitedError, is_edition, pick_candidates
+from modules.crawler.base_crawler import AuthExpiredError, RateLimitedError, pick_candidates
+from modules.crawler.titles import is_edition, title_match
 from review.artists import artist_keys, normalize_artists
 from review.landing import canonical_landing_url
 # 검색어 하나에서 열어 볼 후보 수
@@ -24,7 +25,7 @@ def matches_source(source: dict, keyword: str, result: dict) -> bool:
     이력에 작품 유형 · 작가가 없으면 그 조건은 건너뛴다.
     판본([19세 완전판] · [개정판])은 BE 가 다른 작품으로 본다 — 본편 링크를 판본으로 바꾸지 않는다 (fill_links 와 같은 기준, #121)"""
     name = result.get('works_name') or ''
-    if BaseCrawler.title_match(keyword, name) is None:
+    if title_match(keyword, name) is None:
         return False
     if is_edition(name) != is_edition(source.get('title_snapshot') or keyword):
         return False

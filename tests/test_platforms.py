@@ -39,7 +39,7 @@ def test_artist_keys_ignore_space_paren_case():
 
 
 def test_strip_edition_labels():
-    from modules.crawler.base_crawler import strip_edition_labels
+    from modules.crawler.titles import strip_edition_labels
     assert strip_edition_labels('응급 플러팅 [19세 완전판]') == '응급 플러팅'
     assert strip_edition_labels('Deep(딥) [개정판]') == 'Deep(딥)'
 

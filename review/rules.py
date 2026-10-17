@@ -15,6 +15,7 @@ from review.artists import normalize_artists
 from review.catalog import EnumCatalog
 from review.hashtags import clean_hashtags, genre_alias
 from review.landing import canonical_landing_url
+from modules.crawler.titles import NOT_A_TITLE, strip_volume_suffix  # noqa: F401 — 제목 규칙은 한 곳 (#122)
 
 AUTO_PASS = 'AUTO_PASS'
 NEEDS_REVIEW = 'NEEDS_REVIEW'
@@ -57,30 +58,6 @@ NOT_A_GENRE = {'순정', '소년', '소녀', '청년'}
 
 # 정식 계약 전 작품 (네이버 웹툰 도전만화·베스트도전, 네이버 웹소설 베스트리그·챌린지리그). 받지 않는다
 PRE_CONTRACT_URL = re.compile(r'comic\.naver\.com/(?:challenge|bestChallenge)/|novel\.naver\.com/(?:best|challenge)/')
-
-# 작품명 끝의 권수 표기. 권 단위 묶음 상품 이름이라 작품명에서 뗀다 (2026-10-10 사용자 결정)
-#   '테이밍(The Taming) 2권' · '… 3~5권' · '… (1~3권)'
-# '권' 이 없는 숫자 범위는 떼지 않는다. 네이버 웹툰은 '사이드킥 2~3' · '하이브 1~2' 처럼 시즌을 범위로 쓰고,
-# 떼면 시즌 1('사이드킥')과 같은 작품으로 붙는다. 시즌 · 부도 BE 가 다른 작품으로 보므로 그대로 둔다
-_VOLUME_SUFFIX = re.compile(r'\s*(?:\d+\s*[~\-]\s*\d+\s*권|\d+\s*권|[(\[]\s*\d+(?:\s*[~\-]\s*\d+)?\s*권\s*[)\]])\s*$')
-
-
-# 판매 형태 라벨. 작품명이 아니므로 뗀다 ('마도조사 [19세 완전판][단행본]' → '마도조사 [19세 완전판]').
-# 판본 표기([19세 완전판] · [개정판])는 BE 가 다른 작품으로 보므로 남긴다
-# 리디 e북의 '개정판 | ' 접두어도 판매 표기다 — 개정판만 팔고 있어 본편과 구분할 필요가 없다 (2026-10-10 사용자 결정:
-# 개정판 표기는 본편이 따로 있을 때만 남긴다)
-_FORMAT_LABEL = re.compile(r'\s*\[(?:단행본|e북|연재)\]|^\s*개정판\s*\|\s*')
-
-
-def strip_volume_suffix(name: str) -> str:
-    stripped = _VOLUME_SUFFIX.sub('', _FORMAT_LABEL.sub('', name or '')).strip()
-    return stripped or (name or '')
-
-
-# 작품명 자리에 들어오면 잘못 읽은 것: 상세 페이지의 섹션 제목 · 사이트 이름
-# (2026-10 카카오 화면 개편 때 작품명이 전부 "줄거리"로 수집됨)
-NOT_A_TITLE = {'줄거리', '작품소개', '작품 소개', '소개', '키워드', '상세정보', '작품정보', '작품 정보', '동일작',
-               '카카오페이지', '콘텐츠홈', '네이버 웹툰', '네이버 웹소설', '네이버 시리즈', '리디', '리디북스'}
 
 # 표지가 아닌 썸네일. 비율이 다른 작품과 안 맞거나 작품을 알아볼 수 없어 사람이 확인한다
 #  - 네이버 웹소설 og:image 정사각형(type=n200_200): 작가가 따로 올리는 공유용 이미지

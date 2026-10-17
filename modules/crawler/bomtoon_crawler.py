@@ -270,7 +270,3 @@ class BomtoonCrawler(BaseCrawler):
         raw = [(f"{SITE}/detail/{c['alias']}", c.get('title') or '', _TYPES.get(c.get('type')))
                for c in contents if c.get('alias')]
         return self.rank_candidates(title, raw)
-
-    def search_url_by_title(self, title: str) -> str | None:
-        candidates = self.search_candidates(title)
-        return candidates[0]['url'] if candidates else None

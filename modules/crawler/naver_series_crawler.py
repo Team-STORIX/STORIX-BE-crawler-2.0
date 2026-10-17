@@ -5,11 +5,10 @@ import urllib.parse
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import InvalidSessionIdException
-from urllib3.exceptions import ReadTimeoutError as _DriverTimeoutError
 
 from .naver_crawler import NaverCrawler
-from .base_crawler import PASS_THROUGH, BaseCrawler, SessionExpiredError, is_edition, pick_candidates
+from .base_crawler import PASS_THROUGH, BaseCrawler, SessionExpiredError
+from .titles import clean_work_name
 from .classify import age_from_text
 
 
@@ -31,13 +30,10 @@ class NaverSeriesCrawler(NaverCrawler):
 
     @staticmethod
     def _clean_title(raw: str) -> str:
-        """'화산귀환 [독점]\\n(총 1939화/미완결)' → '화산귀환'.
-        판본 표기([19세 완전판] · [개정판])는 떼지 않는다 — BE 가 다른 작품으로 보고, 떼면 본편과 붙는다"""
-        t = raw.split('\n')[0]
-        # [독점] [단행본] [완결] 등 제거
-        t = re.sub(r'\s*\[[^\]]*\]', lambda m: m.group(0) if is_edition(m.group(0)) else '', t)
-        t = re.sub(r'\s*\(총[^)]*\)', '', t)      # (총 …화/…) 제거
-        return t.strip()
+        """'화산귀환 [독점]\\n(총 1939화/미완결)' → '화산귀환'. 상태 라벨은 다른 플랫폼과 같은 규칙으로 뗀다
+        (titles.clean_work_name) — 판본 표기([19세 완전판])와 묶음 이름은 작품명이라 남긴다"""
+        t = re.sub(r'\s*\(총[^)]*\)', '', raw.split('\n')[0])      # (총 …화/…) 제거
+        return clean_work_name(t)
 
     def search_candidates(self, title: str) -> list[dict]:
         """네이버 시리즈 검색 결과 → 후보 목록 (일치도 순). 주소의 /novel/ · /comic/ 으로 유형을 안다.
@@ -67,21 +63,6 @@ class NaverSeriesCrawler(NaverCrawler):
                 # 단행본은 연재판 다음 순서(pick_candidates)가 시리즈에도 똑같이 걸린다 (#121)
                 c['type_hint'] = '단행본'
         return cands
-
-    def search_url_by_title(self, title: str, works_type: str | None = None) -> str | None:
-        """제목으로 네이버 시리즈 상세 URL 검색. 원하는 유형이 없으면 웹소설(/novel/)을 우선한다."""
-        candidates = self.search_candidates(title)
-        if works_type is None:
-            # 기존 동작 유지: 같은 일치 단계(정확 · 부분 · 유사)면 웹소설 먼저
-            stage = {'정확': 0, '부분': 1}
-            candidates = sorted(candidates, key=lambda c: (stage.get(c['kind'], 2), c['type_hint'] != '웹소설'))
-        picked = pick_candidates(candidates, works_type)
-        if not picked:
-            print(f"   ⚠️  '{title}' 네이버 시리즈 검색 결과 없음 — 스킵")
-            return None
-        c = picked[0]
-        print(f"   ↳ 검색 결과 ({c['kind']}): {c['url']} [{c['text']}]")
-        return c['url']
 
     def _parse_info(self, lines: list[str]) -> dict:
         """`.end_info` 텍스트 라인에서 작가/그림/원작/연령을 추출한다.

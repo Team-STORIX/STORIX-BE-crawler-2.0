@@ -24,8 +24,8 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from modules.crawler import platforms  # noqa: E402
-from modules.crawler.base_crawler import (BaseCrawler, is_edition, pick_candidates, strip_edition_labels,  # noqa: E402
-                                         strip_title_labels)
+from modules.crawler.base_crawler import pick_candidates  # noqa: E402
+from modules.crawler.titles import is_edition, norm_title, strip_edition_labels, strip_title_labels  # noqa: E402
 from review.artists import artist_keys, result_artist_keys  # noqa: E402
 from review.landing import canonical_landing_url, platform_work_key  # noqa: E402
 
@@ -42,10 +42,10 @@ def text_of(c):
 def edition_of(name, cands, adult):
     """DB 이름에 판본 표기가 없는데 플랫폼엔 판본만 있을 때. 표기를 뗀 제목이 같고 연령에 맞는 판본만"""
     want = '완전판' if adult else '개정판'
-    key = BaseCrawler._norm_title(strip_title_labels(name))
+    key = norm_title(strip_title_labels(name))
     # 원래 제목(raw)엔 시리즈 '(총 102화/완결)' 같은 꼬리가 붙어 있어, 라벨을 정리한 제목(text)으로 비교한다
     return [c for c in cands if is_edition(c.get('text')) and want in c.get('text', '')
-            and BaseCrawler._norm_title(strip_title_labels(strip_edition_labels(c['text']))) == key]
+            and norm_title(strip_title_labels(strip_edition_labels(c['text']))) == key]
 
 
 def by_author(crawler, want_names, cands):

@@ -26,7 +26,6 @@ class BackendSession:
 
     @classmethod
     def from_env(cls) -> 'BackendSession | None':
-        """STORIX_ENV 에 맞는 주소 · 키로 만든다. 키가 없으면 None."""
         env = storix_env.target()
         api_key = storix_env.internal_api_key(env)
         if not api_key:
@@ -34,8 +33,7 @@ class BackendSession:
         return cls(storix_env.api_base_url(env), api_key, env=env)
 
     def request(self, method: str, path: str, body: dict | None = None, timeout: float | None = None):
-        """CustomResponse.result 를 돌려준다. 401 · 403 은 BackendAuthError,
-        그 밖의 HTTP 오류(409 등)는 HTTPError 그대로 올린다."""
+        """BE CustomResponse 를 벗겨 result 만 돌려준다. 409 등은 호출부가 상태 코드로 가려 HTTPError 그대로 올린다."""
         try:
             return self._send(method, path, body, timeout)
         except urllib.error.HTTPError as e:

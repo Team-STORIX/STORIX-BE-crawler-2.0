@@ -1,7 +1,8 @@
 """keepalive 모드: 로그인 쿠키 갱신."""
 import pickle
 
-from crawler.modes.keepalive import merge_cookies, save_cookies
+from crawler.modes.keepalive import save_cookies
+from modules.crawler.cookies import merge_cookies
 
 
 def test_merge_takes_fresh_values_of_same_site_only():

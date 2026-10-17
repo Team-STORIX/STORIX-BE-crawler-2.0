@@ -79,3 +79,16 @@ def test_validate_item_cleans_hashtags():
 def test_format_tags_are_noise():
     from review.hashtags import clean_hashtags
     assert clean_hashtags(['e북', 'E북', '만화', '애니화'], None, CATALOG) == ['애니화']
+
+
+@pytest.mark.parametrize('tag', ['완결', '단행본', '기다리면 무료', '별점4.5', '10%할인', '3만원이상', '5권이상', '100화이상', '19+'])
+def test_sale_tags_are_noise_for_every_platform(tag):
+    """판매 · 연재 상태 표기는 플랫폼과 상관없이 거른다 (네이버 · 카카오는 걸러지지 않던 것, #122)."""
+    from review.hashtags import is_noise_tag
+    assert is_noise_tag(tag)
+
+
+@pytest.mark.parametrize('tag', ['다정공', '회귀', '헌터물', 'BL'])
+def test_content_tags_are_kept(tag):
+    from review.hashtags import is_noise_tag
+    assert not is_noise_tag(tag)

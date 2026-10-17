@@ -29,7 +29,6 @@ class EnumCatalog:
         if missing:
             raise ValueError(f'enum 카탈로그에 항목이 없음: {", ".join(missing)}')
 
-        # kind → {조회키: name}. name 은 대소문자 무시, dbValue 는 공백만 정리해서 맞춘다
         self._lookup: dict[str, dict[str, str]] = {}
         self._names: dict[str, list[str]] = {}
         self.stored_as: dict[str, str] = {}
@@ -48,7 +47,7 @@ class EnumCatalog:
         self.raw = data
 
     def resolve(self, kind: str, value: str | None) -> str | None:
-        """name 이나 dbValue 를 name 으로. 못 맞추면 None (매핑은 Layer 2/사람 몫)."""
+        """못 맞추면 None — 매핑은 Layer 2/사람 몫."""
         v = (value or '').strip()
         if not v:
             return None
@@ -64,7 +63,7 @@ def _norm(s: str) -> str:
 
 
 def fetch_catalog(session) -> EnumCatalog:
-    """session: review.backend.BackendSession (CustomResponse.result 를 풀어서 돌려준다)"""
+    """session: review.backend.BackendSession"""
     return EnumCatalog(session.request('GET', CATALOG_PATH, timeout=10.0))
 
 

@@ -49,7 +49,7 @@ def _strip_roles(name: str) -> str:
 
 
 def _split_names(value) -> list[str]:
-    """역할 칸 값 → 이름들. 칸 안에 붙어 온 역할 라벨('작화 스푼')도 뗀다"""
+    """칸 안에 붙어 온 역할 라벨('작화 스푼')도 뗀다"""
     if not isinstance(value, str):
         return []
     names = [n for n in (_strip_roles(x.strip()) for x in value.split(',')) if n]
@@ -67,7 +67,6 @@ def _dedupe(names: list[str]) -> list[str]:
 
 
 def parse_raw(raw) -> list[tuple[str, set[str]]]:
-    """원본 작가명 → [(이름, 역할들)]. 역할을 모르면 빈 집합."""
     if not isinstance(raw, str) or not raw.strip():
         return []
     text = raw.replace('∙', ' ').replace(':', ' ')  # 가운뎃점(·)은 이름에 쓰여 그대로 둔다
@@ -94,7 +93,6 @@ def is_novel(works_type) -> bool:
 
 
 def normalize_artists(item: dict) -> dict:
-    """artist_name · author · illustrator · original_author 를 정규화해 돌려준다."""
     parsed = parse_raw(item.get('artist_name'))
 
     def field(key: str, role: str) -> list[str]:
@@ -129,13 +127,13 @@ def normalize_artists(item: dict) -> dict:
 
 
 def artist_keys(names) -> set[str]:
-    """작가 비교용 키. 'A, B' 문자열 · 이름 목록 → 공백 · 괄호 속 표기('관우(觀雨)') · 대소문자를 무시한 이름들 (#98)"""
+    """작가 비교용 키. 괄호 속 표기('관우(觀雨)')는 무시한다 (#98)"""
     if isinstance(names, str):
         names = names.split(',')
     return {k for k in (_key(re.sub(r'\([^)]*\)', '', n or '')) for n in names or []) if k}
 
 
 def result_artist_keys(result: dict) -> set[str]:
-    """수집 결과(상세)의 작가 키. 역할 칸 · 원본 표기('글 A · 그림 B')를 normalize_artists 로 정리한 뒤 모은다"""
+    """수집 결과(상세)의 작가 키. 원본 표기('글 A · 그림 B')는 역할 라벨을 뗀 뒤 비교한다"""
     a = normalize_artists(result)
     return set().union(*(artist_keys(a[k]) for k in ('artist_name', 'author', 'illustrator', 'original_author')))

@@ -6,16 +6,17 @@
 """
 import html
 import json
-import pickle
 import re
 import time
 
 from .base_crawler import PASS_THROUGH, BaseCrawler, HttpUnavailable, SessionExpiredError, manual_login_timeout
+from .cookies import apply_cookies, read_cookies, write_cookies
+from review.hashtags import is_noise_tag
+from review.landing import work_id
 from config import LEZHIN_COOKIE_FILE
 
 SITE = 'https://www.lezhin.com'
 LOGIN_URL = SITE + '/ko/login'
-_ALIAS = re.compile(r'lezhin\.com/(?:ko/)?comic/([^/?#\s]+)')
 _FLIGHT = re.compile(r'self\.__next_f\.push\(\[1,"(.*?)"\]\)</script>', re.S)
 # 세로 표지 600x800. 페이지 og:image 의 wide.jpg 는 가로 배너(1200x600)라 쓰지 않는다
 COVER = 'https://ccdn.lezhin.com/v2/comics/{id}/images/tall.jpg'
@@ -33,16 +34,15 @@ LEZHIN_AGES = {'19': '18세 이용가', '18': '18세 이용가', '15': '15세 �
 _ROLES = {'writer': 'author', 'scripter': 'author', 'painter': 'illustrator', 'original': 'original_author'}
 # 레진 이벤트 · 순위 · 분류 태그와 영문 표기 태그는 해시태그로 쓰지 않는다
 #   월드드랍 · WorldDrop · 여성인기19 · 남성인기19 · 스낵타임 · 후방주의
-LEZHIN_META_TAGS = re.compile(r'^(?:월드드랍|스낵타임|후방주의|.*인기\d*|[A-Za-z0-9 _-]+)$')
+# 레진만의 표기 (이벤트 · 순위 · 영문 분류 태그). 판매 · 연재 상태 공통 표기는 review.hashtags.is_noise_tag
+LEZHIN_META_TAGS = re.compile(r'^(?:스낵타임|.*인기\d*|[A-Za-z0-9 _-]+)$')
 
 
 def lezhin_alias(url: str) -> str | None:
-    m = _ALIAS.search(url or '')
-    return m.group(1).strip() if m else None
+    return work_id(url, 'LEZHIN')   # 작품 주소 규칙은 review/landing 한 곳
 
 
 def lezhin_content(src: str) -> dict | None:
-    """작품 페이지 HTML → content 객체. 데이터가 없으면 None."""
     chunks = _FLIGHT.findall(src or '')
     if not chunks:
         return None
@@ -76,7 +76,7 @@ def parse_lezhin_content(c: dict, url: str) -> dict:
     codes = c.get('genres') or []
     genre = LEZHIN_GENRES.get(codes[0], codes[0]) if codes else ''
     tags = [t.strip() for t in (c.get('properties') or {}).get('tags') or [] if isinstance(t, str) and t.strip()]
-    hashtags = list(dict.fromkeys(t for t in tags if not LEZHIN_META_TAGS.match(t)))
+    hashtags = list(dict.fromkeys(t for t in tags if not (is_noise_tag(t) or LEZHIN_META_TAGS.match(t))))
     rating = str(c.get('rating') or '').strip()
     return {
         'platform': 'LEZHIN',
@@ -102,7 +102,7 @@ class LezhinCrawler(BaseCrawler):
         if not LEZHIN_COOKIE_FILE.exists():
             return ''
         try:
-            cookies = pickle.load(open(LEZHIN_COOKIE_FILE, 'rb'))
+            cookies = read_cookies(LEZHIN_COOKIE_FILE)
         except Exception:
             return ''
         return '; '.join(f"{c['name']}={c['value']}" for c in cookies if 'lezhin' in (c.get('domain') or ''))
@@ -139,8 +139,6 @@ class LezhinCrawler(BaseCrawler):
             self._log.warning('crawl_detail 실패 (%s): %s', url, e)
             return None
 
-    # ---------------------------------------------------------------- 로그인
-
     def _http_adult_ok(self) -> bool:
         try:
             return self.crawl_detail_http(f'{SITE}/ko/comic/jinx') is not None
@@ -152,12 +150,7 @@ class LezhinCrawler(BaseCrawler):
             return False
         try:
             self.driver.get(SITE)
-            for c in pickle.load(open(LEZHIN_COOKIE_FILE, 'rb')):
-                c.pop('expiry', None)
-                try:
-                    self.driver.add_cookie(c)
-                except Exception:
-                    pass
+            apply_cookies(self.driver, LEZHIN_COOKIE_FILE)
             self.driver.get(f'{SITE}/ko/comic/jinx')
             return not self.is_login_page() and lezhin_content(self.driver.page_source) is not None
         except Exception as e:
@@ -182,7 +175,7 @@ class LezhinCrawler(BaseCrawler):
             time.sleep(4)
             if self.is_login_page():
                 continue
-            pickle.dump(self.driver.get_cookies(), open(LEZHIN_COOKIE_FILE, 'wb'))
+            write_cookies(LEZHIN_COOKIE_FILE, self.driver.get_cookies())
             if self._http_adult_ok():
                 print('✅ [레진] 로그인 · 성인 작품 확인. 쿠키를 저장했습니다.')
                 return True
@@ -190,16 +183,11 @@ class LezhinCrawler(BaseCrawler):
         return False
 
     def search_candidates(self, title: str) -> list[dict]:
-        """레진 검색 결과 → 후보 목록 (일치도 순). 로그인 없이도 성인 작품까지 나온다 (#107)"""
+        """로그인 없이도 성인 작품까지 나온다 (#107)"""
         import urllib.parse
         self.driver.get(f'{SITE}/ko/search?q={urllib.parse.quote(title)}')
         time.sleep(3)
         return self.rank_candidates(title, parse_lezhin_search(self.driver.page_source))
-
-    def search_url_by_title(self, title: str) -> str | None:
-        candidates = self.search_candidates(title)
-        return candidates[0]['url'] if candidates else None
-
 
 # 검색 결과 카드 (결과가 없으면 같은 화면에 인기 순위가 나오는데, 그 카드는 이 모양이 아니다)
 _LEZHIN_CARD = re.compile(r'<a class="flex w-full[^"]*" href="(/ko/comic/[^"/?#]+)".*?<p class="[^"]*text-default[^"]*">(.*?)</p>', re.S)

@@ -4,6 +4,7 @@
 글자를 읽는 크롤러는 모두 여기를 쓴다. 코드 · 플래그로 내려오는 값(레진 등급 코드, 봄툰 isAdult, 리디 is_adult_only)은
 플랫폼 파서가 바꾸되 결과는 같은 이름(AGE_*)을 쓴다.
 """
+import re
 
 AGE_18, AGE_15, AGE_12, AGE_ALL = '18세 이용가', '15세 이용가', '12세 이용가', '전체연령가'
 
@@ -39,7 +40,13 @@ def works_type_from_category(text: str | None, default: str = '웹툰') -> str:
     return default
 
 
-# 작가가 아닌 역할. 작가 칸에 넣지 않는다
+# 사람이 고르는 작품 형태(노션 '작품 형태' · 제목 파일 '## 섹션') → 찾을 섹션. 입구마다 따로 두면 갈라진다 (#122).
+# 단행본은 소설 e북일 수도 만화책일 수도 있어 웹소설 · 만화로 찾는다 (지박소년 하나코 군 단행본이 리디에 만화로만 있었다, #119).
+# '전체' 는 웹툰 · 웹소설을 각각 찾아 있는 판을 다 수집한다
+REQUEST_SECTIONS = {'웹툰': ('웹툰',), '웹소설': ('웹소설',), '단행본': ('웹소설', '만화'), '만화': ('만화',),
+                    '전체': ('전체',)}
+
+
 NOT_ARTIST_ROLES = ('번역', '옮긴이', '감수', '편집', '기획')
 
 
@@ -56,3 +63,15 @@ def artist_fields(role: str | None) -> tuple[str, ...]:
     if '원작' in r:
         return ('original_author',)
     return ('author',)
+
+
+# 19금 가림 이미지. 성인 인증이 안 된 화면에서 표지 대신 나온다. 표지로 쓰면 안 되므로 비우고 사람이 본다
+#  - 리디 static.ridicdn.net/…/book_cover/cover_adult.png (크롤러는 책 ID 로 실제 표지를 다시 받는다)
+#  - 카카오페이지 로그인 · 성인 인증이 풀린 화면의 og:image (사이트 공용 공유 이미지)
+AGE_GATE_COVER = re.compile(r'book_cover/cover_adult|cover_adult\.|adult_cover|thumb_adult|/adult/(?:cover|thumb)'
+                            r'|page\.kakaocdn\.net/pageweb/shared/ogImage')
+
+
+def is_age_gate_cover(url: str | None) -> bool:
+    """표지 대신 나온 19금 가림 이미지인지. 검수(표지 비움)와 리디 크롤러(실제 표지로 바꿈)가 같이 쓴다 (#122)."""
+    return bool(AGE_GATE_COVER.search(url or ''))

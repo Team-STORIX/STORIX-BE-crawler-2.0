@@ -11,7 +11,7 @@ from modules.crawler.base_crawler import AuthExpiredError, RateLimitedError
 
 
 def record_platform_stop(platform: str, e: Exception) -> None:
-    """플랫폼이 예외로 멈췄다. 차단 · 세션 만료는 그 상태로, 그 밖의 예외는 PARSING_FAILED 로 남겨 런 실패로 본다."""
+    """차단 · 세션 만료가 아닌 예외도 PARSING_FAILED 로 남겨 런 실패로 본다."""
     if isinstance(e, RateLimitedError):
         status = report.RATE_LIMITED
     elif isinstance(e, AuthExpiredError):
@@ -22,8 +22,6 @@ def record_platform_stop(platform: str, e: Exception) -> None:
 
 
 def run_platforms(targets: list[str], fn: Callable[[str], None], parallel: int = 1) -> None:
-    """targets 를 fn(플랫폼) 으로 돌린다. parallel 개까지 동시에.
-    한 플랫폼의 예외는 다른 플랫폼을 막지 않는다 — 리포트에 남기고 넘어간다."""
     def guarded(platform: str) -> None:
         try:
             fn(platform)

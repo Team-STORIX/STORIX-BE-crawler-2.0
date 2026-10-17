@@ -5,7 +5,15 @@
 둘 중 하나라도 없으면 보내지 않는다 — 로컬 실행은 알리지 않는다.
 알림이 실패해도 실행 결과는 바꾸지 않는다 (출력만 남긴다).
 같은 날 같은 로그인 쿠키의 만료는 한 번만 알린다 — 야간 실행은 keepalive 다음 requests 를 돌아 같은 만료를 두 번 만난다.
+
+서버 호스트(deploy/nightly.sh)도 컨테이너 없이 이 모듈로 보낸다 — 슬랙 전송은 여기 한 곳 (#122):
+    python3 -m crawler.notify post '<글>' [--channel C] [--thread TS] [--rerun-button]
+    python3 -m crawler.notify react <이모지> <채널> <원글 ts>
+그래서 불러올 때 표준 라이브러리만 쓴다 (호스트 python3 는 3.9 일 수 있다).
 """
+from __future__ import annotations
+
+import argparse
 import json
 import os
 import urllib.request
@@ -101,6 +109,19 @@ def report_message(mode: str, data: dict | None = None) -> str | None:
     return '\n'.join(lines)
 
 
+RERUN_ACTION = 'rerun'
+
+
+def rerun_blocks(text: str) -> list[dict]:
+    """다시 로그인 완료 답글 + [못 긁은 작품 다시 긁기] 버튼. 버튼은 크롤러 슬랙 앱의 Interactivity(Lambda)로 간다."""
+    return [
+        {'type': 'section', 'text': {'type': 'mrkdwn', 'text': text}},
+        {'type': 'actions', 'elements': [
+            {'type': 'button', 'text': {'type': 'plain_text', 'text': '🔄 못 긁은 작품 다시 긁기'},
+             'action_id': f'{RERUN_ACTION}:requests', 'value': 'requests', 'style': 'primary'}]},
+    ]
+
+
 def relogin_blocks(text: str, platforms: list[str]) -> list[dict]:
     """알림 본문 + 만료된 플랫폼마다 [다시 로그인] 버튼. 버튼은 크롤러 슬랙 앱의 Interactivity(Lambda)로 간다."""
     return [
@@ -154,3 +175,27 @@ def notify_report(mode: str) -> bool:
 
 def notify_error(mode: str, error: BaseException) -> bool:
     return slack(f'*:rotating_light: 크롤러 `{mode}` 가 오류로 멈췄습니다*\n• {type(error).__name__}: {str(error)[:500]}')
+
+
+def main(argv: list[str] | None = None) -> int:
+    p = argparse.ArgumentParser(prog='python3 -m crawler.notify')
+    sub = p.add_subparsers(dest='cmd', required=True)
+    post_p = sub.add_parser('post')
+    post_p.add_argument('text')
+    post_p.add_argument('--channel')
+    post_p.add_argument('--thread')
+    post_p.add_argument('--rerun-button', action='store_true')
+    react_p = sub.add_parser('react')
+    react_p.add_argument('emoji')
+    react_p.add_argument('channel')
+    react_p.add_argument('ts')
+    a = p.parse_args(argv)
+    if a.cmd == 'post':
+        ok = slack(a.text, rerun_blocks(a.text) if a.rerun_button else None, a.channel or None, a.thread or None)
+    else:
+        ok = react(a.channel, a.ts, a.emoji)
+    return 0 if ok else 1
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

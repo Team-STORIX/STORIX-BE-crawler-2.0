@@ -26,33 +26,19 @@ SESSIONS_BUCKET=${SESSIONS_BUCKET:-storix-crawler-sessions}
 
 log() { echo "[nightly] $*"; }
 
-# cli 까지 못 가고 죽으면 cli 가 알릴 수 없으니 여기서 알린다
-slack() {  # slack <글> [채널] [스레드] [blocks JSON]
-  local token channel
-  token=$(grep -s '^SLACK_BOT_TOKEN=' "$ENV_FILE" | cut -d= -f2-)
-  channel=${2:-$(grep -s '^SLACK_CHANNEL_ID=' "$ENV_FILE" | cut -d= -f2-)}
-  [ -n "$token" ] && [ -n "$channel" ] || return 0
-  curl -s -o /dev/null -X POST https://slack.com/api/chat.postMessage \
-    -H "Authorization: Bearer $token" -H 'Content-Type: application/json; charset=utf-8' \
-    --data "$(python3 -c 'import json,sys; print(json.dumps({"channel": sys.argv[1], "text": sys.argv[2], **({"thread_ts": sys.argv[3]} if sys.argv[3] else {}), **({"blocks": json.loads(sys.argv[4])} if sys.argv[4] else {})}))' "$channel" "$1" "${3:-}" "${4:-}")"
+# cli 까지 못 가고 죽으면 cli 가 알릴 수 없으니 여기서 알린다. 보내는 건 컨테이너 없이 crawler/notify.py (전송 코드는 한 곳)
+notify() {
+  SLACK_BOT_TOKEN=$(grep -s '^SLACK_BOT_TOKEN=' "$ENV_FILE" | cut -d= -f2-) \
+  SLACK_CHANNEL_ID=$(grep -s '^SLACK_CHANNEL_ID=' "$ENV_FILE" | cut -d= -f2-) \
+    python3 -m crawler.notify "$@" >/dev/null || true
 }
-
-# 글 + [못 긁은 작품 다시 긁기] 버튼. 버튼은 크롤러 슬랙 앱의 Interactivity(Lambda)로 간다
-rerun_blocks() {
-  python3 -c 'import json,sys; print(json.dumps([
-    {"type": "section", "text": {"type": "mrkdwn", "text": sys.argv[1]}},
-    {"type": "actions", "elements": [{"type": "button", "text": {"type": "plain_text", "text": "🔄 못 긁은 작품 다시 긁기"},
-                                      "action_id": "rerun:requests", "value": "requests", "style": "primary"}]}]))' "$1"
+slack() {  # slack <글> [채널] [스레드] [rerun: 다시 긁기 버튼]
+  notify post "$1" ${2:+--channel "$2"} ${3:+--thread "$3"} ${4:+--rerun-button}
 }
-
 # 스레드 답글과 같은 이모지로 원글에 반응한다. react <이모지 이름> <채널> <원글 ts>
 react() {
-  local token
-  token=$(grep -s '^SLACK_BOT_TOKEN=' "$ENV_FILE" | cut -d= -f2-)
-  [ -n "$token" ] && [ -n "$2" ] && [ -n "$3" ] || return 0
-  curl -s -o /dev/null -X POST https://slack.com/api/reactions.add \
-    -H "Authorization: Bearer $token" -H 'Content-Type: application/json; charset=utf-8' \
-    --data "{\"channel\":\"$2\",\"timestamp\":\"$3\",\"name\":\"$1\"}"
+  [ -n "${2:-}" ] && [ -n "${3:-}" ] || return 0
+  notify react "$1" "$2" "$3"
 }
 
 # 서버에서 갱신한 쿠키(keepalive · 원격 로그인)를 S3 에 올린다. S3 쪽이 더 새 것(그사이 로컬에서 올림)은 덮지 않는다.
@@ -162,7 +148,7 @@ remote_login() {
       text=":warning: *$platform* 로그인은 됐지만 쿠키를 S3 에 못 올렸습니다. 서버 sessions/ 에는 있어 다시 긁기 · 자정 실행은 됩니다"
       react warning "$channel" "$thread"
     fi
-    slack "$text" "$channel" "$thread" "$(rerun_blocks "$text")"
+    slack "$text" "$channel" "$thread" rerun
   fi
   return "$code"
 }

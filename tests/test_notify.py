@@ -163,3 +163,25 @@ def test_post_returns_message_ts(monkeypatch):
     assert notify.post('hi') == '123.456'
     monkeypatch.setattr(notify.urllib.request, 'urlopen', lambda req, timeout: FakeResponse({'ok': False, 'error': 'x'}))
     assert notify.post('hi') is None and notify.slack('hi') is False
+
+
+def test_session_expiry_is_alerted_once_a_day(monkeypatch, tmp_path):
+    """keepalive 가 알린 만료를 같은 밤 requests 가 또 알리지 않는다. 같은 쿠키(네이버)를 쓰는 플랫폼도 한 번."""
+    monkeypatch.setenv('SLACK_BOT_TOKEN', 'xoxb-test')
+    monkeypatch.setenv('SLACK_CHANNEL_ID', 'C123')
+    monkeypatch.setattr(notify, '_alerted_file', lambda: tmp_path / 'alerted_expired.json')
+    sent = []
+    monkeypatch.setattr(notify.urllib.request, 'urlopen',
+                        lambda req, timeout: sent.append(json.loads(req.data)) or FakeResponse({'ok': True, 'ts': '1.2'}))
+
+    report.record('naver_webtoon', report.AUTH_EXPIRED, '쿠키 갱신', '쿠키로 로그인 안 됨')
+    assert notify.notify_report('keepalive') is True
+
+    report.reset()
+    report.record('naver_series', report.AUTH_EXPIRED, '플랫폼 중단', 'AuthExpiredError')
+    assert notify.notify_report('requests') is False
+
+    report.record('kakao_page', report.AUTH_EXPIRED, '플랫폼 중단', 'AuthExpiredError')
+    assert notify.notify_report('requests') is True
+    assert 'kakao_page' in sent[-1]['text'] and 'naver' not in sent[-1]['text']
+    assert len(sent) == 2

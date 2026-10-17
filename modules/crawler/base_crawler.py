@@ -264,8 +264,11 @@ class BaseCrawler:
         options.add_argument("--disable-features=WebUSB")
         # 메모리 절감 (#7). 썸네일은 이미지 주소 문자열만 쓰므로 이미지를 받지 않는다.
         # DOM 이 만들어지면 바로 넘어간다 — 화면 요소는 크롤러마다 WebDriverWait 로 기다린다
+        # 리눅스 Chrome 은 --lang 을 무시한다. 사이트가 보는 언어(Accept-Language)를 직접 정한다 — 영어면 네이버 캡차가 영어로 나온다
+        prefs = {'intl.accept_languages': 'ko-KR,ko'}
         if self.block_images:
-            options.add_experimental_option('prefs', {'profile.managed_default_content_settings.images': 2})
+            prefs['profile.managed_default_content_settings.images'] = 2
+        options.add_experimental_option('prefs', prefs)
         options.page_load_strategy = 'eager'
 
         if headless:

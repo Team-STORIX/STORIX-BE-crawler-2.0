@@ -4,10 +4,13 @@
 세션 만료 알림에는 플랫폼마다 [다시 로그인] 버튼을 단다 — 누르면 Lambda 가 서버를 원격 로그인 모드로 켠다 (remote_login).
 둘 중 하나라도 없으면 보내지 않는다 — 로컬 실행은 알리지 않는다.
 알림이 실패해도 실행 결과는 바꾸지 않는다 (출력만 남긴다).
+같은 날 같은 로그인 쿠키의 만료는 한 번만 알린다 — 야간 실행은 keepalive 다음 requests 를 돌아 같은 만료를 두 번 만난다.
 """
 import json
 import os
 import urllib.request
+from datetime import datetime
+from pathlib import Path
 
 from crawler import report
 
@@ -110,12 +113,44 @@ def relogin_blocks(text: str, platforms: list[str]) -> list[dict]:
     ]
 
 
+def _alerted_file() -> Path | None:
+    """오늘 만료를 알린 로그인 쿠키 기록. 서버(Docker)에서만 쓴다 — 로컬 실행 · 테스트는 매번 알린다."""
+    if os.environ.get('DOCKER_ENV') != 'true':
+        return None
+    from config import OUTPUT_DIR
+    return Path(OUTPUT_DIR) / datetime.now().strftime('%Y-%m-%d') / 'alerted_expired.json'
+
+
+def _login_key(platform: str) -> str:
+    from modules.crawler import platforms
+    try:
+        return platforms.get(platform).login
+    except KeyError:
+        return platform
+
+
+def _already_alerted(path: Path | None) -> set[str]:
+    try:
+        return set(json.loads(path.read_text())) if path else set()
+    except (OSError, ValueError):
+        return set()
+
+
 def notify_report(mode: str) -> bool:
-    text = report_message(mode)
+    data = report.summary()
+    path = _alerted_file()
+    seen = _already_alerted(path)
+    data = {**data, 'failures': [f for f in data['failures']
+                                 if not (f['status'] == report.AUTH_EXPIRED and _login_key(f['platform']) in seen)]}
+    text = report_message(mode, data)
     if not text:
         return False
-    expired = sorted({f['platform'] for f in report.summary()['failures'] if f['status'] == report.AUTH_EXPIRED})
-    return slack(text, blocks=relogin_blocks(text, expired) if expired else None)
+    expired = sorted({f['platform'] for f in data['failures'] if f['status'] == report.AUTH_EXPIRED})
+    ok = slack(text, blocks=relogin_blocks(text, expired) if expired else None)
+    if ok and expired and path:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(sorted(seen | {_login_key(p) for p in expired})))
+    return ok
 
 
 def notify_error(mode: str, error: BaseException) -> bool:

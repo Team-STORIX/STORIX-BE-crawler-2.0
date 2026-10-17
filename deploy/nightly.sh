@@ -5,7 +5,10 @@
 #   3) 로그인 쿠키: S3 에 더 새 것이 있으면 받음 (로컬에서 deploy/push_sessions.sh 로 올림)
 #   4) 노션 작품 요청 처리 — 단, 슬랙 [다시 로그인] 버튼으로 켜졌으면(태그 crawler:mode=login) 폰 원격 로그인
 #      (crawler/remote_login.py) 을 돌리고 성공하면 쿠키를 S3 에 올린다 (cli.py requests --env prod). 세션 만료 · 실패 알림은 cli 가 슬랙으로 보낸다
-#   6) 서버 종료 — /etc/storix-crawler/hold 가 있으면 끄지 않는다 (들어가서 고칠 때)
+#      다시 로그인에 성공하면 [못 긁은 작품 다시 긁기] 버튼을 단다 — 누르면 Lambda 가 crawler:mode=rerun 으로 켜 5) 만 다시 돈다
+#   5) 그 전에 로그인 쿠키를 모두 열어 갱신한다 (cli.py keepalive). 만료면 요청이 없어도 [다시 로그인] 알림이 간다
+#   6) 실행 중에 버튼을 눌렀으면(태그 crawler:mode=login-after · rerun-after) 끄기 전에 처리
+#   7) 서버 종료 — 그 전에 S3 보다 새 쿠키를 올린다. /etc/storix-crawler/hold 가 있으면 끄지 않는다 (들어가서 고칠 때)
 set -uo pipefail
 
 # 아래에서 git 이 이 파일을 바꾸므로, 실행 중인 파일이 바뀌지 않게 사본으로 다시 시작한다
@@ -24,14 +27,22 @@ SESSIONS_BUCKET=${SESSIONS_BUCKET:-storix-crawler-sessions}
 log() { echo "[nightly] $*"; }
 
 # cli 까지 못 가고 죽으면 cli 가 알릴 수 없으니 여기서 알린다
-slack() {  # slack <글> [채널] [스레드]
+slack() {  # slack <글> [채널] [스레드] [blocks JSON]
   local token channel
   token=$(grep -s '^SLACK_BOT_TOKEN=' "$ENV_FILE" | cut -d= -f2-)
   channel=${2:-$(grep -s '^SLACK_CHANNEL_ID=' "$ENV_FILE" | cut -d= -f2-)}
   [ -n "$token" ] && [ -n "$channel" ] || return 0
   curl -s -o /dev/null -X POST https://slack.com/api/chat.postMessage \
     -H "Authorization: Bearer $token" -H 'Content-Type: application/json; charset=utf-8' \
-    --data "$(python3 -c 'import json,sys; print(json.dumps({"channel": sys.argv[1], "text": sys.argv[2], **({"thread_ts": sys.argv[3]} if sys.argv[3] else {})}))' "$channel" "$1" "${3:-}")"
+    --data "$(python3 -c 'import json,sys; print(json.dumps({"channel": sys.argv[1], "text": sys.argv[2], **({"thread_ts": sys.argv[3]} if sys.argv[3] else {}), **({"blocks": json.loads(sys.argv[4])} if sys.argv[4] else {})}))' "$channel" "$1" "${3:-}" "${4:-}")"
+}
+
+# 글 + [못 긁은 작품 다시 긁기] 버튼. 버튼은 크롤러 슬랙 앱의 Interactivity(Lambda)로 간다
+rerun_blocks() {
+  python3 -c 'import json,sys; print(json.dumps([
+    {"type": "section", "text": {"type": "mrkdwn", "text": sys.argv[1]}},
+    {"type": "actions", "elements": [{"type": "button", "text": {"type": "plain_text", "text": "🔄 못 긁은 작품 다시 긁기"},
+                                      "action_id": "rerun:requests", "value": "requests", "style": "primary"}]}]))' "$1"
 }
 
 # 스레드 답글과 같은 이모지로 원글에 반응한다. react <이모지 이름> <채널> <원글 ts>
@@ -44,7 +55,24 @@ react() {
     --data "{\"channel\":\"$2\",\"timestamp\":\"$3\",\"name\":\"$1\"}"
 }
 
+# 서버에서 갱신한 쿠키(keepalive · 원격 로그인)를 S3 에 올린다. S3 쪽이 더 새 것(그사이 로컬에서 올림)은 덮지 않는다
+upload_sessions() {
+  local file key modified remote
+  [ -d sessions ] || return 0
+  for file in sessions/*.pkl; do
+    [ -e "$file" ] || continue
+    key="sessions/${file##*/}"
+    modified=$(aws s3api head-object --bucket "$SESSIONS_BUCKET" --key "$key" --query LastModified --output text 2>/dev/null)
+    remote=$( [ -n "$modified" ] && date -d "$modified" +%s || echo 0 )
+    if [ "$(stat -c %Y "$file")" -gt "$remote" ] \
+       && aws s3 cp --only-show-errors --sse AES256 "$file" "s3://$SESSIONS_BUCKET/$key"; then
+      log "쿠키 올림 ${file##*/}"
+    fi
+  done
+}
+
 finish() {
+  upload_sessions
   rm -f "$ENV_FILE"
   if [ -e "$HOLD_FILE" ]; then
     log "$HOLD_FILE 가 있어 서버를 끄지 않습니다"
@@ -114,16 +142,21 @@ aws s3api list-objects-v2 --bucket "$SESSIONS_BUCKET" --prefix sessions/ \
   fi
 done
 
-# 4) 무엇으로 켜졌나. 슬랙 [다시 로그인] 버튼이면 Lambda 가 태그를 달아 둔다. 다음 부팅이 또 로그인 모드가 되지 않게 바로 지운다
+# 4) 무엇으로 켜졌나. 슬랙 버튼이면 Lambda 가 태그를 달아 둔다
+#    [다시 로그인]      서버가 꺼져 있을 때 crawler:mode=login (바로 로그인), 켜져 있을 때 login-after (하던 일 뒤 로그인)
+#    [다시 긁기]        서버가 꺼져 있을 때 crawler:mode=rerun (5) 만), 켜져 있을 때 rerun-after (하던 일 뒤 5))
 imds=$(curl -s -X PUT http://169.254.169.254/latest/api/token -H 'X-aws-ec2-metadata-token-ttl-seconds: 60')
 instance_id=$(curl -s -H "X-aws-ec2-metadata-token: $imds" http://169.254.169.254/latest/meta-data/instance-id)
 tag() { aws ec2 describe-tags --filters "Name=resource-id,Values=$instance_id" "Name=key,Values=$1" --query 'Tags[0].Value' --output text 2>/dev/null | grep -v '^None$'; }
-mode=$(tag crawler:mode)
-if [ "$mode" = login ]; then
+LOGIN_TAGS=(Key=crawler:mode Key=crawler:login-platform Key=crawler:login-user Key=crawler:login-channel Key=crawler:login-thread)
+clear_tags() { aws ec2 delete-tags --resources "$instance_id" --tags "${LOGIN_TAGS[@]}"; }
+
+# 태그대로 원격 로그인. 다음 부팅이 또 로그인 모드가 되지 않게 태그는 바로 지운다
+remote_login() {
+  local platform user channel thread code cookie
   platform=$(tag crawler:login-platform) user=$(tag crawler:login-user)
   channel=$(tag crawler:login-channel) thread=$(tag crawler:login-thread)
-  aws ec2 delete-tags --resources "$instance_id" --tags Key=crawler:mode Key=crawler:login-platform \
-    Key=crawler:login-user Key=crawler:login-channel Key=crawler:login-thread
+  clear_tags
   log "원격 로그인 모드: $platform (요청 $user)"
   docker compose run --rm nightly python -m crawler.remote_login \
     --platform "$platform" --user "$user" --channel "$channel" ${thread:+--thread "$thread"}
@@ -131,28 +164,83 @@ if [ "$mode" = login ]; then
   if [ "$code" -eq 0 ]; then
     case "$platform" in naver_*) cookie=naver ;; kakao_page) cookie=kakao ;; *) cookie=$platform ;; esac
     if aws s3 cp --only-show-errors --sse AES256 "sessions/${cookie}_cookies.pkl" "s3://$SESSIONS_BUCKET/sessions/${cookie}_cookies.pkl"; then
-      slack ":white_check_mark: *$platform* 다시 로그인 완료 — 쿠키를 갱신했습니다. 다음 자정 실행부터 씁니다" "$channel" "$thread"
+      text=":white_check_mark: *$platform* 다시 로그인 완료 — 쿠키를 갱신했습니다. 못 긁은 작품은 다음 자정에 다시 찾고, 지금 바로 하려면 아래 버튼을 누르세요"
       react white_check_mark "$channel" "$thread"
     else
-      slack ":warning: *$platform* 로그인은 됐지만 쿠키를 S3 에 못 올렸습니다. 서버 sessions/ 에는 있어 자정 실행은 됩니다" "$channel" "$thread"
+      text=":warning: *$platform* 로그인은 됐지만 쿠키를 S3 에 못 올렸습니다. 서버 sessions/ 에는 있어 다시 긁기 · 자정 실행은 됩니다"
       react warning "$channel" "$thread"
     fi
+    slack "$text" "$channel" "$thread" "$(rerun_blocks "$text")"
   fi
-  exit "$code"
-fi
+  return "$code"
+}
 
 # 5) 노션 작품 요청 처리. NIGHTLY_ARGS 로 명령을 바꿀 수 있다 (첫 확인: NIGHTLY_ARGS='python cli.py requests --env prod --dry-run')
-log '노션 작품 요청 처리 시작'
-# shellcheck disable=SC2086
-docker compose run --rm nightly ${NIGHTLY_ARGS:-}
+crawl() {
+  log '노션 작품 요청 처리 시작'
+  # shellcheck disable=SC2086
+  docker compose run --rm nightly ${NIGHTLY_ARGS:-}
+  code=$?
+  log "끝 (종료 코드 $code)"
+  if [ "$code" -ne 0 ] && [ "$code" -ne 1 ]; then
+    # 1 은 런 실패라 cli 가 이미 알렸다. 그 밖(컨테이너가 못 뜸 · 강제 종료 등)은 여기서 알린다
+    slack "🚨 크롤러 야간 실행이 비정상 종료했습니다 (종료 코드 $code). journalctl -u storix-crawler-nightly 를 확인하세요."
+  fi
+  return "$code"
+}
+
+# [다시 긁기]. 결과는 누른 알림 스레드에 단다 (실패 내용은 cli 가 따로 알린다)
+rerun() {
+  local channel thread code
+  channel=$(tag crawler:login-channel) thread=$(tag crawler:login-thread)
+  clear_tags
+  crawl
+  code=$?
+  case "$code" in
+    0) slack ":white_check_mark: 다시 긁기 끝 — 노션 요청 결과를 확인하세요" "$channel" "$thread" ;;
+    1) slack ":warning: 다시 긁기는 끝났지만 실패한 플랫폼이 있습니다 (채널 알림 확인)" "$channel" "$thread" ;;
+    *) slack ":x: 다시 긁기가 비정상 종료했습니다 (종료 코드 $code)" "$channel" "$thread" ;;
+  esac
+  return "$code"
+}
+
+# 하던 일 중에 누른 버튼을 끄기 전에 처리한다. 처리하는 동안 또 누를 수 있어 남은 게 없을 때까지 (최대 3번)
+pending_after() {
+  local i
+  for i in 1 2 3; do
+    case "$(tag crawler:mode)" in
+      login-after) remote_login ;;
+      rerun-after) rerun ;;
+      *) return 0 ;;
+    esac
+  done
+}
+
+mode=$(tag crawler:mode)
+case "$mode" in
+  login|rerun)
+    if [ "$mode" = login ]; then remote_login; else rerun; fi
+    code=$?
+    pending_after
+    exit "$code" ;;
+  login-after|rerun-after)
+    # 지난 실행 중에 눌렀는데 01:00 강제 종료 등으로 못 한 요청. 아무도 안 보는 자정에 로그인 링크를 보내지 않게 버린다
+    # (다시 긁기는 아래 자정 실행이 같은 일을 한다)
+    log "지난 실행의 버튼 요청을 버립니다 ($mode)"
+    clear_tags ;;
+esac
+
+# 로그인 쿠키 갱신. 실패해도 요청 처리는 한다 (만료 알림은 cli 가 보낸다)
+if [ -z "${NIGHTLY_ARGS:-}" ]; then
+  docker compose run --rm nightly python cli.py keepalive || log '쿠키 갱신에 실패한 플랫폼이 있습니다'
+fi
+
+crawl
 code=$?
-log "끝 (종료 코드 $code)"
 # 월요일(한국 시간)이면 지난주 새로 만든 작품을 슬랙으로. 없으면 보내지 않는다
 if [ "$(TZ=Asia/Seoul date +%u)" = 1 ] && [ -z "${NIGHTLY_ARGS:-}" ]; then
   docker compose run --rm nightly python cli.py stage weekly --env prod --send || log '주간 작품 추가 알림 실패'
 fi
-if [ "$code" -ne 0 ] && [ "$code" -ne 1 ]; then
-  # 1 은 런 실패라 cli 가 이미 알렸다. 그 밖(컨테이너가 못 뜸 · 강제 종료 등)은 여기서 알린다
-  slack "🚨 크롤러 야간 실행이 비정상 종료했습니다 (종료 코드 $code). journalctl -u storix-crawler-nightly 를 확인하세요."
-fi
+# 6) 실행 중에 누른 버튼. 결과는 스레드로 알리므로 종료 코드는 야간 실행 것을 그대로 쓴다
+pending_after
 exit "$code"

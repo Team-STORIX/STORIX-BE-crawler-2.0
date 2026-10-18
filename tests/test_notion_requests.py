@@ -69,7 +69,7 @@ def test_plan_platforms_are_registered():
     from modules.crawler import platforms
     for keys in PLATFORM_KEYS.values():
         for k in keys:
-            assert platforms.get(k).key == k and k in SUPPORTED_PLATFORMS
+            assert platforms.get(k).key == k and (k in SUPPORTED_PLATFORMS or not platforms.get(k).crawler)
 
 
 def test_decide():

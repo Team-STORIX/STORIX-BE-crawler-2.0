@@ -257,6 +257,16 @@ class BaseCrawler:
         if any(m in head for m in _BLOCK_MARKERS):
             raise RateLimitedError(f'차단 화면: {url}')
 
+    def no_manual_login_on_server(self) -> None:
+        """서버(Docker)는 로그인 화면을 못 띄운다 — 쿠키 로그인이 실패하면 세션 만료로 알린다 (#77).
+        사람 로그인 화면을 열기 전에 크롤러마다 부른다."""
+        if os.environ.get('DOCKER_ENV') != 'true':
+            return
+        from modules.crawler import platforms
+        p = platforms.get(platforms.get(self.REPORT_PLATFORM).login)
+        raise AuthExpiredError(f'{p.label} 쿠키 만료 — 서버에서는 로그인 화면을 못 띄웁니다. '
+                               f'python cli.py login --platform {p.key} 로 쿠키를 새로 만드세요')
+
     def is_login_page(self) -> bool:
         try:
             return any(m in self.driver.current_url for m in self.LOGIN_URL_MARKERS)

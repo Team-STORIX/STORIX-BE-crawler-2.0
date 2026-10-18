@@ -163,9 +163,7 @@ class LezhinCrawler(BaseCrawler):
             return True
         if self.login_with_cookies():
             return True
-        import os
-        if os.environ.get('DOCKER_ENV') == 'true':
-            return False
+        self.no_manual_login_on_server()
         print('\n' + '=' * 60)
         print('🔐 브라우저 창에서 레진코믹스 로그인을 완료하세요 (성인 인증된 계정). 최대 5분')
         print('=' * 60 + '\n')

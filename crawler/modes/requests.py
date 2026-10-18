@@ -40,28 +40,24 @@ PLATFORM_KEYS = {
 }
 # '기타' 만 적혔을 때 찾아볼 곳
 FALLBACK_KEYS = list(platforms.GENERAL_SEARCH)
-# 웹소설 요청이 네이버 쪽이면 네이버 웹소설도 본다
-NOVEL_EXTRA = {'naver_series': 'naver_novel'}
 
 
 def plan(requests: list[Request]) -> dict[str, list[tuple[str, str | None]]]:
     """요청들 → 플랫폼별 (작품명, 섹션) 목록."""
     out: dict[str, list[tuple[str, str | None]]] = defaultdict(list)
     for r in requests:
-        keys = []
-        for p in r.platforms:
-            keys += PLATFORM_KEYS.get(p, [])
+        listed = [k for p in r.platforms for k in PLATFORM_KEYS.get(p, [])]
+        # 수집하지 않는 연재처(등록부 skip)만 적힌 요청은 다른 플랫폼에서 찾지 않는다 — 엉뚱한 작품이 걸리지 않게 (#131)
+        keys = [k for k in listed if platforms.get(k).crawler]
         # '기타' 는 표에 없는 연재처라는 뜻이라, 다른 연재처와 같이 적혀도 전체에서 찾는다
-        if not keys or '기타' in r.platforms:
+        if '기타' in r.platforms or not listed:
             keys += FALLBACK_KEYS
         keys = list(dict.fromkeys(keys))
         sections = [s for t in r.types for s in REQUEST_SECTIONS.get(t, ())] or [None]
         for key in keys:
             for sec in dict.fromkeys(sections):
-                targets = [key] + ([NOVEL_EXTRA[key]] if sec == '웹소설' and key in NOVEL_EXTRA else [])
-                for k in targets:
-                    if (r.title, sec) not in out[k]:
-                        out[k].append((r.title, sec))
+                if (r.title, sec) not in out[key]:
+                    out[key].append((r.title, sec))
     return dict(out)
 
 
@@ -216,8 +212,12 @@ def _report(store, requests: list[Request], found: dict[str, list[str]]) -> list
     out = []
     for r in requests:
         urls = list(dict.fromkeys(found.get(r.title, [])))
-        blocked = sorted(expired & plan([r]).keys())
-        if not urls and blocked:
+        planned = plan([r])
+        blocked = sorted(expired & planned.keys())
+        if not planned:
+            outcome = Outcome(False, ' · '.join(dict.fromkeys(
+                platforms.get(k).skip for p in r.platforms for k in PLATFORM_KEYS.get(p, []))))
+        elif not urls and blocked:
             outcome = Outcome(False, f"세션 만료({', '.join(blocked)})로 못 찾음 — 다시 로그인 뒤 다음 실행에서 다시 찾습니다",
                               retry=True)
         else:

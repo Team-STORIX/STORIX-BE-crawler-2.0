@@ -8,13 +8,13 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import NoSuchElementException
 
-from .base_crawler import PASS_THROUGH, AuthExpiredError, BaseCrawler, manual_login_timeout, HttpUnavailable, SessionExpiredError
+from .base_crawler import PASS_THROUGH, BaseCrawler, manual_login_timeout, HttpUnavailable, SessionExpiredError
 from .cookies import apply_cookies, write_cookies
 from .classify import age_from_text
 from .titles import clean_work_name
 from review.landing import is_pre_contract_url
 
-from config import NAVER_COOKIE_FILE, NAVER_ID, NAVER_PW
+from config import NAVER_COOKIE_FILE
 
 # 작품 정보 API. 상세 페이지가 화면에 그리는 값(제목 · 작가 역할 · 연령 · 소개 · 태그 · 표지)을 그대로 준다
 TITLE_INFO_API = 'https://comic.naver.com/api/article/list/info?titleId={}'
@@ -69,12 +69,6 @@ class NaverCrawler(BaseCrawler):
     LOGIN_URL_MARKERS = ('nid.naver.com',)
 
 
-    def _is_logged_in(self) -> bool:
-        """화면(XPATH)보다 NID_AUT 쿠키가 믿을 만하다."""
-        self.driver.get("https://www.naver.com")
-        time.sleep(1)
-        return any(c['name'] == 'NID_AUT' for c in self.driver.get_cookies())
-
     def _wait_for_manual_login(self, timeout_sec: int = 180) -> bool:
         """2단계 폴링: 1) nid.naver.com 이탈 감지 → 2) comic.naver.com에서 성인 인증 완료 대기."""
         timeout_sec = manual_login_timeout(timeout_sec)
@@ -109,48 +103,8 @@ class NaverCrawler(BaseCrawler):
         print("⏰ 로그인 상태 확인 실패 (NID_AUT 쿠키 없음).")
         return False
 
-    def _js_set_input(self, element, value):
-        """send_keys 는 봇 감지에 걸려 React 입력 칸에 JS native setter 로 넣는다."""
-        self.driver.execute_script("""
-            var setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-            setter.call(arguments[0], arguments[1]);
-            arguments[0].dispatchEvent(new Event('input', { bubbles: true }));
-            arguments[0].dispatchEvent(new Event('change', { bubbles: true }));
-        """, element, value)
-
-    def _login_with_credentials(self) -> bool:
-        if not NAVER_ID or not NAVER_PW:
-            return False
-        print("🔑 환경변수 자격증명으로 네이버 로그인을 시도합니다.")
-        try:
-            self.driver.get("https://nid.naver.com/nidlogin.login")
-            time.sleep(2)
-
-            wait = WebDriverWait(self.driver, 10)
-            id_field = wait.until(EC.presence_of_element_located((By.ID, "id")))
-            pw_field = self.driver.find_element(By.ID, "pw")
-
-            self._js_set_input(id_field, NAVER_ID)
-            time.sleep(random.uniform(0.3, 0.7))
-            self._js_set_input(pw_field, NAVER_PW)
-            time.sleep(random.uniform(0.3, 0.7))
-
-            login_btn = self.driver.find_element(By.ID, "log.login")
-            login_btn.click()
-            time.sleep(3)
-
-            if self._is_logged_in():
-                print("✅ 자격증명 로그인 성공. 쿠키를 저장합니다.")
-                write_cookies(NAVER_COOKIE_FILE, self.driver.get_cookies())
-                return True
-
-            print("⚠️ 자격증명 로그인 실패 (CAPTCHA 또는 추가 인증 필요).")
-            return False
-        except Exception as e:
-            print(f"⚠️ 자격증명 로그인 중 오류: {e}")
-            return False
-
     def login(self):
+        """쿠키 → 사람 로그인. 아이디 · 비밀번호 자동 입력은 하지 않는다 (네이버 약관 · robots.txt, #131)"""
         self.driver.get("https://comic.naver.com/index")
         time.sleep(1)
 
@@ -162,15 +116,7 @@ class NaverCrawler(BaseCrawler):
                 return True
             print("⚠️ 쿠키 만료 또는 로그인 실패. 다음 수단을 시도합니다.")
 
-        if self._login_with_credentials():
-            return True
-
-        import os
-        if os.environ.get("DOCKER_ENV") == "true":
-            raise AuthExpiredError(  # 서버(Docker)는 로그인 화면을 못 띄운다 — 세션 만료로 알린다 (#77)
-                "Docker 환경에서는 수동 로그인 불가.\n"
-                "NAVER_ID/NAVER_PW 환경변수를 설정하거나 sessions/naver_cookies.pkl을 생성하세요."
-            )
+        self.no_manual_login_on_server()
 
         self.driver.get("https://nid.naver.com/nidlogin.login")
         time.sleep(2)
@@ -199,17 +145,14 @@ class NaverCrawler(BaseCrawler):
             return False
 
     def search_candidates(self, title: str) -> list[dict]:
-        """검색 API 라 브라우저를 쓰지 않는다."""
-        import json
+        """검색 API 라 브라우저를 쓰지 않는다. 요청 간격 · robots.txt 검사는 http_get 이 한다."""
         import urllib.parse
-        import urllib.request
 
         q = urllib.parse.quote(title.replace('%', ' ').strip())
-        req = urllib.request.Request(f'https://comic.naver.com/api/search/all?keyword={q}',
-                                     headers={'User-Agent': 'Mozilla/5.0'})
-        data = json.load(urllib.request.urlopen(req, timeout=10))
+        body = self.http_get(f'https://comic.naver.com/api/search/all?keyword={q}', headers={'Accept': 'application/json'})
+        data = json.loads(body or '{}')
         raw = [(f"https://comic.naver.com/webtoon/list?titleId={x.get('titleId')}", x.get('titleName') or '', '웹툰')
-               for x in data['searchWebtoonResult']['searchViewList']]
+               for x in (data.get('searchWebtoonResult') or {}).get('searchViewList') or []]
         return self.rank_candidates(title, raw)
 
     def _scroll_down(self):

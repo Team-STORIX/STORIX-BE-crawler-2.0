@@ -61,8 +61,6 @@ def test_naver_login_checks_cookie_like_other_platforms(monkeypatch, tmp_path):
             pass
     c.driver = Driver()
     monkeypatch.setattr(c, 'login_with_cookies', lambda: False)
-    monkeypatch.setattr(c, '_login_with_credentials', lambda: False)
-    monkeypatch.setattr(c, '_is_logged_in', lambda: True)   # 넣은 쿠키라 NID_AUT 는 늘 있다
     with pytest.raises(AuthExpiredError):
         c.login()
 

@@ -10,6 +10,8 @@ from selenium.common.exceptions import InvalidSessionIdException
 from urllib3.exceptions import ReadTimeoutError as _DriverTimeoutError
 
 from modules.logger import get_logger
+from . import robots
+from .robots import RobotsDisallowed
 from .titles import SIDE_STORY_WORDS, norm_title, title_match, title_ratio
 
 
@@ -30,7 +32,8 @@ class HttpUnavailable(Exception):
 
 
 # crawl_detail 이 삼키지 말고 위로 올려야 하는 예외. 크롤러마다 except 로 다시 던진다
-PASS_THROUGH = (InvalidSessionIdException, SessionExpiredError, _DriverTimeoutError, RateLimitedError, AuthExpiredError)
+PASS_THROUGH = (InvalidSessionIdException, SessionExpiredError, _DriverTimeoutError, RateLimitedError, AuthExpiredError,
+                RobotsDisallowed)
 
 _BLOCK_MARKERS = ('403 Forbidden', '429 Too Many', 'Too Many Requests', 'Access Denied', '요청이 너무 많', '비정상적인 접근')
 
@@ -205,10 +208,11 @@ class BaseCrawler:
             self.driver = None
     
     def _wrap_get(self) -> None:
-        """driver.get 에 플랫폼별 최소 간격과 차단 화면 감지를 붙인다. 크롤러 코드는 그대로 driver.get 을 쓴다."""
+        """driver.get 에 robots.txt 검사 · 플랫폼별 최소 간격 · 차단 화면 감지를 붙인다. 크롤러 코드는 그대로 driver.get 을 쓴다."""
         original = self.driver.get
 
         def get(url):
+            robots.check(url, USER_AGENT)
             self._throttle()
             try:
                 return original(url)
@@ -226,6 +230,7 @@ class BaseCrawler:
     def http_get(self, url: str, headers: dict | None = None, timeout: float = 15.0) -> str | None:
         """브라우저 없이 GET. 요청 간격은 driver.get 과 같이 지킨다.
         404 → None (없는 작품), 429(· 차단으로 보는 403) → RateLimitedError, 그 밖의 실패 → HttpUnavailable."""
+        robots.check(url, USER_AGENT)
         self._throttle()
         req = urllib.request.Request(url, headers={'User-Agent': USER_AGENT, 'Accept-Language': 'ko-KR,ko;q=0.9',
                                                    **(headers or {})})
@@ -251,6 +256,16 @@ class BaseCrawler:
             return
         if any(m in head for m in _BLOCK_MARKERS):
             raise RateLimitedError(f'차단 화면: {url}')
+
+    def no_manual_login_on_server(self) -> None:
+        """서버(Docker)는 로그인 화면을 못 띄운다 — 쿠키 로그인이 실패하면 세션 만료로 알린다 (#77).
+        사람 로그인 화면을 열기 전에 크롤러마다 부른다."""
+        if os.environ.get('DOCKER_ENV') != 'true':
+            return
+        from modules.crawler import platforms
+        p = platforms.get(platforms.get(self.REPORT_PLATFORM).login)
+        raise AuthExpiredError(f'{p.label} 쿠키 만료 — 서버에서는 로그인 화면을 못 띄웁니다. '
+                               f'python cli.py login --platform {p.key} 로 쿠키를 새로 만드세요')
 
     def is_login_page(self) -> bool:
         try:

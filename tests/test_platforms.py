@@ -17,7 +17,7 @@ def test_naver_shares_one_login():
 
 
 def test_every_platform_has_cookie_file():
-    assert {p.login for p in platforms.PLATFORMS} <= set(platforms.COOKIE_FILES)
+    assert {p.login for p in platforms.PLATFORMS if p.crawler} <= set(platforms.COOKIE_FILES)
 
 
 def test_landing_platforms_are_registered():
@@ -27,7 +27,22 @@ def test_landing_platforms_are_registered():
 def test_crawler_matches_key():
     pytest.importorskip('selenium')
     for p in platforms.PLATFORMS:
-        assert platforms.crawler_class(p.key).REPORT_PLATFORM == p.key
+        if p.crawler:
+            assert platforms.crawler_class(p.key).REPORT_PLATFORM == p.key
+
+
+@pytest.mark.parametrize('name', ['naver_novel', 'bomtoon'])
+def test_robots_blocked_platforms_are_not_crawled(name):
+    # 네이버 웹소설은 사이트 전체, 봄툰은 상세 · 검색 API 를 robots.txt 가 막는다 (#131)
+    assert not platforms.searchable(name)
+    with pytest.raises(KeyError):
+        platforms.crawler_class(name)
+    assert name not in platforms.COOKIE_FILES
+
+
+def test_skip_reason_only_when_not_crawled():
+    for p in platforms.PLATFORMS:
+        assert bool(p.skip) == (p.crawler is None)
 
 
 # ---- 공통 정규화 · 검색 (#98)
@@ -62,7 +77,8 @@ def test_naver_webtoon_search_api(monkeypatch):
     body = {'searchWebtoonResult': {'searchViewList': [{'titleId': 1, 'titleName': '김부장'},
                                                          {'titleId': 2, 'titleName': '전혀 다른 작품'}]}}
     monkeypatch.setattr('urllib.request.urlopen', lambda *a, **k: io.BytesIO(json.dumps(body).encode()))
-    got = NaverCrawler.__new__(NaverCrawler).search_candidates('김부장')
+    monkeypatch.setattr('modules.crawler.robots.check', lambda url, ua: None)
+    got = NaverCrawler().search_candidates('김부장')   # http_get 을 거친다 (요청 간격 · robots.txt)
     assert [(x['url'], x['kind']) for x in got] == [('https://comic.naver.com/webtoon/list?titleId=1', '정확')]
 
 
@@ -121,3 +137,14 @@ def test_general_search_targets_are_one_list():
     from crawler.modes import requests, search_titles
     from modules.crawler import platforms
     assert requests.FALLBACK_KEYS == search_titles._ALL_TARGETS == list(platforms.GENERAL_SEARCH)
+
+
+@pytest.mark.parametrize('name', ['naver_webtoon', 'naver_series', 'kakao_page', 'ridibooks', 'lezhin', 'mrblue'])
+def test_server_cannot_open_login_screen(name, monkeypatch):
+    """쿠키가 만료되면 서버(Docker)는 크롤러와 상관없이 같은 방식(AuthExpiredError)으로 알린다 (#77 · #131)"""
+    pytest.importorskip('selenium')
+    from modules.crawler.base_crawler import AuthExpiredError
+    monkeypatch.setenv('DOCKER_ENV', 'true')
+    crawler = platforms.crawler_class(name)()
+    with pytest.raises(AuthExpiredError, match=f'--platform {platforms.get(name).login}'):
+        crawler.no_manual_login_on_server()

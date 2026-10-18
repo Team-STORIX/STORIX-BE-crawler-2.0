@@ -6,7 +6,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from crawler.modes.requests import FALLBACK_KEYS, decide, plan  # noqa: E402
+from crawler.modes.requests import FALLBACK_KEYS, _report, decide, plan  # noqa: E402
 from review.notion import NotionRequests, Request, parse_page  # noqa: E402
 
 
@@ -37,7 +37,7 @@ def test_plan_maps_platforms_and_types():
     assert p['ridibooks'] == [('혼불', '웹소설')]
     assert ('외모지상주의', '웹툰') in p['naver_webtoon'] and ('외모지상주의', '웹툰') in p['naver_series']
     assert p['kakao_page'] == [('블랙 스완', '웹툰'), ('블랙 스완', '웹소설')]
-    assert ('천관사복', '웹소설') in p['naver_novel']  # 시리즈 웹소설 요청은 네이버 웹소설도 본다
+    assert 'naver_novel' not in p  # 네이버 웹소설은 robots.txt 가 막아 찾지 않는다 (#131)
     assert ('천관사복', '만화') in p['naver_series']  # 단행본은 만화책일 수도 있다 (지박소년 하나코 군)
 
 
@@ -48,6 +48,17 @@ def test_plan_lezhin_mrblue_and_other():
     p = plan([Request('c', 447, '타치바나 백작', ['웹툰'], ['레진코믹스', '기타'])])
     assert set(p) == {'lezhin', *FALLBACK_KEYS}
     assert set(plan([Request('d', 448, '어떤 작품', ['웹툰'], ['기타'])])) == set(FALLBACK_KEYS)
+
+
+
+def test_bomtoon_request_is_skipped_with_reason():
+    """봄툰은 수집하지 않는다. 봄툰만 적힌 요청은 다른 플랫폼에서 찾지 않고 이유를 남긴다 (#131)"""
+    only = Request('e', 449, '봄툰 작품', ['웹툰'], ['봄툰'])
+    assert plan([only]) == {}
+    assert set(plan([Request('f', 450, '둘 다', ['웹툰'], ['봄툰', '카카오페이지'])])) == {'kakao_page'}
+    assert set(plan([Request('g', 451, '기타도', ['웹툰'], ['봄툰', '기타'])])) == set(FALLBACK_KEYS)
+    [(_, outcome)] = _report(None, [only], {})
+    assert not outcome.done and not outcome.retry and '봄툰' in outcome.note
 
 
 def test_plan_platforms_are_registered():

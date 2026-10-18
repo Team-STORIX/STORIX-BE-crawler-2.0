@@ -1,6 +1,6 @@
 # STORIX-BE-Crawler 2.0
 
-네이버 웹툰 / 네이버 웹소설 / 네이버 시리즈 / 카카오페이지 / 리디북스 크롤러
+네이버 웹툰 / 네이버 시리즈 / 카카오페이지 / 리디북스 / 레진코믹스 / 미스터블루 크롤러
 Selenium 병렬 워커 → JSONL 산출물 → 검수 staging(Layer 1 · 1.5) → BE import API
 
 ---
@@ -13,7 +13,8 @@ Selenium 병렬 워커 → JSONL 산출물 → 검수 staging(Layer 1 · 1.5) �
 - 검수 파이프라인 (`review/`): JSONL → staging DB → 규칙 검사(Layer 1) · 런 이상 차단(Layer 1.5) → 사람 검수 → 반복 판정은 매핑으로 승격(Layer 3) → BE import API. **크롤러는 서비스 DB에 직접 쓰지 않습니다**
 - 서버(EC2) 야간 실행 — 자정에 켜서 노션 작품 요청만 처리하고 끈다. 세션 만료 · 실패는 슬랙 알림 (`deploy/`, #77)
 - 병렬 워커 풀 (`ThreadPoolExecutor` + `queue.Queue`, 워커 2개)
-- 환경변수 자격증명 자동 로그인 → 쿠키 로그인 → 브라우저 수동 로그인 순으로 폴백
+- 쿠키 로그인 → 브라우저 수동 로그인 순으로 폴백. 아이디 · 비밀번호 자동 입력은 하지 않음 (#131)
+- **robots.txt 검사** — 모든 페이지 이동 · HTTP 요청 전에 대상 사이트 robots.txt 를 확인하고, 막힌 경로면 멈춤 (`modules/crawler/robots.py`, #131)
 - **같은 작품 판정은 BE 가 담당** — 여러 플랫폼에서 들어온 같은 작품은 한 작품에 플랫폼 · 링크 · 해시태그가 합쳐짐 (연령은 올리기만, 해시태그는 합집합)
 - **JSONL 중복 제거** — `platform_work_id` 기준 in-memory dedup, 재실행 시 기존 파일 로드 후 덮어씌움
 
@@ -76,8 +77,7 @@ python cli.py crawl --platform all --mode search_titles --titles "나 혼자만 
 # 플랫폼 5개를 동시에 (크롬이 플랫폼마다 따로 뜬다. initial · new_works · update_fields 도 같은 옵션)
 python cli.py crawl --platform all --mode search_titles --titles-file titles.txt --parallel 5
 
-# 네이버 웹소설(novel.naver.com) / 네이버 시리즈(series.naver.com) / 리디북스도 지원
-python cli.py crawl --platform naver_novel  --mode search_titles --titles-file titles.txt
+# 네이버 시리즈(series.naver.com) / 리디북스도 지원
 python cli.py crawl --platform naver_series --mode search_titles --titles "화산귀환,재벌집 막내아들"
 python cli.py crawl --platform ridibooks    --mode search_titles --titles "갓겜하다 갓됨 갓뎀!"
 
@@ -100,11 +100,11 @@ python cli.py crawl --mode custom_url --url "https://ridibooks.com/category/best
 > **리디 단건 URL**을 이미 알고 있으면 `custom_url` 모드에 `/books/<id>` 상세 URL을 직접 넣어 크롤한 뒤 `stage load` → `stage import` 로 적재하세요(아래 **검수 · 적재**). 카테고리 목록 URL을 주면 목록을 수집해 각 상세를 크롤합니다. 작품명만 있으면 아래 `search_titles`를 쓰면 됩니다.
 
 > **`search_titles` 모드 (임의 목록으로 특정 작품만 채우기)**
-> - 지원 플랫폼: `naver_webtoon`, `naver_novel`, `naver_series`, `kakao_page`, `ridibooks`, `all`
+> - 지원 플랫폼: `naver_webtoon`, `naver_series`, `kakao_page`, `ridibooks`, `all`
 > - `titles.txt`에 작품명을 줄바꿈으로 나열하면 각 플랫폼에서 제목 검색 → 상세 크롤 → JSONL 저장.
 > - `titles.txt`는 레포에 포함되지 않습니다(`.gitignore`). 직접 만드세요.
 > - 제목은 **`## 웹툰` / `## 웹소설` / `## 만화` / `## 단행본` / `## 전체`** 섹션 헤더 아래에 둡니다. 섹션은 **찾을 작품 유형**이며, 헤더 없이 나온 제목은 스킵됩니다.
->   - `웹툰` → 네이버 웹툰·시리즈·카카오·리디에서 **웹툰판만** / `웹소설` → 네이버 웹소설·시리즈·카카오·리디에서 **웹소설판만**
+>   - `웹툰` → 네이버 웹툰·시리즈·카카오·리디에서 **웹툰판만** / `웹소설` → 네이버 시리즈·카카오·리디에서 **웹소설판만**
 >   - `전체` → 웹툰판·웹소설판을 각각 찾아 **있는 판을 다** 수집 (한쪽만 있으면 그것만)
 >   - 시리즈·카카오·리디는 검색 결과에 웹툰·웹소설이 섞여 나오므로, 검색 화면의 유형 표기로 먼저 거르고 상세에서 판정한 `works_type`으로 한 번 더 확인합니다(최대 3개 후보)
 >   - 웹소설은 연재판을 먼저 고르고, 연재판이 없을 때만 e북을 고릅니다. e북 연령은 기존 작품에 보내지 않고(권마다 연령이 달라 웹소설 연령을 덮어쓸 수 있음), 작품이 없어 새로 만들 때만 씁니다
@@ -113,9 +113,9 @@ python cli.py crawl --mode custom_url --url "https://ridibooks.com/category/best
 > - 같은 섹션에 같은 제목이 여러 줄 있으면 **첫 줄만 쓰고 나머지는 제외**합니다(같은 작품 중복 크롤 방지). 단 `원룸 조교님` ⇄ `원룸조교님`처럼 표기가 다르면 별개로 봅니다 — 같은 작품 판정은 BE import 가 하고(라벨 · 띄어쓰기 · 기호를 뺀 제목 + 작가), 애매하면 `SUSPECTED_DUPLICATE` 로 검수 대기가 됩니다.
 > - `--platform all`은 위 5개 플랫폼을 순회하며, **한 곳에서라도 찾으면** 해당 작품을 처리합니다.
 > - 제목 매칭은 **완전일치 → 앞부분 일치 → 유사도 ≥90%** 순으로 시도합니다. `[완결]`·`[e북]` 같은 라벨을 떼고 정규화(공백·괄호·`·∙#` 제거) 후 비교합니다. 앞부분 일치는 뒤에 붙은 말이 부제·판본 구분자(` - `, `:`, `~`, `(`, `[`)로 시작할 때만 인정합니다(`레지나레나 - 용서받지 못한 그대에게`는 통과, `상수리나무 아래 4컷 만화`는 다른 작품). 임계값은 `BaseCrawler.TITLE_FUZZY_THRESHOLD`로 조정.
-> - 네이버 웹툰 도전만화·베스트도전, 네이버 웹소설 베스트리그·챌린지리그는 **정식 계약 전 작품이라 수집하지 않습니다**(검수에서도 `PRE_CONTRACT_WORK`로 거절).
+> - 네이버 웹툰 도전만화·베스트도전은 **정식 계약 전 작품이라 수집하지 않습니다**(검수에서도 `PRE_CONTRACT_WORK`로 거절).
 > - **리디북스**는 `ridibooks.com/search`에서 `/books/<id>`를 찾아 매칭합니다. 성인(19금) 작품은 **성인 인증된 계정으로 로그인**돼 있어야 검색 결과에 노출되니, 리디 세션(`sessions/ridibooks_cookies.pkl`)이 성인 인증 상태인지 확인하세요. 리디 연령은 책 데이터(성인) · "15세 · 12세 이용가 안내" 공지로 판정하고, 둘 다 없으면 전체연령가입니다. 성인 e북 표지가 가림 이미지면 책 ID 로 실제 표지를 받습니다.
-> - **봄툰**은 작품 링크로 수집합니다(`--mode update_fields`). 상세는 봄툰 작품 API(`/api/balcony-api-v2/contents/{작품코드}`)로 받고, 성인 작품은 성인 인증된 로그인 세션이 필요합니다: `python cli.py login --platform bomtoon` 으로 브라우저에서 로그인하면 `sessions/bomtoon_cookies.pkl` 에 저장되고, 이후에는 그 세션 토큰으로 브라우저 없이 받습니다.
+> - **네이버 웹소설 · 봄툰은 수집하지 않습니다** (#131). 네이버 웹소설은 robots.txt 가 사이트 전체를, 봄툰은 상세 · 검색 API(`/api/`)를 막습니다. 노션 요청 연재처가 봄툰뿐이면 다른 플랫폼에서 찾지 않고 '검토'로 이유를 남깁니다.
 > - **레진코믹스 · 미스터블루**도 작품 링크로 수집합니다(`--mode update_fields`). 성인 작품은 성인 인증된 로그인 세션이 필요합니다: `python cli.py login --platform lezhin` · `--platform mrblue`. 이후에는 그 쿠키로 브라우저 없이 작품 페이지를 받습니다 (레진: 페이지 안 Next.js 데이터, 미스터블루: 서버 HTML). 표지는 세로형(레진 `tall.jpg` 600x800, 미스터블루 `cover_w480.jpg` 480x694)을 씁니다. BE `LEZHIN` · `MRBLUE` 플랫폼이 배포된 뒤 반영합니다.
 > - **상세 수집은 HTTP 가 먼저**입니다. 네이버 웹툰은 작품 정보 API(`comic.naver.com/api/article/list/info`), 리디는 상세 HTML 안의 책 데이터(`__NEXT_DATA__`)로 받고, 못 받으면 브라우저로 엽니다. 브라우저는 이미지를 받지 않고(`eager` 로딩), 상세 100건마다 드라이버를 새로 띄웁니다.
 > - **`--titles-file` 사용 시 크롤에 성공한 작품은 파일에서 자동 제거**되어, `titles.txt`에는 못 찾은 작품만 남습니다(재시도용). `--titles`(직접 입력)는 파일을 수정하지 않습니다.
@@ -218,21 +218,10 @@ python cli.py stage apply --env prod --all --import                            #
 | 순서 | 방법 | 설명 |
 |------|------|------|
 | 1 | 쿠키 파일 | `sessions/*.pkl` 존재 시 자동 적용 |
-| 2 | 환경변수 자격증명 | `.env`의 `NAVER_ID/PW`, `KAKAO_ID/PW`, `RIDIBOOKS_ID/PW` 설정 시 자동 로그인 시도 |
-| 3 | 브라우저 수동 로그인 | 위 두 방법 실패 시 브라우저 창이 열리고 로그인 완료를 자동 감지 |
+| 2 | 브라우저 수동 로그인 | 쿠키가 없거나 만료면 브라우저 창이 열리고 로그인 완료를 자동 감지 |
 
-`.env`에 자격증명을 등록해두면 쿠키 만료 시 재로그인이 자동으로 처리됩니다.
+아이디 · 비밀번호를 환경변수로 넣어 자동 입력하는 방식은 없앴습니다. 로그인 화면은 robots.txt 가 막고, 네이버 약관은 자동화 수단 로그인을 금지합니다 (#131).
 
-```env
-NAVER_ID=your_naver_id
-NAVER_PW=your_naver_password
-KAKAO_ID=your_kakao_email
-KAKAO_PW=your_kakao_password
-RIDIBOOKS_ID=your_ridibooks_email
-RIDIBOOKS_PW=your_ridibooks_password
-```
-
-> CAPTCHA가 트리거되면 자격증명 로그인이 실패하고 수동 로그인으로 폴백됩니다.
 > 수동 로그인 시 브라우저에서 로그인을 완료하면 자동 감지되며 (최대 3분 대기), 완료 후 쿠키를 저장합니다.
 
 **카카오페이지 최초 로그인 시 주의사항**
@@ -261,10 +250,7 @@ python cli.py login --platform ridibooks
 python cli.py login --platform all
 ```
 
-로그인 방법은 자동 폴백 순서를 따릅니다.
-1. `.env`에 자격증명(`NAVER_ID/PW` 등)이 있으면 자동 로그인 시도
-2. CAPTCHA 등으로 실패하면 브라우저 창이 열리고 수동 로그인 완료를 자동 감지
-3. 로그인 완료 후 `sessions/` 폴더에 쿠키 파일 저장
+브라우저 창이 열리면 직접 로그인하세요. 완료를 자동 감지하고 `sessions/` 폴더에 쿠키 파일을 저장합니다.
 
 > **카카오페이지**: 최초 로그인 시 성인 웹툰을 한 번 클릭해 연령 확인을 완료해야 성인 콘텐츠 크롤링이 가능합니다.
 
@@ -420,11 +406,11 @@ PR(`develop`/`main` 대상)과 `develop`/`main` 푸시 시 GitHub Actions(`.gith
 | CLI `--platform` | DB `platform` 값 | 비고 |
 |------------------|-----------------|------|
 | `naver_webtoon`  | `NAVER_WEBTOON`  | comic.naver.com |
-| `naver_novel`    | `NAVER_NOVEL`    | novel.naver.com (search_titles 지원) |
+| -                | `NAVER_NOVEL`    | novel.naver.com — 수집 안 함 (robots.txt, #131). 기존 링크 정규화만 |
 | `naver_series`   | `NAVER_SERIES`   | series.naver.com — 웹소설·웹툰 단행본 (search_titles 지원) |
 | `kakao_page`     | `KAKAO_PAGE`     | page.kakao.com |
 | `ridibooks`      | `RIDIBOOKS`      | ridibooks.com |
-| -                | `BOMTOON`        | bomtoon.com |
+| -                | `BOMTOON`        | bomtoon.com — 수집 안 함 (robots.txt `/api/`, #131) |
 
 - CLI `--platform` 값은 크롤러 선택 및 파일명 구분에 사용됩니다.
 - DB `platform` 값은 `works_platform` 테이블의 `platform` 컬럼에 그대로 적재됩니다.
@@ -474,7 +460,7 @@ works_platform: { works_id: 1, platform: "NAVER_WEBTOON" }
 ```
 .
 ├── cli.py                          # CLI 진입점 (login / crawl / stage 명령)
-├── config.py                       # URL, DB, 경로, 로그인 자격증명 상수
+├── config.py                       # URL, DB, 경로 상수
 ├── requirements.txt
 ├── Dockerfile
 ├── docker-compose.yml              # 서버 야간 실행용 (nightly / api 프로필)
@@ -505,7 +491,7 @@ works_platform: { works_id: 1, platform: "NAVER_WEBTOON" }
 │   │   ├── base_crawler.py         # WebDriver 초기화, crawl_detail_with_retry(), 세션 복구
 │   │   ├── naver_crawler.py        # 네이버 웹툰 크롤러 (genre # 제거, hashtags 빈 문자열 필터)
 │   │   ├── kakao_crawler.py        # 카카오페이지 크롤러 (작품명 UI 레이블 제거, description \n 보존)
-│   │   ├── naver_novel_crawler.py  # 네이버 웹소설 크롤러 (novel.naver.com, 장르목록·상세·제목검색)
+│   │   ├── robots.py              # robots.txt 검사 · 예외 목록 (#131)
 │   │   ├── naver_series_crawler.py # 네이버 시리즈 크롤러 (series.naver.com, 웹소설·웹툰 단행본, 제목검색)
 │   │   └── ridibooks_crawler.py    # 리디북스 크롤러 (작가 추출 다중 셀렉터, 비정상 URL 필터)
 │   └── logger.py                   # 구조화 로거 팩토리

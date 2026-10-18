@@ -22,12 +22,13 @@ def test_platform_of_url(url, expected):
 
 def test_load_groups_supported_only(tmp_path):
     rows = [{'source_url': 'https://page.kakao.com/content/1'},
-            {'source_url': 'https://www.bomtoon.com/detail/abc'},
+            {'source_url': 'https://www.lezhin.com/ko/comic/abc'},
             {'source_url': 'https://series.naver.com/novel/detail.series?productNo=2'},   # 재크롤 함수 없음
+            {'source_url': 'https://www.bomtoon.com/detail/abc'},                          # 수집 안 함 (#131)
             {'source_url': 'https://page.kakao.com/content/1'}]                          # 중복
     (tmp_path / 'a.jsonl').write_text(''.join(json.dumps(r) + '\n' for r in rows), encoding='utf-8')
     grouped = _load_source_urls(tmp_path)
     assert set(grouped) == set(SUPPORTED_PLATFORMS)
     assert grouped['kakao_page'] == ['https://page.kakao.com/content/1']
-    assert grouped['bomtoon'] == ['https://www.bomtoon.com/detail/abc']
-    assert 'naver_series' not in grouped
+    assert grouped['lezhin'] == ['https://www.lezhin.com/ko/comic/abc']
+    assert 'naver_series' not in grouped and 'bomtoon' not in grouped

@@ -438,7 +438,7 @@ def main():
 
     login_p = subparsers.add_parser('login', help='로그인 세션 저장 (Docker 실행 전 선행)')
     login_p.add_argument('--platform', required=True,
-                         help='naver_webtoon | kakao_page | ridibooks | bomtoon | lezhin | mrblue | all (bomtoon · lezhin · mrblue 는 all 에 안 들어감). '
+                         help='naver_webtoon | kakao_page | ridibooks | lezhin | mrblue | all (lezhin · mrblue 는 all 에 안 들어감). '
                               'BE enum(KAKAO_PAGE) · 네이버 웹소설 · 시리즈도 받는다')
 
     keep_p = subparsers.add_parser('keepalive', help='로그인 쿠키를 열어 갱신 · 만료면 슬랙 알림 (서버 야간 실행)')

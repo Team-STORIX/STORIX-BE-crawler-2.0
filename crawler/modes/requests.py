@@ -34,14 +34,13 @@ PLATFORM_KEYS = {
     '네이버 시리즈': ['naver_series'],
     '카카오페이지': ['kakao_page'],
     '리디북스': ['ridibooks'],
-    '봄툰': ['bomtoon'],
     '레진코믹스': ['lezhin'],
     '미스터블루': ['mrblue'],
 }
+# 수집하지 않는 연재처. 이것만 적힌 요청은 다른 플랫폼에서 찾지 않고 이유를 남긴다 — 엉뚱한 작품이 걸리지 않게 (#131)
+NOT_CRAWLED = {'봄툰': '봄툰은 robots.txt 가 막은 경로라 수집하지 않습니다'}
 # '기타' 만 적혔을 때 찾아볼 곳
 FALLBACK_KEYS = list(platforms.GENERAL_SEARCH)
-# 웹소설 요청이 네이버 쪽이면 네이버 웹소설도 본다
-NOVEL_EXTRA = {'naver_series': 'naver_novel'}
 
 
 def plan(requests: list[Request]) -> dict[str, list[tuple[str, str | None]]]:
@@ -52,16 +51,15 @@ def plan(requests: list[Request]) -> dict[str, list[tuple[str, str | None]]]:
         for p in r.platforms:
             keys += PLATFORM_KEYS.get(p, [])
         # '기타' 는 표에 없는 연재처라는 뜻이라, 다른 연재처와 같이 적혀도 전체에서 찾는다
-        if not keys or '기타' in r.platforms:
+        skipped = [p for p in r.platforms if p in NOT_CRAWLED]
+        if '기타' in r.platforms or (not keys and not skipped):
             keys += FALLBACK_KEYS
         keys = list(dict.fromkeys(keys))
         sections = [s for t in r.types for s in REQUEST_SECTIONS.get(t, ())] or [None]
         for key in keys:
             for sec in dict.fromkeys(sections):
-                targets = [key] + ([NOVEL_EXTRA[key]] if sec == '웹소설' and key in NOVEL_EXTRA else [])
-                for k in targets:
-                    if (r.title, sec) not in out[k]:
-                        out[k].append((r.title, sec))
+                if (r.title, sec) not in out[key]:
+                    out[key].append((r.title, sec))
     return dict(out)
 
 
@@ -216,8 +214,11 @@ def _report(store, requests: list[Request], found: dict[str, list[str]]) -> list
     out = []
     for r in requests:
         urls = list(dict.fromkeys(found.get(r.title, [])))
-        blocked = sorted(expired & plan([r]).keys())
-        if not urls and blocked:
+        planned = plan([r])
+        blocked = sorted(expired & planned.keys())
+        if not planned:
+            outcome = Outcome(False, ' · '.join(NOT_CRAWLED[p] for p in r.platforms if p in NOT_CRAWLED))
+        elif not urls and blocked:
             outcome = Outcome(False, f"세션 만료({', '.join(blocked)})로 못 찾음 — 다시 로그인 뒤 다음 실행에서 다시 찾습니다",
                               retry=True)
         else:

@@ -188,7 +188,6 @@ def test_prefix_followed_by_subtitle_is_a_match(query, text):
 @pytest.mark.parametrize('sections,platform,expected', [
     ({'전체'}, 'kakao_page', ['웹소설', '웹툰']),
     ({'전체'}, 'naver_webtoon', ['웹툰']),      # 네이버 웹툰은 웹툰만
-    ({'전체'}, 'naver_novel', ['웹소설']),
     ({'웹툰', '전체'}, 'ridibooks', ['웹소설', '웹툰']),
     ({'웹툰'}, 'naver_series', ['웹툰']),
 ])

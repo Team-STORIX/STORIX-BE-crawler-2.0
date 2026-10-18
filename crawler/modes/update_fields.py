@@ -179,10 +179,6 @@ def _recrawl_logged_in(CrawlerClass, label: str, urls: list[str], writer: JSONLW
         crawler.close_driver()
 
 
-def _recrawl_bomtoon(urls: list[str], writer: JSONLWriter):
-    _recrawl_logged_in(platforms.crawler_class('bomtoon'), platforms.get('bomtoon').label, urls, writer)
-
-
 def _recrawl_lezhin(urls: list[str], writer: JSONLWriter):
     _recrawl_logged_in(platforms.crawler_class('lezhin'), platforms.get('lezhin').label, urls, writer)
 
@@ -195,7 +191,6 @@ _RECRAWL_MAP = {
     'naver_webtoon': _recrawl_naver,
     'kakao_page': _recrawl_kakao,
     'ridibooks': _recrawl_ridibooks,
-    'bomtoon': _recrawl_bomtoon,
     'lezhin': _recrawl_lezhin,
     'mrblue': _recrawl_mrblue,
 }

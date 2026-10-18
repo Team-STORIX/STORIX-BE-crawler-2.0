@@ -12,10 +12,22 @@ from .base_crawler import PASS_THROUGH, AuthExpiredError, BaseCrawler, manual_lo
 from .cookies import apply_cookies, write_cookies
 from review.hashtags import is_noise_tag
 from .classify import artist_fields, is_age_gate_cover, works_type_from_category
-from config import RIDIBOOKS_COOKIE_FILE, RIDIBOOKS_LOGIN_URL, RIDIBOOKS_ID, RIDIBOOKS_PW
+from config import RIDIBOOKS_COOKIE_FILE, RIDIBOOKS_LOGIN_URL
 
 # 로그인하면 생기는 쿠키. 세션 등록 API(api/session_api.py)도 같은 쿠키로 로그인을 판단한다
 RIDI_SESSION_COOKIE = 'ridi-at'
+
+
+def ridi_token_alive(cookies: list[dict], now: float | None = None) -> bool:
+    """ridi-at(JWT)의 만료 시각이 아직 안 지났는지."""
+    import base64
+    value = next((c.get('value') for c in cookies if c.get('name') == RIDI_SESSION_COOKIE), None)
+    try:
+        payload = value.split('.')[1]
+        exp = json.loads(base64.urlsafe_b64decode(payload + '=' * (-len(payload) % 4)))['exp']
+    except Exception:
+        return False
+    return exp > (now if now is not None else time.time())
 
 # 위에서부터 먼저 맞는 것을 쓰므로 로판/BL/무협을 로맨스·판타지보다 앞에 둔다.
 # (실제 리디 분류: 로판 e북/웹소설, BL 소설/웹소설/만화/웹툰, 무협 소설,
@@ -85,47 +97,13 @@ class RidibooksCrawler(BaseCrawler):
             self.driver.get("https://ridibooks.com")
             time.sleep(2)
             apply_cookies(self.driver, RIDIBOOKS_COOKIE_FILE)
-            self.driver.get("https://ridibooks.com/account/myridi")
-            time.sleep(3)
-            if "account/login" in self.driver.current_url:
-                return False
-            return "myridi" in self.driver.current_url or "로그아웃" in self.driver.page_source
+            # 마이리디(/account/)는 robots.txt 가 막는다 (#131). 메인을 다시 열면 갱신 토큰(ridi-rt)이 살아 있을 때만
+            # ridi-at 이 새로 발급된다. 메인 화면은 로그인 여부와 상관없이 같아 화면으로는 가리지 못한다
+            self.driver.get("https://ridibooks.com")
+            time.sleep(4)
+            return ridi_token_alive(self.driver.get_cookies())
         except Exception as e:
             print(f"⚠️ 리디북스 쿠키 로그인 실패: {e}")
-            return False
-
-    def _login_with_credentials(self) -> bool:
-        if not RIDIBOOKS_ID or not RIDIBOOKS_PW:
-            return False
-        print("🔑 환경변수 자격증명으로 리디북스 로그인을 시도합니다.")
-        try:
-            self.driver.get(RIDIBOOKS_LOGIN_URL)
-            time.sleep(3)
-
-            wait = WebDriverWait(self.driver, 10)
-            id_field = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "input[name='email']")))
-            id_field.clear()
-            id_field.send_keys(RIDIBOOKS_ID)
-            time.sleep(0.5)
-
-            pw_field = self.driver.find_element(By.CSS_SELECTOR, "input[name='password']")
-            pw_field.clear()
-            pw_field.send_keys(RIDIBOOKS_PW)
-            time.sleep(0.5)
-
-            submit_btn = self.driver.find_element(By.CSS_SELECTOR, "button[type='submit']")
-            submit_btn.click()
-            time.sleep(4)
-
-            if "account/login" not in self.driver.current_url:
-                print("✅ [리디북스] 자격증명 로그인 성공. 쿠키를 저장합니다.")
-                self._save_cookies()
-                return True
-
-            print("⚠️ [리디북스] 자격증명 로그인 실패.")
-            return False
-        except Exception as e:
-            print(f"⚠️ [리디북스] 자격증명 로그인 중 오류: {e}")
             return False
 
     def _manual_login_done(self) -> bool:
@@ -158,6 +136,7 @@ class RidibooksCrawler(BaseCrawler):
         return False
 
     def login(self) -> bool:
+        """쿠키 → 사람 로그인. 아이디 · 비밀번호 자동 입력은 하지 않는다 (리디 약관 · robots.txt, #131)"""
         if RIDIBOOKS_COOKIE_FILE.exists():
             print("🍪 [리디북스] 기존 쿠키 파일을 적용합니다.")
             if self.login_with_cookies():
@@ -165,14 +144,11 @@ class RidibooksCrawler(BaseCrawler):
                 return True
             print("⚠️ [리디북스] 쿠키 로그인 실패. 다음 수단을 시도합니다.")
 
-        if self._login_with_credentials():
-            return True
-
         import os
         if os.environ.get("DOCKER_ENV") == "true":
             raise AuthExpiredError(  # 서버(Docker)는 로그인 화면을 못 띄운다 — 세션 만료로 알린다 (#77)
                 "Docker 환경에서는 수동 로그인 불가.\n"
-                "RIDIBOOKS_ID/RIDIBOOKS_PW 환경변수를 설정하거나 sessions/ridibooks_cookies.pkl을 생성하세요."
+                "python cli.py login --platform ridibooks 로 sessions/ridibooks_cookies.pkl 을 새로 만드세요."
             )
 
         self.driver.get(RIDIBOOKS_LOGIN_URL)

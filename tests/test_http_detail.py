@@ -12,7 +12,6 @@ from crawler.output.jsonl_writer import JSONLWriter  # noqa: E402
 from crawler.parallel import run_platforms  # noqa: E402
 from modules.crawler.base_crawler import BaseCrawler, HttpUnavailable, RateLimitedError  # noqa: E402
 from modules.crawler.naver_crawler import parse_naver_title_info  # noqa: E402
-from modules.crawler.naver_novel_crawler import NaverNovelCrawler  # noqa: E402
 from modules.crawler.naver_series_crawler import NaverSeriesCrawler  # noqa: E402
 from modules.crawler.ridibooks_crawler import parse_ridi_book_page  # noqa: E402
 
@@ -92,9 +91,8 @@ def test_driver_restarts_every_n_browser_details():
     assert c.restarts == 2  # 2건마다: 3번째 · 5번째 직전
 
 
-def test_naver_novel_and_series_do_not_use_webtoon_api():
-    for cls in (NaverNovelCrawler, NaverSeriesCrawler):
-        assert not cls()._has_http_detail()
+def test_naver_series_does_not_use_webtoon_api():
+    assert not NaverSeriesCrawler()._has_http_detail()
 
 
 @pytest.mark.parametrize('code,raised', [

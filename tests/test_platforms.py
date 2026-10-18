@@ -17,7 +17,7 @@ def test_naver_shares_one_login():
 
 
 def test_every_platform_has_cookie_file():
-    assert {p.login for p in platforms.PLATFORMS} <= set(platforms.COOKIE_FILES)
+    assert {p.login for p in platforms.PLATFORMS if p.crawler} <= set(platforms.COOKIE_FILES)
 
 
 def test_landing_platforms_are_registered():
@@ -27,7 +27,17 @@ def test_landing_platforms_are_registered():
 def test_crawler_matches_key():
     pytest.importorskip('selenium')
     for p in platforms.PLATFORMS:
-        assert platforms.crawler_class(p.key).REPORT_PLATFORM == p.key
+        if p.crawler:
+            assert platforms.crawler_class(p.key).REPORT_PLATFORM == p.key
+
+
+@pytest.mark.parametrize('name', ['naver_novel', 'bomtoon'])
+def test_robots_blocked_platforms_are_not_crawled(name):
+    # 네이버 웹소설은 사이트 전체, 봄툰은 상세 · 검색 API 를 robots.txt 가 막는다 (#131)
+    assert not platforms.searchable(name)
+    with pytest.raises(KeyError):
+        platforms.crawler_class(name)
+    assert name not in platforms.COOKIE_FILES
 
 
 # ---- 공통 정규화 · 검색 (#98)

@@ -1,16 +1,15 @@
 import re
 import time
-import random
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException
 
-from .base_crawler import PASS_THROUGH, AuthExpiredError, BaseCrawler, manual_login_timeout, SessionExpiredError
+from .base_crawler import PASS_THROUGH, BaseCrawler, manual_login_timeout, SessionExpiredError
 from .cookies import apply_cookies, write_cookies
 from .classify import age_from_text, works_type_from_category
 from .titles import NOT_A_TITLE, clean_work_name
-from config import KAKAO_COOKIE_FILE, KAKAO_LOGIN_URL, KAKAO_ID, KAKAO_PW
+from config import KAKAO_COOKIE_FILE, KAKAO_LOGIN_URL
 
 # 쿠키 로그인 확인용 성인 작품 (「최악의 매칭 가이드 [19세 완전판]」). 로그인 · 성인 인증이 안 되면 연령 확인 화면이 뜬다
 ADULT_CHECK_URL = 'https://page.kakao.com/content/65731967'
@@ -85,48 +84,8 @@ class KakaoCrawler(BaseCrawler):
         print("⏰ 성인 인증 대기 시간 초과.")
         return False
 
-    def _login_with_credentials(self) -> bool:
-        if not KAKAO_ID or not KAKAO_PW:
-            return False
-        print("🔑 환경변수 자격증명으로 카카오 로그인을 시도합니다.")
-        try:
-            self.driver.get(KAKAO_LOGIN_URL)
-            time.sleep(3)
-
-            wait = WebDriverWait(self.driver, 10)
-            id_field = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "input[name='loginKey']")))
-            id_field.click()
-            id_field.send_keys(KAKAO_ID)
-            time.sleep(random.uniform(0.3, 0.7))
-
-            pw_field = self.driver.find_element(By.CSS_SELECTOR, "input[name='password']")
-            pw_field.click()
-            pw_field.send_keys(KAKAO_PW)
-            time.sleep(random.uniform(0.3, 0.7))
-
-            submit_btn = self.driver.find_element(By.CSS_SELECTOR, "button[type='submit']")
-            submit_btn.click()
-            time.sleep(4)
-
-            self.driver.get("https://page.kakao.com/main")
-            time.sleep(3)
-
-            if "accounts.kakao.com" in self.driver.current_url or "kauth.kakao.com" in self.driver.current_url:
-                print("⚠️ [카카오] 자격증명 로그인 실패 (CAPTCHA 또는 추가 인증 필요).")
-                return False
-
-            if any(txt in self.driver.page_source for txt in ["로그아웃", "마이페이지", "내 서재"]):
-                print("✅ [카카오] 자격증명 로그인 성공. 쿠키를 저장합니다.")
-                self._save_cookies()
-                return True
-
-            print("⚠️ [카카오] 로그인 상태 확인 실패.")
-            return False
-        except Exception as e:
-            print(f"⚠️ [카카오] 자격증명 로그인 중 오류: {e}")
-            return False
-
     def login(self):
+        """쿠키 → 사람 로그인. 아이디 · 비밀번호 자동 입력은 하지 않는다 (robots.txt, #131)"""
         if KAKAO_COOKIE_FILE.exists():
             print("🍪 [카카오] 기존 쿠키 파일을 적용합니다.")
             if self.login_with_cookies():
@@ -134,15 +93,7 @@ class KakaoCrawler(BaseCrawler):
                 return True
             print("⚠️ [카카오] 쿠키 로그인 실패. 다음 수단을 시도합니다.")
 
-        if self._login_with_credentials():
-            return True
-
-        import os
-        if os.environ.get("DOCKER_ENV") == "true":
-            raise AuthExpiredError(  # 서버(Docker)는 로그인 화면을 못 띄운다 — 세션 만료로 알린다 (#77)
-                "Docker 환경에서는 수동 로그인 불가.\n"
-                "KAKAO_ID/KAKAO_PW 환경변수를 설정하거나 sessions/kakao_cookies.pkl을 생성하세요."
-            )
+        self.no_manual_login_on_server()
 
         self.driver.get(KAKAO_LOGIN_URL)
         time.sleep(3)

@@ -2,6 +2,7 @@
 import io
 import json
 import threading
+import time
 import urllib.error
 
 import pytest
@@ -12,7 +13,6 @@ from crawler.output.jsonl_writer import JSONLWriter  # noqa: E402
 from crawler.parallel import run_platforms  # noqa: E402
 from modules.crawler.base_crawler import BaseCrawler, HttpUnavailable, RateLimitedError  # noqa: E402
 from modules.crawler.naver_crawler import parse_naver_title_info  # noqa: E402
-from modules.crawler.naver_novel_crawler import NaverNovelCrawler  # noqa: E402
 from modules.crawler.naver_series_crawler import NaverSeriesCrawler  # noqa: E402
 from modules.crawler.ridibooks_crawler import parse_ridi_book_page  # noqa: E402
 
@@ -92,9 +92,8 @@ def test_driver_restarts_every_n_browser_details():
     assert c.restarts == 2  # 2건마다: 3번째 · 5번째 직전
 
 
-def test_naver_novel_and_series_do_not_use_webtoon_api():
-    for cls in (NaverNovelCrawler, NaverSeriesCrawler):
-        assert not cls()._has_http_detail()
+def test_naver_series_does_not_use_webtoon_api():
+    assert not NaverSeriesCrawler()._has_http_detail()
 
 
 @pytest.mark.parametrize('code,raised', [
@@ -255,9 +254,19 @@ def test_run_platforms_records_rate_limit():
     assert report.summary()['by_platform'] == {'ridibooks': {'RATE_LIMITED': 1}}
 
 
+def _jwt(exp: float) -> str:
+    import base64
+    return 'h.' + base64.urlsafe_b64encode(json.dumps({'exp': exp}).encode()).decode().rstrip('=') + '.s'
+
+
 class _LoginDriver:
     def __init__(self, url, cookies=(), source=''):
-        self.current_url, self._cookies, self.page_source = url, [{'name': n} for n in cookies], source
+        # ridi-at 은 만료 전 토큰, ridi-at:old 는 만료된 토큰으로 넣는다
+        def cookie(n):
+            if n.startswith('ridi-at'):
+                return {'name': 'ridi-at', 'value': _jwt(time.time() + (-60 if n.endswith(':old') else 3600))}
+            return {'name': n}
+        self.current_url, self._cookies, self.page_source = url, [cookie(n) for n in cookies], source
 
     def get_cookies(self):
         return self._cookies
@@ -266,6 +275,7 @@ class _LoginDriver:
 @pytest.mark.parametrize('url, cookies, source, done', [
     ('https://ridibooks.com/', ['ridi-at'], '', True),                  # 로그인 뒤 메인으로 돌아옴
     ('https://ridibooks.com/', ['PHPSESSID'], '', False),               # 아직 로그인 전
+    ('https://ridibooks.com/', ['ridi-at:old'], '', False),             # 만료된 토큰 (쿠키 로그인과 같은 판정, #131)
     ('https://ridibooks.com/account/login', ['ridi-at'], '', False),    # 로그인 페이지에 머묾
     ('https://ridibooks.com/account/myridi', [], '', True),             # 예전 조건도 그대로 감지
     ('https://ridibooks.com/', [], '<a>로그아웃</a>', True),

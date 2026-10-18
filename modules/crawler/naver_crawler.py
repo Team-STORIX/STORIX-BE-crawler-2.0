@@ -8,9 +8,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import NoSuchElementException
 
-from . import robots
-from .base_crawler import (PASS_THROUGH, USER_AGENT, AuthExpiredError, BaseCrawler, manual_login_timeout, HttpUnavailable,
-                           SessionExpiredError)
+from .base_crawler import PASS_THROUGH, BaseCrawler, manual_login_timeout, HttpUnavailable, SessionExpiredError
 from .cookies import apply_cookies, write_cookies
 from .classify import age_from_text
 from .titles import clean_work_name
@@ -118,12 +116,7 @@ class NaverCrawler(BaseCrawler):
                 return True
             print("⚠️ 쿠키 만료 또는 로그인 실패. 다음 수단을 시도합니다.")
 
-        import os
-        if os.environ.get("DOCKER_ENV") == "true":
-            raise AuthExpiredError(  # 서버(Docker)는 로그인 화면을 못 띄운다 — 세션 만료로 알린다 (#77)
-                "Docker 환경에서는 수동 로그인 불가.\n"
-                "python cli.py login --platform naver_webtoon 으로 sessions/naver_cookies.pkl 을 새로 만드세요."
-            )
+        self.no_manual_login_on_server()
 
         self.driver.get("https://nid.naver.com/nidlogin.login")
         time.sleep(2)
@@ -152,18 +145,14 @@ class NaverCrawler(BaseCrawler):
             return False
 
     def search_candidates(self, title: str) -> list[dict]:
-        """검색 API 라 브라우저를 쓰지 않는다."""
-        import json
+        """검색 API 라 브라우저를 쓰지 않는다. 요청 간격 · robots.txt 검사는 http_get 이 한다."""
         import urllib.parse
-        import urllib.request
 
         q = urllib.parse.quote(title.replace('%', ' ').strip())
-        url = f'https://comic.naver.com/api/search/all?keyword={q}'
-        robots.check(url, USER_AGENT)
-        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-        data = json.load(urllib.request.urlopen(req, timeout=10))
+        body = self.http_get(f'https://comic.naver.com/api/search/all?keyword={q}', headers={'Accept': 'application/json'})
+        data = json.loads(body or '{}')
         raw = [(f"https://comic.naver.com/webtoon/list?titleId={x.get('titleId')}", x.get('titleName') or '', '웹툰')
-               for x in data['searchWebtoonResult']['searchViewList']]
+               for x in (data.get('searchWebtoonResult') or {}).get('searchViewList') or []]
         return self.rank_candidates(title, raw)
 
     def _scroll_down(self):

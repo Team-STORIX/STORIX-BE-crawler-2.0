@@ -34,11 +34,10 @@ PLATFORM_KEYS = {
     '네이버 시리즈': ['naver_series'],
     '카카오페이지': ['kakao_page'],
     '리디북스': ['ridibooks'],
+    '봄툰': ['bomtoon'],
     '레진코믹스': ['lezhin'],
     '미스터블루': ['mrblue'],
 }
-# 수집하지 않는 연재처. 이것만 적힌 요청은 다른 플랫폼에서 찾지 않고 이유를 남긴다 — 엉뚱한 작품이 걸리지 않게 (#131)
-NOT_CRAWLED = {'봄툰': '봄툰은 robots.txt 가 막은 경로라 수집하지 않습니다'}
 # '기타' 만 적혔을 때 찾아볼 곳
 FALLBACK_KEYS = list(platforms.GENERAL_SEARCH)
 
@@ -47,12 +46,11 @@ def plan(requests: list[Request]) -> dict[str, list[tuple[str, str | None]]]:
     """요청들 → 플랫폼별 (작품명, 섹션) 목록."""
     out: dict[str, list[tuple[str, str | None]]] = defaultdict(list)
     for r in requests:
-        keys = []
-        for p in r.platforms:
-            keys += PLATFORM_KEYS.get(p, [])
+        listed = [k for p in r.platforms for k in PLATFORM_KEYS.get(p, [])]
+        # 수집하지 않는 연재처(등록부 skip)만 적힌 요청은 다른 플랫폼에서 찾지 않는다 — 엉뚱한 작품이 걸리지 않게 (#131)
+        keys = [k for k in listed if platforms.get(k).crawler]
         # '기타' 는 표에 없는 연재처라는 뜻이라, 다른 연재처와 같이 적혀도 전체에서 찾는다
-        skipped = [p for p in r.platforms if p in NOT_CRAWLED]
-        if '기타' in r.platforms or (not keys and not skipped):
+        if '기타' in r.platforms or not listed:
             keys += FALLBACK_KEYS
         keys = list(dict.fromkeys(keys))
         sections = [s for t in r.types for s in REQUEST_SECTIONS.get(t, ())] or [None]
@@ -217,7 +215,8 @@ def _report(store, requests: list[Request], found: dict[str, list[str]]) -> list
         planned = plan([r])
         blocked = sorted(expired & planned.keys())
         if not planned:
-            outcome = Outcome(False, ' · '.join(NOT_CRAWLED[p] for p in r.platforms if p in NOT_CRAWLED))
+            outcome = Outcome(False, ' · '.join(dict.fromkeys(
+                platforms.get(k).skip for p in r.platforms for k in PLATFORM_KEYS.get(p, []))))
         elif not urls and blocked:
             outcome = Outcome(False, f"세션 만료({', '.join(blocked)})로 못 찾음 — 다시 로그인 뒤 다음 실행에서 다시 찾습니다",
                               retry=True)

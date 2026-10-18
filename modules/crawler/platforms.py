@@ -21,17 +21,19 @@ class Platform:
     label: str
     crawler: str | None  # 'modules.crawler.<모듈>:<클래스>' (selenium 을 늦게 불러오려고 문자열로 둔다). None = 수집 안 함
     login: str      # 로그인 쿠키를 같이 쓰는 플랫폼 key (네이버 웹툰 · 웹소설 · 시리즈는 네이버 쿠키 하나)
+    skip: str = ''  # 수집하지 않는 이유 (crawler=None 인 플랫폼). 노션 요청 결과에 그대로 남긴다
 
 
 PLATFORMS = (
     Platform('naver_webtoon', 'NAVER_WEBTOON', '네이버 웹툰', 'modules.crawler.naver_crawler:NaverCrawler', 'naver_webtoon'),
-    # 네이버 웹소설은 robots.txt 가 사이트 전체를 막아 수집하지 않는다 (#131). BE 에 남은 링크의 이름 · 로그인 표시용
-    Platform('naver_novel', 'NAVER_NOVEL', '네이버 웹소설', None, 'naver_webtoon'),
+    # 수집하지 않는 플랫폼도 BE 에 남은 링크의 이름 · 로그인 표시용으로 둔다 (#131)
+    Platform('naver_novel', 'NAVER_NOVEL', '네이버 웹소설', None, 'naver_webtoon',
+             '네이버 웹소설은 robots.txt 가 사이트 전체를 막아 수집하지 않습니다'),
     Platform('naver_series', 'NAVER_SERIES', '네이버 시리즈', 'modules.crawler.naver_series_crawler:NaverSeriesCrawler', 'naver_webtoon'),
     Platform('kakao_page', 'KAKAO_PAGE', '카카오페이지', 'modules.crawler.kakao_crawler:KakaoCrawler', 'kakao_page'),
     Platform('ridibooks', 'RIDIBOOKS', '리디북스', 'modules.crawler.ridibooks_crawler:RidibooksCrawler', 'ridibooks'),
-    # 봄툰은 상세 · 검색이 robots.txt 가 막은 /api/ 라 수집하지 않는다 (#131). 크롤러 코드는 HTML 수집으로 바꿀 때 쓴다
-    Platform('bomtoon', 'BOMTOON', '봄툰', None, 'bomtoon'),
+    # 봄툰 크롤러 코드는 HTML 수집으로 바꿀 때 쓴다
+    Platform('bomtoon', 'BOMTOON', '봄툰', None, 'bomtoon', '봄툰은 상세 · 검색 API(/api/)를 robots.txt 가 막아 수집하지 않습니다'),
     Platform('lezhin', 'LEZHIN', '레진코믹스', 'modules.crawler.lezhin_crawler:LezhinCrawler', 'lezhin'),
     Platform('mrblue', 'MRBLUE', '미스터블루', 'modules.crawler.mrblue_crawler:MrblueCrawler', 'mrblue'),
 )
@@ -68,7 +70,7 @@ def get(name: str) -> Platform:
 def crawler_class(name: str):
     p = get(name)
     if not p.crawler:
-        raise KeyError(f'수집하지 않는 플랫폼: {p.label}')
+        raise KeyError(p.skip)
     module, cls = p.crawler.split(':')
     return getattr(importlib.import_module(module), cls)
 

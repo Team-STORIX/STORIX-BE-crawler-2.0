@@ -8,7 +8,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException
 
-from .base_crawler import PASS_THROUGH, AuthExpiredError, BaseCrawler, manual_login_timeout, HttpUnavailable, SessionExpiredError
+from .base_crawler import PASS_THROUGH, BaseCrawler, manual_login_timeout, HttpUnavailable, SessionExpiredError
 from .cookies import apply_cookies, write_cookies
 from review.hashtags import is_noise_tag
 from .classify import artist_fields, is_age_gate_cover, works_type_from_category
@@ -107,12 +107,12 @@ class RidibooksCrawler(BaseCrawler):
             return False
 
     def _manual_login_done(self) -> bool:
-        """로그인 페이지를 벗어났고 로그인 쿠키(ridi-at)가 생겼으면 로그인된 것으로 본다.
+        """로그인 페이지를 벗어났고 로그인 쿠키(ridi-at)가 만료 전이면 로그인된 것으로 본다 (쿠키 로그인과 같은 판정).
         로그인하면 메인으로 돌아가는데, 메인에는 '로그아웃' 문구가 없어 마이리디까지 눌러야 감지됐다."""
         cur = self.driver.current_url
         if "account/login" in cur:
             return False
-        if any(c.get('name') == RIDI_SESSION_COOKIE for c in self.driver.get_cookies()):
+        if ridi_token_alive(self.driver.get_cookies()):
             return True
         return "myridi" in cur or "로그아웃" in self.driver.page_source
 
@@ -144,12 +144,7 @@ class RidibooksCrawler(BaseCrawler):
                 return True
             print("⚠️ [리디북스] 쿠키 로그인 실패. 다음 수단을 시도합니다.")
 
-        import os
-        if os.environ.get("DOCKER_ENV") == "true":
-            raise AuthExpiredError(  # 서버(Docker)는 로그인 화면을 못 띄운다 — 세션 만료로 알린다 (#77)
-                "Docker 환경에서는 수동 로그인 불가.\n"
-                "python cli.py login --platform ridibooks 로 sessions/ridibooks_cookies.pkl 을 새로 만드세요."
-            )
+        self.no_manual_login_on_server()
 
         self.driver.get(RIDIBOOKS_LOGIN_URL)
         time.sleep(3)

@@ -219,9 +219,7 @@ class BomtoonCrawler(BaseCrawler):
         if self.login_with_cookies():
             print('✅ [봄툰] 쿠키 로그인 성공 (성인 작품 열림)')
             return True
-        import os
-        if os.environ.get('DOCKER_ENV') == 'true':
-            return False
+        self.no_manual_login_on_server()
         print('\n' + '=' * 60)
         print('🔐 브라우저 창에서 봄툰 로그인을 완료하세요 (성인 인증된 계정).')
         print('   성인 작품이 열리면 자동으로 감지합니다 (최대 5분).')

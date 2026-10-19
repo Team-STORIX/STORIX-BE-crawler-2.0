@@ -87,5 +87,5 @@ def test_book_request_searches_novel_and_manga_on_every_entry(tmp_path):
     f = tmp_path / 'titles.txt'
     f.write_text('## 단행본\n지박소년 하나코 군\n', encoding='utf-8')
     from_file = _load_titles(argparse.Namespace(titles_file=str(f), titles=None))
-    from_notion = plan([Request('a', 1, '지박소년 하나코 군', ['단행본'], ['리디북스'])])['ridibooks']
+    from_notion = plan([Request('a', 1, '지박소년 하나코 군', ['단행본'], ['카카오페이지'])])['kakao_page']
     assert from_file == from_notion == [('지박소년 하나코 군', '웹소설'), ('지박소년 하나코 군', '만화')]

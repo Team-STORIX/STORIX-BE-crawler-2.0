@@ -73,6 +73,9 @@ def run_search_titles(
     found: set[tuple[str, str | None]] = set()
 
     def run(p: str) -> None:
+        if not platforms.searchable(p):
+            print(f'\n⏭️  {platforms.why_not_searchable(p)}')
+            return
         accepted = _PLATFORM_TYPES.get(p, set())
         # 같은 제목이 여러 섹션에 있어도 한 플랫폼에서 두 번 검색하지는 않는다.
         # (시리즈·카카오·리디는 웹툰·웹소설·단행본을 다 받아서 같은 제목이 겹쳐 들어옴)

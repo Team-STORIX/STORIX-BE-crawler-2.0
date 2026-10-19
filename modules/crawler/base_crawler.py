@@ -37,7 +37,8 @@ PASS_THROUGH = (InvalidSessionIdException, SessionExpiredError, _DriverTimeoutEr
 
 _BLOCK_MARKERS = ('403 Forbidden', '429 Too Many', 'Too Many Requests', 'Access Denied', '요청이 너무 많', '비정상적인 접근')
 
-USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
+# 봇임을 밝힌다. 브라우저인 척하면 사이트가 봇에게 막은 기능(리디 검색)까지 쓰게 된다 (#135)
+USER_AGENT = f'Mozilla/5.0 (compatible; {robots.BOT_NAME}/1.0; +https://github.com/Team-STORIX)'
 
 
 
@@ -190,17 +191,11 @@ class BaseCrawler:
         if headless:
             options.add_argument("--headless=new")
 
-        options.add_experimental_option("excludeSwitches", ["enable-automation"])
-        options.add_experimental_option('useAutomationExtension', False)
-        options.add_argument('--disable-blink-features=AutomationControlled')
         options.add_argument(f'user-agent={USER_AGENT}')
 
         # Selenium 4.6+ 내장 드라이버 관리자 사용 (webdriver-manager 불필요)
         self.driver = webdriver.Chrome(options=options)
         self._wrap_get()
-        self.driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
-            "source": """Object.defineProperty(navigator, 'webdriver', { get: () => undefined })"""
-        })
     
     def close_driver(self):
         if self.driver:
@@ -240,6 +235,8 @@ class BaseCrawler:
         except urllib.error.HTTPError as e:
             if e.code == 404:
                 return None
+            if e.code == 403 and robots.is_denial(e.read().decode('utf-8', 'replace')):
+                raise RobotsDisallowed(f'사이트가 봇에게 막은 경로: {url}')
             if e.code == 429 or (e.code == 403 and self.HTTP_403_IS_BLOCK):
                 raise RateLimitedError(f'HTTP {e.code}: {url}')
             raise HttpUnavailable(f'HTTP {e.code}')
@@ -254,6 +251,8 @@ class BaseCrawler:
             head = f'{self.driver.title} {body or ""}'
         except Exception:
             return
+        if robots.is_denial(body):
+            raise RobotsDisallowed(f'사이트가 봇에게 막은 경로: {url}')
         if any(m in head for m in _BLOCK_MARKERS):
             raise RateLimitedError(f'차단 화면: {url}')
 

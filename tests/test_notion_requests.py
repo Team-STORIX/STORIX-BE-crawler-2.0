@@ -27,18 +27,17 @@ def test_parse_page():
 
 
 def test_plan_maps_platforms_and_types():
+    pytest.importorskip('selenium')
     reqs = [
-        Request('a', 441, '혼불', ['웹소설'], ['리디북스']),
         Request('b', 442, '외모지상주의', ['웹툰'], ['네이버 웹툰', '네이버 시리즈']),
         Request('c', 443, '블랙 스완', ['웹툰', '웹소설'], ['카카오페이지']),
-        Request('d', 444, '천관사복', ['단행본'], ['네이버 시리즈']),
+        Request('d', 444, '천관사복', ['단행본'], ['카카오페이지']),
     ]
     p = plan(reqs)
-    assert p['ridibooks'] == [('혼불', '웹소설')]
-    assert ('외모지상주의', '웹툰') in p['naver_webtoon'] and ('외모지상주의', '웹툰') in p['naver_series']
-    assert p['kakao_page'] == [('블랙 스완', '웹툰'), ('블랙 스완', '웹소설')]
-    assert 'naver_novel' not in p  # 네이버 웹소설은 robots.txt 가 막아 찾지 않는다 (#131)
-    assert ('천관사복', '만화') in p['naver_series']  # 단행본은 만화책일 수도 있다 (지박소년 하나코 군)
+    assert p['naver_webtoon'] == [('외모지상주의', '웹툰')]
+    assert p['kakao_page'] == [('블랙 스완', '웹툰'), ('블랙 스완', '웹소설'), ('천관사복', '웹소설'), ('천관사복', '만화')]
+    # 네이버 웹소설은 robots.txt 가 막고 (#131), 시리즈 · 리디는 검색을 막아 제목으로 찾지 않는다 (#135)
+    assert not {'naver_novel', 'naver_series', 'ridibooks'} & set(p)
 
 
 def test_plan_lezhin_mrblue_and_other():
@@ -49,6 +48,17 @@ def test_plan_lezhin_mrblue_and_other():
     assert set(p) == {'lezhin', *FALLBACK_KEYS}
     assert set(plan([Request('d', 448, '어떤 작품', ['웹툰'], ['기타'])])) == set(FALLBACK_KEYS)
 
+
+
+@pytest.mark.parametrize('label,word', [('네이버 시리즈', '시리즈'), ('리디북스', '리디')])
+def test_no_search_request_is_skipped_with_reason(label, word):
+    """시리즈 · 리디는 제목으로 찾지 않는다. 그것만 적힌 요청은 다른 곳에서 찾지 않고 이유를 남긴다 (#135)"""
+    pytest.importorskip('selenium')
+    only = Request('e', 452, '작품', ['웹소설'], [label])
+    assert plan([only]) == {}
+    assert set(plan([Request('f', 453, '같이', ['웹소설'], [label, '카카오페이지'])])) == {'kakao_page'}
+    [(_, outcome)] = _report(None, [only], {})
+    assert not outcome.done and not outcome.retry and word in outcome.note and '링크' in outcome.note
 
 
 def test_bomtoon_request_is_skipped_with_reason():

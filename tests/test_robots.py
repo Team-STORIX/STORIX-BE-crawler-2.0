@@ -41,6 +41,21 @@ def test_parse_reads_only_star_group():
     assert robots.parse(RIDI) == [('disallow', '/api/'), ('disallow', '/account/')]
 
 
+def test_parse_prefers_our_bot_group():
+    """STORIXBot 그룹이 있으면 * 대신 그 그룹만 따른다 (#135)"""
+    text = RIDI + "\nUser-agent: storixbot\nDisallow: /search\n"
+    assert robots.parse(text) == [('disallow', '/search')]
+    assert robots.parse("User-agent: STORIXBot\nDisallow:\n\nUser-agent: *\nDisallow: /\n") == []
+
+
+def test_denial_body():
+    """리디가 봇 UA 검색에 주는 403 본문 (2026-10-19)"""
+    assert robots.is_denial('User-agent: Mozilla/5.0 (compatible; STORIXBot/1.0; +https://github.com/Team-STORIX)\n'
+                            'Disallow: /search')
+    assert not robots.is_denial('<html><body>403 Forbidden</body></html>')
+    assert not robots.is_denial('')
+
+
 def test_consecutive_user_agents_share_rules():
     text = "User-agent: Googlebot\nUser-agent: *\nDisallow: /private\n\nUser-agent: Other\nDisallow: /\n"
     assert robots.parse(text) == [('disallow', '/private')]
@@ -73,10 +88,22 @@ def test_check_raises_on_blocked_site(cached):
 
 
 def test_exception_skips_only_listed_path(cached):
-    cached['series.naver.com'] = robots.parse(SERIES)
-    robots.check('https://series.naver.com/search/search.series?q=a', 'ua')   # 예외 목록
+    cached['nid.naver.com'] = [('disallow', '/')]
+    robots.check('https://nid.naver.com/nidlogin.login', 'ua')   # 예외 목록 (사람 로그인 화면)
     with pytest.raises(RobotsDisallowed):
-        robots.check('https://series.naver.com/novel/categoryProductList.series', 'ua')
+        robots.check('https://nid.naver.com/user2/help', 'ua')
+
+
+def test_series_search_is_not_an_exception(cached):
+    cached['series.naver.com'] = robots.parse(SERIES)
+    with pytest.raises(RobotsDisallowed):
+        robots.check('https://series.naver.com/search/search.series?q=a', 'ua')
+
+
+def test_user_agent_names_our_bot():
+    pytest.importorskip('selenium')
+    from modules.crawler.base_crawler import USER_AGENT
+    assert robots.BOT_NAME in USER_AGENT and 'Chrome' not in USER_AGENT
 
 
 def test_removed_platform_paths_are_not_exceptions():
@@ -106,6 +133,23 @@ def test_http_get_checks_before_request(cached, monkeypatch):
     cached['novel.naver.com'] = [('disallow', '/')]
     with pytest.raises(RobotsDisallowed):
         BaseCrawler().http_get('https://novel.naver.com/webnovel/list?novelId=1')
+
+
+def test_http_get_stops_on_bot_denial(cached, monkeypatch):
+    """robots.txt 엔 없지만 봇에게 403 으로 거절한 경로도 robots 차단처럼 멈춘다 (#135)"""
+    pytest.importorskip('selenium')
+    import io
+    import urllib.error
+    import urllib.request
+    from modules.crawler.base_crawler import BaseCrawler
+
+    def denied(req, timeout=None):
+        raise urllib.error.HTTPError(req.full_url, 403, 'Forbidden', {},
+                                     io.BytesIO(b'User-agent: STORIXBot\nDisallow: /search'))
+    monkeypatch.setattr(urllib.request, 'urlopen', denied)
+    cached['ridibooks.com'] = []
+    with pytest.raises(RobotsDisallowed, match='봇에게 막은'):
+        BaseCrawler().http_get('https://ridibooks.com/search?q=a')
 
 
 def test_ridi_token_alive():

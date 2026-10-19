@@ -1,6 +1,5 @@
 import time
 import re
-import urllib.parse
 
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
@@ -16,6 +15,8 @@ class NaverSeriesCrawler(NaverCrawler):
     REPORT_PLATFORM = 'naver_series'
     # 네이버 웹툰 작품 정보 API 는 웹툰 전용이다. 상세는 브라우저로 연다
     crawl_detail_http = BaseCrawler.crawl_detail_http
+    # 시리즈 검색은 robots.txt 가 막는다. 웹툰 검색을 물려받지 않게 끊는다 (#135)
+    search_candidates = BaseCrawler.search_candidates
 
     """웹소설 · 웹툰 단행본. 상세 URL 형식:
         웹소설: https://series.naver.com/novel/detail.series?productNo=...
@@ -23,43 +24,12 @@ class NaverSeriesCrawler(NaverCrawler):
     """
 
 
-    _SEARCH_URL = 'https://series.naver.com/search/search.series?t=all&q={}'
-
     @staticmethod
     def _clean_title(raw: str) -> str:
         """'화산귀환 [독점]\\n(총 1939화/미완결)' → '화산귀환'. 상태 라벨은 다른 플랫폼과 같은 규칙으로 뗀다
         (titles.clean_work_name) — 판본 표기([19세 완전판])와 묶음 이름은 작품명이라 남긴다"""
         t = re.sub(r'\s*\(총[^)]*\)', '', raw.split('\n')[0])
         return clean_work_name(t)
-
-    def search_candidates(self, title: str) -> list[dict]:
-        """네이버 시리즈 검색 결과 → 후보 목록 (일치도 순). 주소의 /novel/ · /comic/ 으로 유형을 안다.
-
-        후보의 raw 는 라벨을 떼기 전 원래 제목, book 은 단행본 여부('[단행본]' · '총 N권').
-        _clean_title 이 라벨을 떼서 text 로는 연재판 · 단행본을 못 가린다.
-        """
-        self.driver.get(self._SEARCH_URL.format(urllib.parse.quote(title)))
-        time.sleep(2)
-        raw, full = [], {}
-        # 이미지 링크 말고 제목 링크만 (class 예: 'N=a:nov.title' / 'N=a:com.title')
-        for a in self.driver.find_elements(By.CSS_SELECTOR, "a[href*='detail.series'][class*='title']"):
-            href = a.get_attribute('href') or ''
-            if 'detail.series' not in href:
-                continue
-            original = (a.get_attribute('title') or a.text or '').strip()
-            text = self._clean_title(original)
-            if text:
-                raw.append((href, text, '웹소설' if '/novel/' in href else '웹툰' if '/comic/' in href else None))
-                full[href] = original
-        cands = self.rank_candidates(title, raw)
-        for c in cands:
-            c['raw'] = full.get(c['url'], '').replace('\n', ' ')
-            c['book'] = '[단행본]' in c['raw'] or bool(re.search(r'총\s*\d+\s*권', c['raw']))
-            if c['book']:
-                # 다른 플랫폼(리디 · 카카오 · 미스터블루)처럼 단행본은 유형 힌트로 알린다 — e북 연령 비우기 ·
-                # 단행본은 연재판 다음 순서(pick_candidates)가 시리즈에도 똑같이 걸린다 (#121)
-                c['type_hint'] = '단행본'
-        return cands
 
     def _parse_info(self, lines: list[str]) -> dict:
         """`.end_info` 텍스트 줄. 예) ['연재중', '무협', '글비가', '출판사러프미디어', '전체 이용가']

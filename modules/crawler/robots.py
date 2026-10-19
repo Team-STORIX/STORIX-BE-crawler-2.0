@@ -1,6 +1,8 @@
 """robots.txt 검사 (#131). 크롤러의 페이지 이동(driver.get) · HTTP 요청(http_get)이 모두 여기를 거친다.
 
 막힌 경로면 RobotsDisallowed 를 던져 그 수집을 멈춘다. 일부러 남긴 경로는 EXCEPTIONS 에 사유와 함께 둔다.
+robots.txt 에 STORIXBot 그룹이 있으면 그 그룹을, 없으면 `User-agent: *` 를 따른다 (#135).
+robots.txt 에는 없지만 봇 UA 에게 robots 형식 본문으로 거절하는 사이트도 있다 (리디 검색) — is_denial 로 같이 멈춘다.
 브라우저가 화면 안에서 따로 부르는 요청(XHR)은 여기서 보지 못한다 — 새 플랫폼을 붙일 때는 그 API 경로도 직접 대조한다.
 
     python -m modules.crawler.robots <url> [...]     # 주소마다 허용 · 차단 · 근거 규칙을 보여준다
@@ -17,8 +19,11 @@ EXCEPTIONS = (
     ('accounts.kakao.com', '/login', '사람이 직접 입력하는 로그인 화면'),
     ('ridibooks.com', '/account/login', '사람이 직접 입력하는 로그인 화면'),
     ('www.lezhin.com', '/ko/login', '사람이 직접 입력하는 로그인 화면'),
-    ('series.naver.com', '/search/', '노션 요청 · 링크 채우기 검색. 뺄지 결정 대기 (#131)'),
 )
+
+
+# 크롤러 UA 의 제품 이름. base_crawler.USER_AGENT 가 이 이름을 밝힌다
+BOT_NAME = 'STORIXBot'
 
 
 class RobotsDisallowed(Exception):
@@ -29,7 +34,7 @@ _cache: dict[str, list[tuple[str, str]] | None] = {}
 
 
 def _fetch(host: str, user_agent: str) -> list[tuple[str, str]] | None:
-    """User-agent: * 그룹의 (allow|disallow, 경로) 목록. robots.txt 가 없으면 [], 못 읽으면 None."""
+    """우리에게 적용되는 그룹의 (allow|disallow, 경로) 목록. robots.txt 가 없으면 [], 못 읽으면 None."""
     req = urllib.request.Request(f'https://{host}/robots.txt',
                                  headers={'User-Agent': user_agent, 'Accept-Language': 'ko-KR,ko;q=0.9'})
     try:
@@ -41,8 +46,10 @@ def _fetch(host: str, user_agent: str) -> list[tuple[str, str]] | None:
         return None
 
 
-def parse(text: str) -> list[tuple[str, str]]:
-    rules, star, in_group, seen_rule = [], False, False, False
+def parse(text: str, bot: str = BOT_NAME) -> list[tuple[str, str]]:
+    """bot 이름 그룹이 있으면 그 규칙, 없으면 `*` 그룹 규칙. 연달아 나온 User-agent 는 한 그룹이다."""
+    rules: dict[str, list[tuple[str, str]]] = {'*': [], bot.lower(): []}
+    named, agents, seen_rule = False, [], False
     for raw in text.splitlines():
         line = raw.split('#', 1)[0].strip()
         if ':' not in line:
@@ -50,16 +57,24 @@ def parse(text: str) -> list[tuple[str, str]]:
         key, value = (x.strip() for x in line.split(':', 1))
         key = key.lower()
         if key == 'user-agent':
-            # 규칙이 나온 뒤의 User-agent 는 새 그룹이다. 연달아 나온 User-agent 는 한 그룹
-            if seen_rule or not in_group:
-                star, seen_rule = False, False
-            in_group = True
-            star = star or value == '*'
-        elif key in ('allow', 'disallow') and in_group:
+            # 규칙이 나온 뒤의 User-agent 는 새 그룹이다
+            if seen_rule:
+                agents, seen_rule = [], False
+            agents.append(value.lower())
+        elif key in ('allow', 'disallow') and agents:
             seen_rule = True
-            if star and value:
-                rules.append((key, value))
-    return rules
+            for agent in agents:
+                if agent in rules:
+                    named = named or agent != '*'
+                    if value:
+                        rules[agent].append((key, value))
+    return rules[bot.lower()] if named else rules['*']
+
+
+def is_denial(body: str) -> bool:
+    """봇 UA 에게 robots 형식으로 거절한 응답인지. 예) 리디 검색 403 본문 'User-agent: …STORIXBot… Disallow: /search'"""
+    head = (body or '').lstrip()[:500]
+    return head.lower().startswith('user-agent:') and 'disallow:' in head.lower()
 
 
 def _match_len(pattern: str, path: str) -> int | None:

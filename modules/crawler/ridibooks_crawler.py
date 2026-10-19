@@ -156,45 +156,6 @@ class RidibooksCrawler(BaseCrawler):
         print("❌ [리디북스] 로그인 실패.")
         return False
 
-    def search_candidates(self, title: str) -> list[dict]:
-        """검색 결과 카드는 emotion 해시 클래스라 안정적인 셀렉터가 없어, `/books/<id>`
-        링크(속성 기반)를 훑어 책ID 별로 (표시 제목, 카드 텍스트)를 모은다. 같은 책에
-        썸네일 · 제목 두 앵커가 걸리므로 책ID로 합쳐 텍스트가 있는 쪽을 제목으로 쓴다.
-        """
-        import urllib.parse
-
-        self.driver.get(f"https://ridibooks.com/search?q={urllib.parse.quote(title)}")
-        try:
-            WebDriverWait(self.driver, 15).until(
-                EC.presence_of_element_located((By.CSS_SELECTOR, "a[href*='/books/']"))
-            )
-        except TimeoutException:
-            print(f"   ⚠️  '{title}' 검색 결과 로딩 실패 — 스킵")
-            return []
-        time.sleep(1)
-
-        cards = self.driver.execute_script("""
-            const out = {};
-            for (const a of document.querySelectorAll("a[href*='/books/']")) {
-                const id = (a.href.match(/\\/books\\/(\\d+)/) || [])[1];
-                if (!id) continue;
-                const text = ((a.getAttribute('title') || a.innerText || '').split('\\n')[0] || '').trim();
-                let card = a;
-                for (let i = 0; i < 6 && card.parentElement; i++) {
-                    card = card.parentElement;
-                    if (card.innerText.length > 40) break;
-                }
-                const prev = out[id];
-                if (!prev) out[id] = {text, card: card.innerText, order: Object.keys(out).length};
-                else if (!prev.text && text) prev.text = text;
-            }
-            return Object.entries(out).sort((a, b) => a[1].order - b[1].order)
-                .map(([id, v]) => [id, v.text, v.card]);
-        """) or []
-        raw = [(f"https://ridibooks.com/books/{book_id}", text, ridi_type_hint(card))
-               for book_id, text, card in cards if text]
-        return self.rank_candidates(title, raw)
-
     def get_category_urls(self, base_url: str, extra_params: str, max_count: int) -> list[str]:
         url = f"{base_url}?{extra_params}" if extra_params else base_url
         print(f"  📂 카테고리 URL 수집: {url}")
@@ -566,22 +527,6 @@ def parse_ridi_age(src: str, book_id: str) -> str:
         if f'{n}세 이용가' in titles or f'{n}세이용가' in titles:
             return f'{n}세 이용가'
     return '전체연령가'
-
-
-def ridi_type_hint(card_text: str) -> str | None:
-    """검색 결과 카드 글자 → 유형 힌트. '[e북] 마도조사 | … 해외 소설' · '마도조사 | … BL 웹툰' 형식.
-    e북은 단행본, 웹툰은 웹툰, 만화는 만화, 소설은 웹소설. 판단이 안 서면 None (상세에서 다시 판정)."""
-    t = card_text or ''
-    if '[e북]' in t:
-        return '단행본'
-    head = ' '.join(t.split('\n')[:3])  # 제목 · 작가/출판사/카테고리 · 권수 줄만 본다 (소개글 제외)
-    if '웹툰' in head:
-        return '웹툰'
-    if '만화' in head:
-        return '만화'
-    if '소설' in head:
-        return '웹소설'
-    return None
 
 
 def ridi_real_cover(thumb: str, book_url: str) -> str:

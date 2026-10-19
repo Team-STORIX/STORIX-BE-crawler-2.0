@@ -5,7 +5,6 @@ pytest.importorskip('selenium')
 from crawler.modes.search_titles import _crawl_for_type, _crawl_types, _found_slots  # noqa: E402
 from modules.crawler.base_crawler import BaseCrawler, pick_candidates  # noqa: E402
 from modules.crawler.kakao_crawler import parse_kakao_search_card  # noqa: E402
-from modules.crawler.ridibooks_crawler import ridi_type_hint  # noqa: E402
 
 
 @pytest.mark.parametrize('query,text,stage', [
@@ -87,17 +86,6 @@ def test_kakao_search_card_title_with_comma(card, expected):
 ])
 def test_kakao_search_card_shown_title(card, shown, expected):
     assert parse_kakao_search_card(card, shown) == expected
-
-
-@pytest.mark.parametrize('card,hint', [
-    ('[e북] 마도조사\n묵향동후 외 1명B-Lab(비랩)해외 소설\n총 9권', '단행본'),
-    ('마도조사\n광풍취고당 외 1명B-Lab(비랩코믹스)BL 웹툰\n총 259화', '웹툰'),
-    ('넷카마 펀치!!!\n키마님딥블렌드현대물\n총 138화', None),  # 웹소설 카드엔 장르만 있다 → 상세에서 판정
-    ('환생왕\n작가\n총 300화\n소개글에 웹툰이라는 말이 있어도', None),
-    ('먼작귀(먼가 작고 귀여운 녀석)\n나가노대원씨아이만화 e북\n총 5권', '만화'),  # 출판 만화 (#64)
-])
-def test_ridi_type_hint(card, hint):
-    assert ridi_type_hint(card) == hint
 
 
 class _FakeCrawler:

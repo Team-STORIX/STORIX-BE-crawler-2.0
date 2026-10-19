@@ -40,6 +40,16 @@ def test_robots_blocked_platforms_are_not_crawled(name):
     assert name not in platforms.COOKIE_FILES
 
 
+@pytest.mark.parametrize('name', ['naver_series', 'ridibooks'])
+def test_no_search_platforms_crawl_links_only(name):
+    # 시리즈는 robots.txt 가, 리디는 봇 UA 응답이 검색을 막는다. 상세(링크) 수집은 그대로 (#135)
+    pytest.importorskip('selenium')
+    from modules.crawler.base_crawler import BaseCrawler
+    assert not platforms.searchable(name) and name not in platforms.GENERAL_SEARCH
+    assert platforms.crawler_class(name).search_candidates is BaseCrawler.search_candidates
+    assert '링크' in platforms.why_not_searchable(name)
+
+
 def test_skip_reason_only_when_not_crawled():
     for p in platforms.PLATFORMS:
         assert bool(p.skip) == (p.crawler is None)

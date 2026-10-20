@@ -2,6 +2,19 @@
 
 [← README](../README.md)
 
+## 설치 · 실행
+
+```bash
+python3 -m venv venv && source venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env
+python cli.py login --platform all     # 브라우저에서 로그인, 쿠키 저장
+```
+
+- staging DB 는 SSM 터널(`127.0.0.1:13306`)로 붙습니다. 터널 스크립트는 인프라 담당자에게 받습니다
+- `--env dev | prod` 로 BE 대상을 고릅니다 (기본 `STORIX_ENV`, 없으면 dev)
+- 로컬은 Docker 대신 `python cli.py` 로 (로그인 창이 필요)
+
 ## 모드
 
 결과는 `output/<날짜>/<플랫폼>_<모드>.jsonl` 에 쌓입니다. 같은 작품(`platform_work_id`)은 한 줄로 합쳐지고, 다시 돌리면 기존 파일을 읽어 덮어씁니다.

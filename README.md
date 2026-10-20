@@ -38,29 +38,29 @@ STORIX-BE-Crawler
 
 ```
 .
-├── cli.py                  CLI 진입점 (login · keepalive · crawl · stage · requests)
-├── config.py               URL · DB · 경로 상수
+├── cli.py                  # CLI 진입점 (login · keepalive · crawl · stage · requests)
+├── config.py               # URL · DB · 경로 상수
 ├── crawler/
-│   ├── modes/              initial · new_works · update_fields · search_titles · custom_url · recover · requests
-│   ├── output/             JSONL 기록 (platform_work_id 로 중복 제거, 작가명 정규화)
-│   ├── notify.py           슬랙 알림
-│   └── remote_login.py     폰 원격 로그인 (noVNC + Cloudflare 임시 터널)
+│   ├── modes/              # initial · new_works · update_fields · search_titles · custom_url · recover · requests
+│   ├── output/             # JSONL 기록 (platform_work_id 로 중복 제거, 작가명 정규화)
+│   ├── notify.py           # 슬랙 알림
+│   └── remote_login.py     # 폰 원격 로그인 (noVNC + Cloudflare 임시 터널)
 ├── modules/crawler/
-│   ├── base_crawler.py     드라이버 · 상세 재시도 · 세션 복구
-│   ├── platforms.py        플랫폼 등록부 (크롤러 · 로그인 · 링크 규칙)
-│   ├── robots.py           robots.txt 검사
-│   ├── cookies.py · titles.py · classify.py   쿠키 · 제목 규칙 · 작품 유형 판정
+│   ├── base_crawler.py     # 드라이버 · 상세 재시도 · 세션 복구
+│   ├── platforms.py        # 플랫폼 등록부 (크롤러 · 로그인 · 링크 규칙)
+│   ├── robots.py           # robots.txt 검사
+│   ├── cookies.py · titles.py · classify.py   # 쿠키 · 제목 규칙 · 작품 유형 판정
 │   └── naver · kakao · ridibooks · naver_series · lezhin · mrblue _crawler.py
-├── review/                 검수 파이프라인
-│   ├── models.py · store.py · migrations/   staging DB 구조 · 쿼리 · Alembic
-│   ├── rules.py · catalog.py                Layer 1 규칙 · BE enum 카탈로그
-│   ├── service.py · app.py                  적재 · 승인 · 거절, 검수 API
-│   └── importer.py · backend.py             BE import API 호출
-├── deploy/                 서버 야간 실행 · 쿠키 올리기 · 슬랙 버튼 Lambda · systemd
-├── api/ · tools/           세션 등록 API · 툴 (예전 방식)
+├── review/                 # 검수 파이프라인
+│   ├── models.py · store.py · migrations/   # staging DB 구조 · 쿼리 · Alembic
+│   ├── rules.py · catalog.py                # Layer 1 규칙 · BE enum 카탈로그
+│   ├── service.py · app.py                  # 적재 · 승인 · 거절, 검수 API
+│   └── importer.py · backend.py             # BE import API 호출
+├── deploy/                 # 서버 야간 실행 · 쿠키 올리기 · 슬랙 버튼 Lambda · systemd
+├── api/ · tools/           # 세션 등록 API · 툴 (예전 방식)
 ├── tests/
-├── sessions/               로그인 쿠키 (커밋 안 됨)
-└── output/<날짜>/          수집 결과 JSONL · 리포트 (커밋 안 됨)
+├── sessions/               # 로그인 쿠키 (커밋 안 됨)
+└── output/<날짜>/          # 수집 결과 JSONL · 리포트 (커밋 안 됨)
 ```
 
 ## 개발
@@ -74,57 +74,77 @@ STORIX-BE-Crawler
 
 ### 2026.10 ~ · 리팩터링 · 검수 · 운영 자동화
 <table>
-    <tr align="center">
-        <td><B>Lead·Backend</B></td>
-    </tr>
-    <tr align="center">
-        <td><B>이수아</B></td>
-    </tr>
-    <tr align="center">
-        <td>
-            <img src="https://github.com/Immmii.png?size=100" width="100">
-            <br>
-            <a href="https://github.com/Immmii"><I>Immmii</I></a>
+    <tr>
+        <td align="center" width="160"><B>Lead·Backend</B></td>
+        <td rowspan="4">
+            <ul>
+                <li>검수 파이프라인 (staging DB · 규칙 검사 · 검수 API) — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/2">#2</a> · <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/56">#56</a></li>
+                <li>판정 매핑 승격 (Layer 3) · 바깥 검수 제안 반영 — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/71">#71</a> · <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/73">#73</a></li>
+                <li>노션 작품 추가 요청 자동 처리 — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/67">#67</a> · <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/69">#69</a></li>
+                <li>서버 야간 실행 · 슬랙 알림 · 폰 원격 로그인 · 세션 만료 대응 — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/78">#78</a> · <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/117">#117</a></li>
+                <li>크롤러 공통 구조 리팩터링 (인증 · 정규화 · 플랫폼 판별 공통화) — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/99">#99</a> · <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/100">#100</a> · <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/106">#106</a> · <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/124">#124</a></li>
+                <li>HTTP 우선 수집 · 메모리 절감 — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/50">#50</a></li>
+                <li>robots.txt 준수 · 봇 UA — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/132">#132</a> · <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/136">#136</a></li>
+                <li>레진코믹스 · 미스터블루 크롤러 — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/61">#61</a> · <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/108">#108</a></li>
+            </ul>
         </td>
-    <tr align="center">
-        <td><B>리팩터링(플랫폼 등록부·공통 모듈·HTTP 우선 수집)<br>·검수 파이프라인·노션 요청 자동화<br>·서버 야간 실행·robots 준수</B></td>
+    </tr>
+    <tr>
+        <td align="center"><B>이수아</B></td>
+    </tr>
+    <tr>
+        <td align="center"><img src="https://github.com/Immmii.png?size=100" width="100"></td>
+    </tr>
+    <tr>
+        <td align="center"><a href="https://github.com/Immmii"><I>Immmii</I></a></td>
     </tr>
 </table>
 
 ### 2026.05 ~ 2026.10 · 크롤러 2.0 전환
 <table>
-    <tr align="center">
-        <td><B>Backend</B></td>
-    </tr>
-    <tr align="center">
-        <td><B>이윤지</B></td>
-    </tr>
-    <tr align="center">
-        <td>
-            <img src="https://github.com/yooniicode.png?size=100" width="100">
-            <br>
-            <a href="https://github.com/yooniicode"><I>yooniicode</I></a>
+    <tr>
+        <td align="center" width="160"><B>Backend</B></td>
+        <td rowspan="4">
+            <ul>
+                <li>크롤러 2.0 전환 — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/commit/adb20f9"><code>adb20f9</code></a></li>
+                <li>리디북스 크롤러 · 배치 적재 — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/commit/c654d24"><code>c654d24</code></a></li>
+                <li>커스텀 URL 모드 — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/commit/c9325f4"><code>c9325f4</code></a></li>
+                <li>네이버 웹소설 크롤러 — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/commit/9e5e0e6"><code>9e5e0e6</code></a></li>
+                <li>드라이버 크래시 복구 · 적재 안정화 — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/commit/72fec3b"><code>72fec3b</code></a></li>
+                <li>Docker · 크롬 드라이버 버전 고정 — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/commit/1b8c041"><code>1b8c041</code></a></li>
+            </ul>
         </td>
-    <tr align="center">
-        <td><B>2.0 전환·리디북스·네이버 웹소설<br>·커스텀 URL·Docker</B></td>
+    </tr>
+    <tr>
+        <td align="center"><B>이윤지</B></td>
+    </tr>
+    <tr>
+        <td align="center"><img src="https://github.com/yooniicode.png?size=100" width="100"></td>
+    </tr>
+    <tr>
+        <td align="center"><a href="https://github.com/yooniicode"><I>yooniicode</I></a></td>
     </tr>
 </table>
 
 ### 2025.11 · 크롤러 1.0
 <table>
-    <tr align="center">
-        <td><B>Backend</B></td>
-    </tr>
-    <tr align="center">
-        <td><B>서가영</B></td>
-    </tr>
-    <tr align="center">
-        <td>
-            <img src="https://github.com/caminobelllo.png?size=100" width="100">
-            <br>
-            <a href="https://github.com/caminobelllo"><I>caminobelllo</I></a>
+    <tr>
+        <td align="center" width="160"><B>Backend</B></td>
+        <td rowspan="4">
+            <ul>
+                <li>네이버 로그인 · 웹툰 크롤링 — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/commit/4397605"><code>4397605</code></a> · <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/commit/4311786"><code>4311786</code></a></li>
+                <li>DB 적재 · 해시태그 테이블 — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/commit/c998760"><code>c998760</code></a> · <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/commit/e85cb06"><code>e85cb06</code></a></li>
+                <li>BaseCrawler 공통화 · 카카오페이지 크롤러 — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/commit/c7341ef"><code>c7341ef</code></a> · <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/commit/3f1b24e"><code>3f1b24e</code></a></li>
+            </ul>
         </td>
-    <tr align="center">
-        <td><B>크롤러 1.0 구축<br>·네이버·카카오페이지</B></td>
+    </tr>
+    <tr>
+        <td align="center"><B>서가영</B></td>
+    </tr>
+    <tr>
+        <td align="center"><img src="https://github.com/caminobelllo.png?size=100" width="100"></td>
+    </tr>
+    <tr>
+        <td align="center"><a href="https://github.com/caminobelllo"><I>caminobelllo</I></a></td>
     </tr>
 </table>

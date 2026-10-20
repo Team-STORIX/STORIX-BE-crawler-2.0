@@ -72,7 +72,7 @@ STORIX-BE-Crawler
 
 ## 🛠️ Developers
 
-### 2026.10 ~ · 리팩터링 · 검수 · 운영 자동화
+### 2026.10 ~ 현재 - 리팩터링 · 검수 · 운영 자동화
 <table>
     <tr>
         <td align="center" width="160"><B>Lead·Backend</B></td>
@@ -100,7 +100,7 @@ STORIX-BE-Crawler
     </tr>
 </table>
 
-### 2026.05 ~ 2026.10 · 크롤러 2.0 전환
+### 2026.05 ~ 2026.10 - 크롤러 2.0 전환
 <table>
     <tr>
         <td align="center" width="160"><B>Backend</B></td>
@@ -126,7 +126,7 @@ STORIX-BE-Crawler
     </tr>
 </table>
 
-### 2025.11 · 크롤러 1.0
+### 2025.11 - 크롤러 1.0
 <table>
     <tr>
         <td align="center" width="160"><B>Backend</B></td>

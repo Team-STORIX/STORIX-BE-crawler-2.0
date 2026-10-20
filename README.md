@@ -17,7 +17,57 @@ STORIX-BE-Crawler
 - robots.txt 를 지키고 봇임을 밝힙니다 (`STORIXBot/1.0`). 아이디 · 비밀번호 자동 입력은 하지 않습니다
 - 서버는 자정에 켜져 노션 작품 추가 요청만 처리하고 꺼집니다
 
-## 지원 플랫폼
+## 🛠️ Tech Stack
+
+<table>
+  <tr>
+    <td align="center"><b>Language</b></td>
+    <td>
+      <img alt="Python-3.11" src="https://img.shields.io/badge/Python-3.11-3776AB?style=flat-square&logo=python&logoColor=white">
+    </td>
+  </tr>
+  <tr>
+    <td align="center"><b>Crawling</b></td>
+    <td>
+      <img alt="Selenium" src="https://img.shields.io/badge/Selenium-43B02A?style=flat-square&logo=selenium&logoColor=white">
+      <img alt="Chrome" src="https://img.shields.io/badge/Chrome-4285F4?style=flat-square&logo=googlechrome&logoColor=white">
+    </td>
+  </tr>
+  <tr>
+    <td align="center"><b>Review · API</b></td>
+    <td>
+      <img alt="FastAPI" src="https://img.shields.io/badge/FastAPI-009688?style=flat-square&logo=fastapi&logoColor=white">
+      <img alt="Uvicorn" src="https://img.shields.io/badge/Uvicorn-2C2C2C?style=flat-square">
+      <img alt="SQLAlchemy" src="https://img.shields.io/badge/SQLAlchemy-D71F00?style=flat-square&logo=sqlalchemy&logoColor=white">
+      <img alt="Alembic" src="https://img.shields.io/badge/Alembic-6BA81E?style=flat-square">
+      <img alt="MySQL" src="https://img.shields.io/badge/MySQL-4479A1?style=flat-square&logo=mysql&logoColor=white">
+    </td>
+  </tr>
+  <tr>
+    <td align="center"><b>Infra</b></td>
+    <td>
+      <img alt="Amazon EC2" src="https://img.shields.io/badge/Amazon_EC2-FF9900?style=flat-square&logo=amazonec2&logoColor=white">
+      <img alt="EventBridge Scheduler" src="https://img.shields.io/badge/EventBridge_Scheduler-FF4F8B?style=flat-square&logo=amazonwebservices&logoColor=white">
+      <img alt="AWS Lambda" src="https://img.shields.io/badge/AWS_Lambda-FF9900?style=flat-square&logo=awslambda&logoColor=white">
+      <img alt="Docker" src="https://img.shields.io/badge/Docker-2496ED?style=flat-square&logo=docker&logoColor=white">
+    </td>
+  </tr>
+  <tr>
+    <td align="center"><b>외부 연동</b></td>
+    <td>
+      <img alt="Notion" src="https://img.shields.io/badge/Notion-000000?style=flat-square&logo=notion&logoColor=white">
+      <img alt="Slack" src="https://img.shields.io/badge/Slack-4A154B?style=flat-square&logo=slack&logoColor=white">
+    </td>
+  </tr>
+  <tr>
+    <td align="center"><b>테스트</b></td>
+    <td>
+      <img alt="pytest" src="https://img.shields.io/badge/pytest-0A9EDC?style=flat-square&logo=pytest&logoColor=white">
+    </td>
+  </tr>
+</table>
+
+## 🌍 Supported Platforms
 
 | 플랫폼 | 수집 |
 |---|---|
@@ -26,15 +76,15 @@ STORIX-BE-Crawler
 | `ridibooks` · `naver_series` | 링크로만 (검색이 막힘) |
 | `naver_novel` · `bomtoon` | 수집 안 함 (robots.txt) |
 
-## 문서
+## 📚 Docs
 
-| | |
+| 문서 | 내용 |
 |---|---|
 | [수집](crawler/README.md) | 설치 · 실행 · 수집 모드 · 제목 검색 규칙 · 플랫폼별 메모 · JSONL 형식 |
 | [검수 · 적재](review/README.md) | 판정 · 매핑 승격 · 링크 복구 · 노션 요청 · Alembic |
 | [서버 운영](deploy/README.md) | 야간 실행 · 슬랙 알림 · 세션 만료 대응 · 설정 · 점검 |
 
-## 파일 구조
+## 📂 File Structure
 
 ```
 .
@@ -63,7 +113,7 @@ STORIX-BE-Crawler
 └── output/<날짜>/                            # 수집 결과 JSONL · 리포트 (커밋 안 됨)
 ```
 
-## 개발
+## 💻 Development
 
 - `develop` 에 기능 PR → `release/vX.Y.Z` → `main` (BE 와 같은 Release 방식)
 - CI: PR · 푸시마다 `pytest` (MySQL 8.0) · Docker 빌드

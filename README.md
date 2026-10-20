@@ -19,7 +19,7 @@ STORIX-BE-Crawler
 
 ## 지원 플랫폼
 
-| `--platform` | 수집 |
+| 플랫폼 | 수집 |
 |---|---|
 | `naver_webtoon` · `kakao_page` | 목록 · 제목 검색 · 링크 |
 | `lezhin` · `mrblue` | 제목 검색 · 링크 |

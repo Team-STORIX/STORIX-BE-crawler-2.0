@@ -24,7 +24,7 @@ STORIX-BE-Crawler
 | `naver_webtoon` · `kakao_page` | 목록 · 제목 검색 · 링크 |
 | `lezhin` · `mrblue` | 제목 검색 · 링크 |
 | `ridibooks` · `naver_series` | 링크로만 (검색이 막힘) |
-| 네이버 웹소설 · 봄툰 | 수집 안 함 (robots.txt) |
+| `naver_novel` · `bomtoon` | 수집 안 함 (robots.txt) |
 
 ## 문서
 

@@ -1,555 +1,207 @@
-# STORIX-BE-Crawler 2.0
+<h1>
+<img src="https://github.com/user-attachments/assets/b65bf457-6754-4e0d-9d94-4511721b2b36" align=left width=100>
+STORIX-BE-Crawler
+</h1>
 
-네이버 웹툰 / 네이버 시리즈 / 카카오페이지 / 리디북스 / 레진코믹스 / 미스터블루 크롤러
-Selenium 병렬 워커 → JSONL 산출물 → 검수 staging(Layer 1 · 1.5) → BE import API
+> 이야기에 대한 이야기로 모두가 연결되는 이 곳! 데이터로 취향을 연결하는 웹툰·웹소설 팬덤 플랫폼, STORIX
 
----
+<br>
 
-## 주요 기능
+웹툰 · 웹소설 플랫폼에서 작품 정보를 모아, 검수를 거쳐 STORIX BE 에 넣습니다.
 
-- CLI 진입점 (`cli.py`) — `login` / `crawl` / `stage` 명령
-- JSONL 산출물 작성기 (`crawler/output/jsonl_writer.py`)
-- 크롤링 모드: initial (전체), new_works (신작), update_fields (필드 갱신), search_titles (작품명 검색), **custom_url (URL 기반)**
-- 검수 파이프라인 (`review/`): JSONL → staging DB → 규칙 검사(Layer 1) · 런 이상 차단(Layer 1.5) → 사람 검수 → 반복 판정은 매핑으로 승격(Layer 3) → BE import API. **크롤러는 서비스 DB에 직접 쓰지 않습니다**
-- 서버(EC2) 야간 실행 — 자정에 켜서 노션 작품 요청만 처리하고 끈다. 세션 만료 · 실패는 슬랙 알림 (`deploy/`, #77)
-- 병렬 워커 풀 (`ThreadPoolExecutor` + `queue.Queue`, 워커 2개)
-- 쿠키 로그인 → 브라우저 수동 로그인 순으로 폴백. 아이디 · 비밀번호 자동 입력은 하지 않음 (#131)
-- **robots.txt 검사** — 모든 페이지 이동 · HTTP 요청 전에 대상 사이트 robots.txt 를 확인하고, 막힌 경로면 멈춤 (`modules/crawler/robots.py`, #131)
-- **봇임을 밝힘** — User-Agent 는 `STORIXBot/1.0`, 자동화 표시도 숨기지 않음. robots.txt 에 `STORIXBot` 그룹이 있으면 그 규칙을 따르고, 봇에게 거절 응답(robots 형식 본문)을 주는 경로도 차단으로 보고 멈춤 (#135)
-- **같은 작품 판정은 BE 가 담당** — 여러 플랫폼에서 들어온 같은 작품은 한 작품에 플랫폼 · 링크 · 해시태그가 합쳐짐 (연령은 올리기만, 해시태그는 합집합)
-- **JSONL 중복 제거** — `platform_work_id` 기준 in-memory dedup, 재실행 시 기존 파일 로드 후 덮어씌움
-
----
-
-## 실행 방법
-
-### 로컬 (Python 직접)
-
-**가상환경 생성 및 의존성 설치**
-```bash
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
+```
+플랫폼 ──수집──▶ JSONL ──▶ staging DB ──검수──▶ BE import API
 ```
 
-> PyCharm 사용 시: Settings → Python Interpreter → Add Interpreter → Virtualenv → 프로젝트 루트 선택
-> 이후 PyCharm 터미널을 열면 자동으로 `(venv)` 활성화됩니다.
+- 서비스 DB 에 직접 쓰지 않습니다. 같은 작품 판정은 BE 가 합니다
+- robots.txt 를 지키고 봇임을 밝힙니다 (`STORIXBot/1.0`). 아이디 · 비밀번호 자동 입력은 하지 않습니다
+- 서버는 자정에 켜져 노션 작품 추가 요청만 처리하고 꺼집니다
 
-**.env 설정** (`.env.example` 복사 후 수정)
-```bash
-cp .env.example .env
-```
+## 지원 플랫폼
 
-**검수 staging DB**
-
-크롤러는 검수용 staging DB(`storix_staging_dev` · `storix_staging_prod`)만 씁니다. 운영 RDS 안의 별도 DB이고, 크롤러 계정 `storix_crawler`는 이 DB에만 권한이 있습니다(비밀번호: Parameter Store `/storix/crawler/STAGING_DB_PASSWORD`).
-
-```bash
-# SSM 터널 (storix-db-tunnel.sh 는 레포에 포함되지 않음 — 인프라 담당자에게 별도 전달받아 사용)
-./storix-db-tunnel.sh          # 127.0.0.1:13306 유지
-# .env: MYSQL_DATABASE_HOST=127.0.0.1 / PORT=13306 / USER=storix_crawler / PASSWORD=…
-```
-
-BE 대상(dev · prod)은 `STORIX_ENV` 또는 `--env` 로 고르고, 주소 · 내부 API 키 · staging DB 가 함께 바뀝니다(`review/env.py`, `.env.example` 참고).
-
----
-
-**크롤링**
-```bash
-# 전체 initial 크롤링 (네이버 + 카카오 + 리디북스)
-python cli.py crawl --platform all --mode initial
-
-# 신작 크롤링
-python cli.py crawl --platform all --mode new_works
-
-# 특정 플랫폼만
-python cli.py crawl --platform kakao_page --mode initial
-python cli.py crawl --platform ridibooks --mode initial
-
-# 필드 갱신 (기존 JSONL 재크롤링)
-python cli.py crawl --platform all --mode update_fields --input ./output/2026-05-09/
-
-# 작품명 리스트로 검색 크롤링 (파일 입력)
-python cli.py crawl --platform all --mode search_titles --titles-file titles.txt
-
-# 작품명 리스트로 검색 크롤링 (쉼표 구분 직접 입력)
-python cli.py crawl --platform all --mode search_titles --titles "나 혼자만 레벨업,재혼 황후"
-
-# 여러 플랫폼을 동시에 (크롬이 플랫폼마다 따로 뜬다. initial · new_works · update_fields 도 같은 옵션)
-python cli.py crawl --platform all --mode search_titles --titles-file titles.txt --parallel 2
-
-# 네이버 시리즈 · 리디북스는 제목 검색이 막혀 있어 링크(custom_url)로만 수집한다 (#135)
-
-# 커스텀 URL 크롤링 (네이버 웹툰 - 일일 연재+ 인기순, 상위 213개)
-python cli.py crawl --mode custom_url --url "https://comic.naver.com/webtoon?tab=dailyPlus" --count 213
-
-# 커스텀 URL 크롤링 (네이버 웹툰 - 완결 인기순, 상위 500개)
-python cli.py crawl --mode custom_url --url "https://comic.naver.com/webtoon?tab=finish" --count 500
-
-# 커스텀 URL 크롤링 (카카오페이지, 상위 300개)
-python cli.py crawl --mode custom_url --url "https://www.kakaopage.com/content/..." --count 300
-
-# 커스텀 URL 크롤링 (리디북스 단건 상세 — 특정 작품을 URL로 직접)
-python cli.py crawl --mode custom_url --url "https://ridibooks.com/books/5131000001"
-
-# 커스텀 URL 크롤링 (리디북스 카테고리 목록, 상위 200개)
-python cli.py crawl --mode custom_url --url "https://ridibooks.com/category/bestsellers/1613?period=steady" --count 200
-```
-
-> **리디 단건 URL**을 이미 알고 있으면 `custom_url` 모드에 `/books/<id>` 상세 URL을 직접 넣어 크롤한 뒤 `stage load` → `stage import` 로 적재하세요(아래 **검수 · 적재**). 카테고리 목록 URL을 주면 목록을 수집해 각 상세를 크롤합니다. 리디 · 네이버 시리즈는 제목 검색을 하지 않아 링크로만 수집합니다 (#135).
-
-> **`search_titles` 모드 (임의 목록으로 특정 작품만 채우기)**
-> - 지원 플랫폼: `naver_webtoon`, `kakao_page`, `lezhin`, `mrblue`, `all`(= 네이버 웹툰 · 카카오페이지)
->   - 네이버 시리즈(robots.txt `Disallow: /search`) · 리디(봇 UA 검색 403)는 검색이 막혀 제목으로 찾지 않습니다 (#135)
-> - `titles.txt`에 작품명을 줄바꿈으로 나열하면 각 플랫폼에서 제목 검색 → 상세 크롤 → JSONL 저장.
-> - `titles.txt`는 레포에 포함되지 않습니다(`.gitignore`). 직접 만드세요.
-> - 제목은 **`## 웹툰` / `## 웹소설` / `## 만화` / `## 단행본` / `## 전체`** 섹션 헤더 아래에 둡니다. 섹션은 **찾을 작품 유형**이며, 헤더 없이 나온 제목은 스킵됩니다.
->   - `웹툰` → 네이버 웹툰·카카오에서 **웹툰판만** / `웹소설` → 카카오에서 **웹소설판만**
->   - `전체` → 웹툰판·웹소설판을 각각 찾아 **있는 판을 다** 수집 (한쪽만 있으면 그것만)
->   - 카카오는 검색 결과에 웹툰·웹소설이 섞여 나오므로, 검색 화면의 유형 표기로 먼저 거르고 상세에서 판정한 `works_type`으로 한 번 더 확인합니다(최대 3개 후보)
->   - 웹소설은 연재판을 먼저 고르고, 연재판이 없을 때만 e북을 고릅니다. e북 연령은 기존 작품에 보내지 않고(권마다 연령이 달라 웹소설 연령을 덮어쓸 수 있음), 작품이 없어 새로 만들 때만 씁니다
->   - 외전·번외는 본편과 같은 작품이라 수집하지 않고, 19세 완전판·개정판은 BE가 다른 작품으로 보므로 본편과 함께 수집합니다
->   - `단행본` → 소설 e북일 수도 만화책일 수도 있어 **웹소설·만화로** 찾습니다 (노션 요청 '단행본'과 같은 해석)
-> - 같은 섹션에 같은 제목이 여러 줄 있으면 **첫 줄만 쓰고 나머지는 제외**합니다(같은 작품 중복 크롤 방지). 단 `원룸 조교님` ⇄ `원룸조교님`처럼 표기가 다르면 별개로 봅니다 — 같은 작품 판정은 BE import 가 하고(라벨 · 띄어쓰기 · 기호를 뺀 제목 + 작가), 애매하면 `SUSPECTED_DUPLICATE` 로 검수 대기가 됩니다.
-> - `--platform all`은 네이버 웹툰 · 카카오페이지를 순회하며, **한 곳에서라도 찾으면** 해당 작품을 처리합니다.
-> - 제목 매칭은 **완전일치 → 앞부분 일치 → 유사도 ≥90%** 순으로 시도합니다. `[완결]`·`[e북]` 같은 라벨을 떼고 정규화(공백·괄호·`·∙#` 제거) 후 비교합니다. 앞부분 일치는 뒤에 붙은 말이 부제·판본 구분자(` - `, `:`, `~`, `(`, `[`)로 시작할 때만 인정합니다(`레지나레나 - 용서받지 못한 그대에게`는 통과, `상수리나무 아래 4컷 만화`는 다른 작품). 임계값은 `BaseCrawler.TITLE_FUZZY_THRESHOLD`로 조정.
-> - 네이버 웹툰 도전만화·베스트도전은 **정식 계약 전 작품이라 수집하지 않습니다**(검수에서도 `PRE_CONTRACT_WORK`로 거절).
-> - **리디북스**는 봇의 검색을 막아(#135) `/books/<id>` 링크로만 수집합니다. 성인(19금) 작품 상세는 **성인 인증된 계정으로 로그인**돼 있어야 열리니, 리디 세션(`sessions/ridibooks_cookies.pkl`)이 성인 인증 상태인지 확인하세요. 리디 연령은 책 데이터(성인) · "15세 · 12세 이용가 안내" 공지로 판정하고, 둘 다 없으면 전체연령가입니다. 성인 e북 표지가 가림 이미지면 책 ID 로 실제 표지를 받습니다.
-> - **네이버 웹소설 · 봄툰은 수집하지 않습니다** (#131). 네이버 웹소설은 robots.txt 가 사이트 전체를, 봄툰은 상세 · 검색 API(`/api/`)를 막습니다. 노션 요청 연재처가 봄툰 · 리디 · 시리즈뿐이면 다른 플랫폼에서 찾지 않고 '검토'로 이유를 남깁니다 (#135).
-> - **레진코믹스 · 미스터블루**도 작품 링크로 수집합니다(`--mode update_fields`). 성인 작품은 성인 인증된 로그인 세션이 필요합니다: `python cli.py login --platform lezhin` · `--platform mrblue`. 이후에는 그 쿠키로 브라우저 없이 작품 페이지를 받습니다 (레진: 페이지 안 Next.js 데이터, 미스터블루: 서버 HTML). 표지는 세로형(레진 `tall.jpg` 600x800, 미스터블루 `cover_w480.jpg` 480x694)을 씁니다. BE `LEZHIN` · `MRBLUE` 플랫폼이 배포된 뒤 반영합니다.
-> - **상세 수집은 HTTP 가 먼저**입니다. 네이버 웹툰은 작품 정보 API(`comic.naver.com/api/article/list/info`), 리디는 상세 HTML 안의 책 데이터(`__NEXT_DATA__`)로 받고, 못 받으면 브라우저로 엽니다. 브라우저는 이미지를 받지 않고(`eager` 로딩), 상세 100건마다 드라이버를 새로 띄웁니다.
-> - **`--titles-file` 사용 시 크롤에 성공한 작품은 파일에서 자동 제거**되어, `titles.txt`에는 못 찾은 작품만 남습니다(재시도용). `--titles`(직접 입력)는 파일을 수정하지 않습니다.
-> - BE import 는 빈 값을 덮어쓰지 않고, 연령은 올리기만 하며, 해시태그는 기존 태그에 더합니다.
-
-**검수 · 적재 (`stage`)**
-
-수집 결과(JSONL)는 바로 BE 로 가지 않고 staging 에서 검수를 거칩니다.
-
-```bash
-# 1) staging 적재 + 규칙 검사 (런 단위). --env 생략 시 STORIX_ENV(기본 dev)
-python cli.py stage load --env dev --input 'output/2026-10-10/*_search_titles.jsonl' --source search_titles
-
-# 2) 상태 확인
-python cli.py stage stats --env dev
-
-# 3) BE 반영 (보내기 전에 런별 건수를 보여주고 확인받음)
-python cli.py stage import --env dev --run-id <런>
-```
-
-| 판정 | 의미 |
+| `--platform` | 수집 |
 |---|---|
-| `AUTO_PASS` | 바로 BE 로 보냄 |
-| `NEEDS_REVIEW` | 사람이 확인 (장르 매핑 실패, 가림 표지, BE 중복 의심, 새 작품인데 연령 · 장르가 빔 등) |
-| `REJECTED` | 보내지 않음 (작품명 · 작가 · 링크 없음, 정식 계약 전 작품 등) |
+| `naver_webtoon` · `kakao_page` | 목록 · 제목 검색 · 링크 |
+| `lezhin` · `mrblue` | 제목 검색 · 링크 |
+| `ridibooks` · `naver_series` | 링크로만 (검색이 막힘) |
+| 네이버 웹소설 · 봄툰 | 수집 안 함 (robots.txt) |
 
-- 연령 · 장르가 비어도 막지 않습니다. 기존 작품에 붙으면 BE 가 빈 값을 무시하고, 새로 만들어야 하면 BE 가 거절해 그 건만 검수 대기가 됩니다(한 실행 안에서 마지막에 한 번 더 보내 다른 플랫폼 행이 만든 작품에 붙임)
-- 검수 대기 처리는 검수 API(`uvicorn review.app:app --port 8200`)의 `GET /review/queue` · `POST /review/{id}/approve`(`overrides`, 기존 작품에 붙일 `target_works_id`) · `POST /review/{id}/reject` 로 합니다
-- 수집 시각만 다르고 내용이 같으면 판정 · import 상태를 그대로 둬 BE 로 다시 보내지 않습니다
+## 문서
 
-**판정 매핑 승격 (Layer 3, #70)**
-
-검수에서 enum 값(장르 · 연령 · 작품 유형)을 고쳐 승인하면 `review_decision` 에 원문 → 결정값이 남습니다.
-같은 (필드, 원문) 판정이 `REVIEW_PROMOTE_MIN`(기본 3)번 이상이고 결론이 모두 같으면 `review_mapping` 으로 승격하고,
-다음 적재부터 Layer 1 이 카탈로그로 못 맞춘 원문을 그 매핑으로 고쳐 통과시킵니다 (판정 기록에 `MAPPED` INFO 로 남음).
-
-- 승격은 `stage load` 때 자동으로 돌고, 결론이 갈리거나 횟수가 모자라게 된 매핑은 내려갑니다 (매번 판정 기록에서 다시 만듦)
-- 카탈로그로 맞춰지는 값은 매핑보다 카탈로그를 따르고, 카탈로그에 없는 값으로 승격된 매핑은 쓰지 않습니다
-- 바깥 검수 제안(`suggest:<도구>`)으로 승인된 판정은 **0.5번**으로 셉니다 (제안을 묶어 승인하다 같은 실수가 반복돼 규칙이 되지 않게). 사람이 직접 고친 판정은 1번
-
-```bash
-python cli.py stage promote --env prod            # 승격하고 지금 매핑 목록 보기
-python cli.py stage promote --env prod --min 5    # 기준을 바꿔 보기
-```
-
-**작품별 수집 이력 · 링크 복구**
-
-`stage load` 가 플랫폼 작품마다 수집 이력(staging DB `works_source`)을 남깁니다: 링크 · 연결된 BE 작품 ID · 제목 · 작가 · 검색어(지금까지 수집된 제목들) · 마지막 수집 · 성공 시각 · 상태 · 연속 실패 횟수. 같은 런의 수집 리포트(`<모드>_report.json`)에 있는 상세 수집 실패(`DETAIL_NOT_FOUND`)도 같이 기록하고, 3번 연달아 실패하면 그 작품을 검수 대기(`LINK_BROKEN`)로 돌립니다.
-
-```bash
-# 마지막 수집이 실패한 작품의 링크를 다시 찾는다 (크롬 사용)
-#   옛 링크를 한 번 더 열고, 안 되면 저장된 검색어로 검색해 제목 · 작가 · 작품 유형이 맞는 후보를 고른다
-python cli.py stage recover --env dev [--platform RIDIBOOKS] [--limit 50]
-python cli.py stage load --env dev --input 'output/2026-10-10/*_recover.jsonl' --source recover
-```
-
-검수 API 에서도 조회할 수 있습니다: `GET /sources?status=broken`(복구 대상, 연속 실패 많은 순) · `GET /sources/{platform}/{platform_work_id}`(작품 하나의 이력과 같은 링크의 staging 상태).
-
-**노션 작품 추가 요청 자동 처리** (#66)
-
-랜딩 폼 '작품 추가 요청' DB 에서 '추가 여부' · '적재 검토 중' 이 둘 다 꺼진 요청(ID `NOTION_REQUEST_MIN_ID`~, 기본 441)을 읽어
-요청에 적힌 연재처 · 작품 형태로 검색 · 수집하고, 검수 적재 → BE 반영까지 한 뒤 노션에 결과를 표시합니다.
-BE 에 들어가면(새로 생성 · 기존 작품 갱신) '추가 여부', 못 찾았거나 검수 대기 · 중복 의심이면 '적재 검토 중' + '메모' 에 이유.
-
-```bash
-python cli.py requests --env prod --dry-run   # 수집 · 검수 적재까지만 (BE · 노션은 안 건드림)
-python cli.py requests --env prod             # 끝까지
-```
-dry-run 결과를 확인하고 나서 반영하려면 `--resume` 으로 이어받습니다 (#68). 다시 수집하지 않고, dry-run 이 남긴
-상태 파일(`output/<날짜>/requests_state_<env>.json`)의 런을 BE 에 반영한 뒤 노션에 표시합니다. 그사이 노션에서 처리된 요청은 건너뜁니다.
-
-```bash
-python cli.py requests --env prod --dry-run                                   # 수집 · 검수 적재 + 상태 파일
-python cli.py stage queue --env prod --run-id <run_id> --output queue.json    # 검수 대기 행 내보내기 (enum 값 목록 포함)
-python cli.py stage suggest --env prod --input suggestions.json --by claude   # 바깥 검수 제안 기록 (llm_verdict)
-python cli.py requests --env prod --resume                                    # 제안 반영 → BE 반영 → 노션 표시
-```
-제안(`[{"staging_id", "action": "approve" | "reject" | "skip", "overrides", "confidence", "reason"}]`)은 레포 밖 도구가 만들고,
-`--resume` 을 실행할 때만 반영됩니다. 승인은 고친 값으로 Layer 1 을 다시 통과해야 하고, 판정은 `review_decision` 에 `suggest:<도구>` 로 남습니다.
-작품명 · 플랫폼 · 링크처럼 작품을 특정하는 값은 제안으로 고칠 수 없습니다.
-
-노션 요청과 상관없이 **검수 대기 전체**에도 같은 흐름을 쓸 수 있습니다 (#72).
-
-```bash
-python cli.py stage queue --env prod --all [--limit 200] --output queue.json   # 런과 상관없이 검수 대기 전체
-python cli.py stage suggest --env prod --input suggestions.json --by claude
-python cli.py stage apply --env prod --all --import                            # 제안 반영 → 이번에 승인한 건만 BE 반영
-```
-`--import` 는 이번에 제안으로 승인한 행만 보냅니다. 다른 AUTO_PASS 대기분은 같이 나가지 않습니다.
-
-`.env` 에 `NOTION_TOKEN` · `NOTION_REQUEST_DB_ID` 가 필요하고, 노션 통합을 DB 페이지에 연결(Connections)해야 읽힙니다.
-수집한 작품이 있으면 staging DB 에 붙으므로 로컬에서는 DB 터널이 열려 있어야 합니다.
-
----
-
-### 로그인 및 세션 관리
-
-로그인은 아래 순서로 자동 폴백됩니다.
-
-| 순서 | 방법 | 설명 |
-|------|------|------|
-| 1 | 쿠키 파일 | `sessions/*.pkl` 존재 시 자동 적용 |
-| 2 | 브라우저 수동 로그인 | 쿠키가 없거나 만료면 브라우저 창이 열리고 로그인 완료를 자동 감지 |
-
-아이디 · 비밀번호를 환경변수로 넣어 자동 입력하는 방식은 없앴습니다. 로그인 화면은 robots.txt 가 막고, 네이버 약관은 자동화 수단 로그인을 금지합니다 (#131).
-
-> 수동 로그인 시 브라우저에서 로그인을 완료하면 자동 감지되며 (최대 3분 대기), 완료 후 쿠키를 저장합니다.
-
-**카카오페이지 최초 로그인 시 주의사항**
-1. 브라우저에서 카카오 로그인을 완료하세요.
-2. 성인 웹툰을 하나 클릭해 '연령 확인'이 뜨면 인증을 완료하세요.
-3. 자동으로 감지됩니다.
-
-크롤링 중 세션이 만료되면 자동으로 드라이버를 재시작하고 재로그인 후 크롤링을 재개합니다.
-
-쿠키 파일(`sessions/*.pkl`)은 `.gitignore`에 등록되어 있어 커밋되지 않습니다.
-
----
-
-### 로그인 세션 저장 (Docker 실행 전 필수)
-
-Docker는 GUI가 없는 headless 환경이라 최초 로그인은 **로컬 Python에서 먼저** 실행해야 합니다.
-`python cli.py login` 명령이 브라우저를 열고 로그인을 완료하면 `sessions/*.pkl`에 쿠키를 저장합니다.
-
-```bash
-# 플랫폼별 개별 로그인
-python cli.py login --platform naver_webtoon
-python cli.py login --platform kakao_page
-python cli.py login --platform ridibooks
-
-# 전체 한 번에 (순서대로 실행)
-python cli.py login --platform all
-```
-
-브라우저 창이 열리면 직접 로그인하세요. 완료를 자동 감지하고 `sessions/` 폴더에 쿠키 파일을 저장합니다.
-
-> **카카오페이지**: 최초 로그인 시 성인 웹툰을 한 번 클릭해 연령 확인을 완료해야 성인 콘텐츠 크롤링이 가능합니다.
-
----
-
-### 서버 (EC2 야간 실행, #77)
-
-dev BE 서버처럼 꺼 두었다가 자정에 켜서 **노션 작품 요청 처리만** 한 번 돌리고 끕니다. 상주 스케줄러와 일일 · 월간 수집은 없습니다.
-
-```
-EventBridge Scheduler 00:00 → EC2 StartInstances
-  → systemd storix-crawler-nightly (deploy/nightly.sh)
-      1) Parameter Store /storix/crawler/* → /run/storix-crawler.env (메모리, 끝나면 지움)
-      2) main 의 compose · 스크립트를 받고, 이미지는 ECR storix-crawler:latest 를 받음
-      3) S3 storix-crawler-sessions 에 더 새 쿠키가 있으면 받음
-      4) docker compose run --rm nightly  (= python cli.py requests --env prod)
-      5) shutdown -h now
-EventBridge Scheduler 01:00 → EC2 StopInstances   (멈췄을 때 안전망)
-```
-
-**슬랙 알림** — 세션 만료(AUTH_EXPIRED) · 차단(RATE_LIMITED) · 수집 실패(PARSING_FAILED) · 예외로 멈춤을 `SLACK_BOT_TOKEN` · `SLACK_CHANNEL_ID`(BE 와 같은 봇)로 보냅니다. 둘이 없으면(로컬) 보내지 않습니다. **폰으로 다시 로그인** — 세션 만료 알림에 플랫폼마다 `[📱 다시 로그인]` 버튼이 붙습니다.
-
-```
-버튼 → Lambda deploy/lambda/slack_actions.py (슬랙 서명 · 누른 사람 확인) → 서버에 태그 crawler:mode=login 달고 켬
-  → nightly.sh 가 태그를 보고 crawler/remote_login.py 실행
-     Xvfb + x11vnc + noVNC + Cloudflare 임시 터널 → 원격 화면 링크를 누른 사람에게만 DM
-  → 폰에서 그 화면의 Chrome 으로 로그인 (캡차 · 2차 인증 · OTP 직접)
-  → 쿠키를 S3 에 올리고 알림 스레드에 ✅ → 서버 꺼짐
-```
-- 들어오는 포트는 열지 않습니다 (터널은 서버에서 나가는 연결). 링크는 무작위 주소 + 1회용 VNC 비밀번호, 한 기기만 접속, 30분 뒤 닫힘
-- 크롤러 전용 슬랙 앱(`deploy/slack-app-manifest.yml`)을 씁니다. Interactivity Request URL = Lambda Function URL
-- 서버가 켜져 있을 때(야간 실행 중)는 태그 crawler:mode=login-after 만 달고, nightly.sh 가 수집을 마친 뒤 끄기 전에 원격 로그인합니다. 켜지는 중 · 꺼지는 중이면 잠시 뒤 다시 눌러 달라고 답합니다
-- 세션 만료로 못 찾은 노션 요청은 노션에 표시하지 않고 남겨 둡니다 — 다시 로그인하면 다음 자정 실행에서 다시 찾습니다
-- 다시 로그인 완료 답글에 `[🔄 못 긁은 작품 다시 긁기]` 버튼이 붙습니다. 누르면 같은 방식(crawler:mode=rerun · rerun-after)으로 노션 요청 처리만 바로 다시 돌고, 결과를 그 스레드에 답니다
-
-맥에서는 직접 로그인해 올려도 됩니다 (서버가 꺼져 있어도 됨).
-
-```bash
-python cli.py login --platform kakao_page   # 로컬에서 다시 로그인
-deploy/push_sessions.sh kakao               # 그 쿠키만 S3 에 (인자 없으면 sessions/*.pkl 전부)
-```
-**쿠키 갱신** — 야간 실행은 노션 요청 처리 전에 `python cli.py keepalive` 로 쿠키 파일이 있는 플랫폼을 모두 쿠키로 열어 봅니다. 열리면 사이트가 새로 내려준 쿠키를 파일에 합쳐 저장하고(쓸 때마다 연장되는 세션 유지), 안 열리면 그날 요청이 없어도 만료 알림을 보냅니다. 같은 날 같은 쿠키의 만료 알림은 한 번만 갑니다. 서버를 끄기 전에 S3 보다 새 쿠키를 올립니다.
-
-서버는 다음 자정 부팅 때 S3 쪽이 서버 파일보다 새 것만 받습니다. 만료된 플랫폼만 올려야 서버가 실행 중 다시 저장한 다른 쿠키를 덮지 않습니다.
-
-**주간 작품 추가 알림** — 월요일 자정 실행 때 지난주(월~일, 한국 시간)에 BE 에 새로 만든(CREATED) 작품을 보냅니다. 원글에는 안내 · 건수만, 작품명은 스레드 답글로 답니다. 없으면 보내지 않습니다. 직접 보기: `python cli.py stage weekly --env prod [--date YYYY-MM-DD] [--send]`
-```
-*:bell: [10월 2주차] 크롤러 작품 추가 알림*
-
-<N건 추가>
-  └ (스레드 답글, 100개씩) 작품명1
-                         작품명2
-```
-스레드 답글(🔐 링크 보냄 · ✅ 완료 · ⚠️ · ❌)은 원글에도 같은 이모지로 반응을 답니다. 알림 목록만 봐도 결과가 보입니다.
-
-**Parameter Store `/storix/crawler/`** — 파라미터 이름이 곧 환경변수 이름입니다.
-
-| 이름 | 값 |
+| | |
 |---|---|
-| `MYSQL_DATABASE_HOST` · `MYSQL_DATABASE_PORT` | staging RDS 주소 · 3306 |
-| `STAGING_DB_USERNAME` · `STAGING_DB_PASSWORD` | staging 계정 (기존 값. `MYSQL_DATABASE_USER` · `MYSQL_DATABASE_PASSWORD` 로도 넘긴다) |
-| `NOTION_TOKEN` · `NOTION_REQUEST_DB_ID` | 노션 작품 요청 DB |
+| [수집](crawler/README.md) | 설치 · 실행 · 수집 모드 · 제목 검색 규칙 · 플랫폼별 메모 · JSONL 형식 |
+| [검수 · 적재](review/README.md) | 판정 · 매핑 승격 · 링크 복구 · 노션 요청 · Alembic |
+| [서버 운영](deploy/README.md) | 야간 실행 · 슬랙 알림 · 세션 만료 대응 · 설정 · 점검 |
 
-BE 와 같이 쓰는 값은 복사하지 않고 `/storix/prod/env/` 에서 읽습니다: `INTERNAL_API_KEY`(→ `STORIX_PROD_INTERNAL_API_KEY`) · `SLACK_BOT_TOKEN` · `SLACK_CHANNEL_ID`.
-
-**처음 한 번 (서버)**
-```bash
-sudo git clone https://github.com/Team-STORIX/STORIX-BE-crawler-2.0.git /opt/storix-crawler
-sudo cp /opt/storix-crawler/deploy/storix-crawler-nightly.service /etc/systemd/system/
-sudo systemctl enable storix-crawler-nightly
-# 쿠키는 로컬에서 deploy/push_sessions.sh 로 S3 에 올린다
-```
-
-- 인스턴스: `t3a.small` · CPU 크레딧 standard(추가 과금 없음), RDS 와 같은 VPC. Google Chrome 이 리눅스 ARM 판이 없어 t4g 는 못 쓴다. EIP 는 쓰지 않는다 (들어오는 연결이 없음)
-- IAM 역할 `StorixCrawlerRole`: `/storix/crawler/*` 읽기, `/storix/prod/env/` 의 위 세 값 읽기, S3 `storix-crawler-sessions` 읽기, ECR `storix-crawler` 받기, SSM 접속(`AmazonSSMManagedInstanceCore`)
-- 처음 확인할 때: `hold` 를 둔 채 `sudo NIGHTLY_ARGS='python cli.py requests --env prod --dry-run' /opt/storix-crawler/deploy/nightly.sh` (BE · 노션에 반영하지 않음)
-- 들어가서 고칠 때: `sudo mkdir -p /etc/storix-crawler && sudo touch /etc/storix-crawler/hold` 면 실행 뒤 끄지 않는다. 다 고치면 지운다
-- 로그: `journalctl -u storix-crawler-nightly`, 수집 리포트는 `output/<날짜>/requests_report.json`
-
-> 로컬에서는 docker 대신 `python cli.py ...` 로 직접 실행합니다 (로그인 창이 필요해서).
-> Apple Silicon(M1/M2/M3) Mac에서는 Dockerfile에 `--platform=linux/amd64`가 설정되어 있습니다.
-
----
-
-### 세션 등록 API + 세션등록 툴 (원격 서버 운영용)
-
-서버에는 GUI가 없으므로, 세션(쿠키)은 로컬에서 추출해 API로 등록합니다.
-
-**서버 측** — 세션 등록 API (`api/session_api.py`):
-
-```bash
-# .env에 SESSION_API_TOKEN=<임의의 긴 토큰> 추가 후
-docker compose --profile api up -d session-api   # :8100
-```
-
-| 엔드포인트 | 설명 |
-|---|---|
-| `GET /health` | 헬스체크 (인증 불필요) |
-| `GET /sessions` | 플랫폼별 세션 등록 상태 조회 |
-| `POST /sessions/{platform}` | 쿠키 JSON 등록 → `sessions/*.pkl` 저장 |
-
-인증은 `Authorization: Bearer <SESSION_API_TOKEN>` 헤더를 사용합니다.
-
-**로컬 측** — 세션 추출 툴 (`tools/register_session.py`):
-
-```bash
-# 개발자: 직접 실행
-pip install selenium requests
-python tools/register_session.py
-
-# 기획/운영 배포용: exe 빌드
-powershell -ExecutionPolicy Bypass -File tools\build_exe.ps1
-# → tools/dist/세션등록.exe + session_tool.config.json 을 함께 전달
-```
-
-exe를 더블클릭 → 뜨는 크롬 창에서 로그인(2차인증 포함) → 자동 감지 후 서버 업로드까지 완료됩니다.
-`session_tool.config.json`이 없으면 `sessions/*.pkl` 파일 저장 모드로 동작합니다.
-
----
-
-### CI
-
-PR(`develop`/`main` 대상)과 `develop`/`main` 푸시 시 GitHub Actions(`.github/workflows/ci.yml`)가 돕니다.
-
-- **Test**: Python 3.11, MySQL 8.0 서비스 컨테이너로 `pytest` 실행 (+ 전체 모듈 컴파일 확인)
-- **Docker build**: 이미지가 빌드되는지만 확인 (푸시·배포 없음)
-
-- **CD**(`.github/workflows/cd.yml`): `main` 푸시 때 이미지를 ECR `storix-crawler`(`:latest` · `:<커밋>`)에 올립니다. GitHub OIDC 역할 `StorixCrawlerDeploy`(시크릿 `CRAWLER_DEPLOY_ROLE_ARN`)를 씁니다. 서버는 평소 꺼져 있어 배포 단계가 없고, 다음 자정 부팅 때 `:latest` 를 받습니다
-
-배포는 BE 와 같은 Release 방식입니다: `develop` 에 기능 PR 을 모은 뒤 `release/vX.Y.Z` → `main` Release PR 을 머지합니다.
-
----
-
-## 스케줄 테이블 (기본값, Asia/Seoul)
-
-| 잡 | 주기 | 시간 |
-|----|------|------|
-| initial (네이버) | 매월 1일 | 03:00 |
-| initial (카카오) | 매월 1일 | 06:00 |
-| initial (리디북스) | 매월 1일 | 09:00 |
-| new_works (네이버) | 매일 | 09:00 |
-| new_works (카카오) | 매일 | 09:30 |
-| update_fields (네이버) | 매주 월요일 | 02:00 |
-| update_fields (카카오) | 매주 월요일 | 02:30 |
-| notion_requests (노션 작품 추가 요청) | 매일 | 10:00 |
-
-환경변수로 오버라이드 가능: `SCHED_NEW_WORKS_HOUR`, `SCHED_NOTION_REQUESTS_HOUR`, `SCHED_INITIAL_NAVER_HOUR`, `SCHED_INITIAL_RIDIBOOKS_HOUR` 등
-
----
-
-## 플랫폼 식별자
-
-| CLI `--platform` | DB `platform` 값 | 비고 |
-|------------------|-----------------|------|
-| `naver_webtoon`  | `NAVER_WEBTOON`  | comic.naver.com |
-| -                | `NAVER_NOVEL`    | novel.naver.com — 수집 안 함 (robots.txt, #131). 기존 링크 정규화만 |
-| `naver_series`   | `NAVER_SERIES`   | series.naver.com — 웹소설·웹툰 단행본 (링크로만, 검색 robots 차단 #135) |
-| `kakao_page`     | `KAKAO_PAGE`     | page.kakao.com |
-| `ridibooks`      | `RIDIBOOKS`      | ridibooks.com |
-| -                | `BOMTOON`        | bomtoon.com — 수집 안 함 (robots.txt `/api/`, #131) |
-
-- CLI `--platform` 값은 크롤러 선택 및 파일명 구분에 사용됩니다.
-- DB `platform` 값은 `works_platform` 테이블의 `platform` 컬럼에 그대로 적재됩니다.
-
----
-
-## DB 스키마
-
-### staging DB (검수 파이프라인)
-
-크롤러가 쓰는 staging DB(`storix_staging_{env}`) 구조는 `review/models.py` 에 엔티티로 정의하고, 변경은 Alembic 리비전(`review/migrations/versions`)으로 남깁니다. BE 의 JPA 엔티티 + Flyway 와 같은 방식입니다.
-
-```bash
-# 1) review/models.py 의 모델을 고친다
-# 2) 리비전 생성 → 생성된 파일을 검토해 커밋 (자동 생성은 컬럼 이름 변경 · 데이터 이전을 모른다)
-STORIX_ENV=dev alembic revision --autogenerate -m "works_source 에 memo 추가"
-# 3) 적용: stage 명령 · 검수 서버 · 스케줄러가 시작할 때 자동(alembic upgrade head). 직접 하려면
-STORIX_ENV=dev alembic upgrade head
-STORIX_ENV=prod alembic current        # 지금 리비전 확인
-```
-
-- 접속 정보는 `review/env.py` · `config.py` 를 따릅니다 (`alembic.ini` 에 주소를 적지 않음)
-- 모델을 고치고 리비전을 안 만들면 테스트(`tests/test_migrations.py`)가 실패합니다 (BE 의 `ddl-auto=validate` 역할)
-- Alembic 도입 전에 만든 DB 는 처음 실행 때 있는 테이블을 보고 기준 리비전을 자동으로 찍습니다 (`works_source` 있으면 `0002`, 없으면 `0001`)
-
-### works_platform 중간 테이블
-
-동일 작품(`works_name + artist_name` 기준)이 여러 플랫폼에서 발견될 경우, `works` 행은 하나로 유지하고 `works_platform` 테이블에 플랫폼을 추가합니다.
-
-```
-works (works_id, works_name, artist_name, ...)
-  ↕  1:N
-works_platform (works_id, platform)
-```
-
-**예시**: 동일 작품이 네이버와 카카오에 모두 연재 중인 경우
-```
-works:          { works_id: 1, works_name: "작품명", artist_name: "작가명", ... }
-works_platform: { works_id: 1, platform: "NAVER_WEBTOON" }
-                { works_id: 1, platform: "KAKAO_PAGE" }
-```
-
----
-
-## 파일 구조 및 역할
+## 파일 구조
 
 ```
 .
-├── cli.py                          # CLI 진입점 (login / crawl / stage 명령)
-├── config.py                       # URL, DB, 경로 상수
-├── requirements.txt
-├── Dockerfile
-├── docker-compose.yml              # 서버 야간 실행용 (nightly / api 프로필)
-├── .env.example                    # 환경변수 템플릿
-├── .github/workflows/
-│   ├── ci.yml                      # PR 검사 (pytest, docker build)
-│   └── cd.yml                      # main 푸시 → 이미지 ECR 에 올림
-│
-├── sessions/                       # 쿠키 파일 저장소 (.gitignore 처리됨)
-│   ├── naver_cookies.pkl
-│   ├── kakao_cookies.pkl
-│   └── ridibooks_cookies.pkl
-│
+├── cli.py                  # CLI 진입점 (login · keepalive · crawl · stage · requests)
+├── config.py               # URL · DB · 경로 상수
 ├── crawler/
-│   ├── modes/
-│   │   ├── initial.py              # 전체 작품 크롤링 (네이버/카카오 섹션별 + 리디북스 카테고리), 워커 2개
-│   │   ├── new_works.py            # 신작 탭 크롤링
-│   │   ├── update_fields.py        # source_url 목록으로 필드 재크롤링
-│   │   ├── search_titles.py        # 작품명 리스트 → 플랫폼별 검색 → JSONL 저장, 성공분은 titles-file에서 자동 제거
-│   │   └── custom_url.py           # 임의 목록/상세 URL 기반 크롤링 (--url, --count)
-│   ├── notify.py                   # 세션 만료 · 실행 실패 슬랙 알림 (#77)
-│   ├── remote_login.py             # 폰 원격 로그인 (noVNC + Cloudflare 임시 터널)
-│   └── output/
-│       └── jsonl_writer.py         # 크롤 결과를 JSONL로 기록, platform_work_id 기준 중복 제거, artist_name 정규화
-│
-├── modules/
-│   ├── crawler/
-│   │   ├── base_crawler.py         # WebDriver 초기화, crawl_detail_with_retry(), 세션 복구
-│   │   ├── naver_crawler.py        # 네이버 웹툰 크롤러 (genre # 제거, hashtags 빈 문자열 필터)
-│   │   ├── kakao_crawler.py        # 카카오페이지 크롤러 (작품명 UI 레이블 제거, description \n 보존)
-│   │   ├── robots.py              # robots.txt 검사 · 예외 목록 (#131)
-│   │   ├── naver_series_crawler.py # 네이버 시리즈 크롤러 (series.naver.com, 웹소설·웹툰 단행본, 링크로만)
-│   │   └── ridibooks_crawler.py    # 리디북스 크롤러 (작가 추출 다중 셀렉터, 비정상 URL 필터)
-│   └── logger.py                   # 구조화 로거 팩토리
-│
-├── review/                         # 검수 파이프라인 (크롤러는 서비스 DB 에 직접 쓰지 않음)
-│   ├── env.py                      # BE 대상 dev · prod (주소 · 내부 API 키 · staging DB)
-│   ├── models.py · store.py        # staging DB 구조(엔티티) · 쿼리 (staging_run · works_staging · review_decision · review_mapping · works_source)
-│   ├── migrations/versions/        # 구조 변경 이력 (Alembic 리비전)
-│   ├── catalog.py                  # BE enum 카탈로그 (장르 · 연령 · 유형 · 플랫폼)
-│   ├── rules.py                    # Layer 1 규칙 검사 · Layer 1.5 런 이상 차단
-│   ├── artists.py · landing.py     # 작가명 · 작품 링크 정규화
-│   ├── service.py · app.py         # 적재 · 승인 · 거절, 검수 API (FastAPI)
-│   └── importer.py · backend.py    # BE import API 호출 (X-Internal-Api-Key)
-│
-├── deploy/
-│   ├── nightly.sh                  # 서버 야간 실행 (비밀값 → 코드 · 이미지 · 쿠키 갱신 → requests → 종료)
-│   ├── push_sessions.sh            # 로컬 로그인 쿠키를 S3 에 올림 (세션 만료 때)
-│   ├── lambda/slack_actions.py     # 슬랙 [다시 로그인] 버튼 → 서버를 원격 로그인 모드로 켬
-│   ├── slack-app-manifest.yml      # 크롤러 전용 슬랙 앱
-│   └── storix-crawler-nightly.service  # 부팅 때 nightly.sh 를 한 번 실행하는 systemd 유닛
-│
-├── api/
-│   └── session_api.py              # 세션(쿠키) 등록 API (FastAPI, :8100)
-│
-├── tools/
-│   ├── register_session.py         # 로컬에서 로그인 → 쿠키 추출 → API 업로드 툴
-│   └── build_exe.ps1               # 위 툴을 exe 로 빌드 (PyInstaller)
-│
-└── output/                         # 크롤링 산출물 (날짜별 JSONL, .gitignore 처리됨)
-    └── YYYY-MM-DD/
-        ├── naver_webtoon_initial.jsonl     # <플랫폼>_<모드>.jsonl. platform_work_id 기준 중복 제거, 재실행 시 덮어씌움
-        ├── ridibooks_search_titles.jsonl   # 플랫폼마다 파일이 따로라 --parallel 로 동시에 돌려도 안 겹침
-        ├── search_titles_report.json       # 수집 리포트 (플랫폼별 상태 코드)
-        └── manual_review_queue.jsonl
+│   ├── modes/              # initial · new_works · update_fields · search_titles · custom_url · recover · requests
+│   ├── output/             # JSONL 기록 (platform_work_id 로 중복 제거, 작가명 정규화)
+│   ├── notify.py           # 슬랙 알림
+│   └── remote_login.py     # 폰 원격 로그인 (noVNC + Cloudflare 임시 터널)
+├── modules/crawler/
+│   ├── base_crawler.py     # 드라이버 · 상세 재시도 · 세션 복구
+│   ├── platforms.py        # 플랫폼 등록부 (크롤러 · 로그인 · 링크 규칙)
+│   ├── robots.py           # robots.txt 검사
+│   ├── cookies.py · titles.py · classify.py   # 쿠키 · 제목 규칙 · 작품 유형 판정
+│   └── naver · kakao · ridibooks · naver_series · lezhin · mrblue _crawler.py
+├── review/                 # 검수 파이프라인
+│   ├── models.py · store.py · migrations/   # staging DB 구조 · 쿼리 · Alembic
+│   ├── rules.py · catalog.py                # Layer 1 규칙 · BE enum 카탈로그
+│   ├── service.py · app.py                  # 적재 · 승인 · 거절, 검수 API
+│   └── importer.py · backend.py             # BE import API 호출
+├── deploy/                 # 서버 야간 실행 · 쿠키 올리기 · 슬랙 버튼 Lambda · systemd
+├── api/ · tools/           # 세션 등록 API · 툴 (예전 방식)
+├── tests/
+├── sessions/               # 로그인 쿠키 (커밋 안 됨)
+└── output/<날짜>/          # 수집 결과 JSONL · 리포트 (커밋 안 됨)
 ```
 
----
+## 개발
 
-## 출력 JSONL 스키마 (schema_version: 2.0)
+- `develop` 에 기능 PR → `release/vX.Y.Z` → `main` (BE 와 같은 Release 방식)
+- CI: PR · 푸시마다 `pytest` (MySQL 8.0) · Docker 빌드. CD: `main` 푸시 때 ECR 에 이미지
 
-```json
-{
-  "schema_version": "2.0",
-  "crawled_at": "2026-05-09T03:00:00Z",
-  "platform": "naver_webtoon",
-  "mode": "initial",
-  "works_name": "작품명",
-  "platform_work_id": "12345",
-  "source_url": "https://comic.naver.com/webtoon/list?titleId=12345",
-  "artist_name": "작가1, 작가2",
-  "author": "작가1",
-  "illustrator": "작가2",
-  "original_author": "",
-  "age_classification": "전체연령가",
-  "description": "작품 설명",
-  "genre": "로판",
-  "hashtags": ["태그1", "태그2"],
-  "thumbnail_url": "https://...",
-  "works_type": "웹툰"
-}
-```
+<br>
+
+## 🛠️ Developers
+
+### 2026.10 ~ : 리팩터링 · 검수 · 운영 자동화
+<table>
+    <tr>
+        <td align="center" width="160"><B>Lead·Backend</B></td>
+        <td rowspan="4">
+            <ul>
+                <li><B>검수 파이프라인</B> (서비스 DB 직접 쓰기를 없애고 staging 검수를 거쳐 BE API 로만) — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/2">#2</a> · <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/48">#48</a>
+                    <ul>
+                        <li>판정 매핑 승격 (Layer 3) · 바깥 검수 제안 반영 — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/71">#71</a> · <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/73">#73</a></li>
+                        <li>작품별 수집 이력 · 링크 자동 복구 — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/53">#53</a></li>
+                        <li>staging DB 엔티티 · 마이그레이션 관리 — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/56">#56</a></li>
+                    </ul>
+                </li>
+                <li><B>검수 · 판정 규칙 바로잡기</B>
+                    <ul>
+                        <li>작품 판정: 제목 앞부분만 같은 다른 작품 · 작품 유형 구분 · 정식 계약 전 작품 제외 — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/35">#35</a> · <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/31">#31</a> · <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/12">#12</a></li>
+                        <li>연령 판정: e북 연령이 웹소설 연령을 덮던 문제 · 리디 연령 공지 — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/18">#18</a> · <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/35">#35</a> · <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/47">#47</a></li>
+                        <li>작가명 · 표지: 작가 중복 · 원작 출판사 분리 · 성인 가림 표지 — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/16">#16</a> · <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/24">#24</a> · <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/33">#33</a></li>
+                        <li>장르 매핑 실패 · 빈 연령 / 장르가 import 를 막던 문제 · 처리 순서로 검수 대기에 빠지던 문제 — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/43">#43</a> · <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/45">#45</a></li>
+                        <li>수집 실패가 성공으로 넘어가던 문제 · 필드별 판정 로직 공통화 — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/49">#49</a> · <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/123">#123</a></li>
+                    </ul>
+                </li>
+                <li><B>운영 자동화</B>
+                    <ul>
+                        <li>노션 작품 추가 요청 자동 처리 (수집 → 검수 → BE 반영 → 노션 표시) — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/67">#67</a> · <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/69">#69</a></li>
+                        <li>서버 야간 실행 · 슬랙 알림 · 폰 원격 로그인 — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/78">#78</a></li>
+                        <li>인증 세션 만료 대응 — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/117">#117</a></li>
+                    </ul>
+                </li>
+                <li><B>크롤러 리팩터링</B>
+                    <ul>
+                        <li>인증 · 정규화 · 플랫폼 판별 공통화 — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/99">#99</a> · <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/100">#100</a> · <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/106">#106</a> · <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/124">#124</a></li>
+                        <li>HTTP 우선 수집 · 메모리 절감 — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/50">#50</a></li>
+                    </ul>
+                </li>
+                <li><B>수집 규칙 준수</B>
+                    <ul>
+                        <li>robots.txt 차단 경로 · 계정 자동 로그인 제거, 봇 UA — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/132">#132</a> · <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/136">#136</a></li>
+                    </ul>
+                </li>
+                <li><B>플랫폼 확장</B>
+                    <ul>
+                        <li>레진코믹스 · 미스터블루 — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/61">#61</a> · <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/108">#108</a></li>
+                    </ul>
+                </li>
+            </ul>
+        </td>
+    </tr>
+    <tr>
+        <td align="center"><B>이수아</B></td>
+    </tr>
+    <tr>
+        <td align="center"><img src="https://github.com/Immmii.png?size=100" width="100"></td>
+    </tr>
+    <tr>
+        <td align="center"><a href="https://github.com/Immmii"><I>Immmii</I></a></td>
+    </tr>
+</table>
+
+### 2026.05 ~ 2026.10 : 크롤러 2.0 전환
+<table>
+    <tr>
+        <td align="center" width="160"><B>Backend</B></td>
+        <td rowspan="4">
+            <ul>
+                <li><B>크롤러 2.0 전환</B> — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/commit/adb20f9"><code>adb20f9</code></a>
+                    <ul>
+                        <li>Docker · 크롬 드라이버 버전 고정 — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/commit/1b8c041"><code>1b8c041</code></a></li>
+                        <li>드라이버 크래시 복구 · 적재 안정화 — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/commit/72fec3b"><code>72fec3b</code></a></li>
+                    </ul>
+                </li>
+                <li><B>플랫폼 확장</B>
+                    <ul>
+                        <li>리디북스 크롤러 · 배치 적재 · 제목 검색 — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/commit/c654d24"><code>c654d24</code></a> · <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/commit/3dea57d"><code>3dea57d</code></a></li>
+                        <li>네이버 웹소설 크롤러 — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/commit/9e5e0e6"><code>9e5e0e6</code></a></li>
+                        <li>실제 페이지 기준 셀렉터 교체 — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/commit/c992efc"><code>c992efc</code></a></li>
+                    </ul>
+                </li>
+                <li><B>수집 · 검수 보완</B>
+                    <ul>
+                        <li>커스텀 URL 모드 — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/commit/c9325f4"><code>c9325f4</code></a></li>
+                        <li>개정판 · 19금 키워드 유사 작품 검수 — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/commit/0f7ca28"><code>0f7ca28</code></a></li>
+                    </ul>
+                </li>
+            </ul>
+        </td>
+    </tr>
+    <tr>
+        <td align="center"><B>이윤지</B></td>
+    </tr>
+    <tr>
+        <td align="center"><img src="https://github.com/yooniicode.png?size=100" width="100"></td>
+    </tr>
+    <tr>
+        <td align="center"><a href="https://github.com/yooniicode"><I>yooniicode</I></a></td>
+    </tr>
+</table>
+
+### 2025.11 : 크롤러 1.0 구축
+<table>
+    <tr>
+        <td align="center" width="160"><B>Backend</B></td>
+        <td rowspan="4">
+            <ul>
+                <li><B>크롤러 기반 구축</B>
+                    <ul>
+                        <li>네이버 로그인 · 웹툰 크롤링 (완결 · 매일+) — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/commit/4397605"><code>4397605</code></a> · <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/commit/4311786"><code>4311786</code></a> · <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/commit/12702f2"><code>12702f2</code></a></li>
+                        <li>BaseCrawler 공통화 — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/commit/c7341ef"><code>c7341ef</code></a></li>
+                    </ul>
+                </li>
+                <li><B>카카오페이지</B>
+                    <ul>
+                        <li>카카오 로그인 · 크롤러 — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/commit/b2d1075"><code>b2d1075</code></a> · <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/commit/3f1b24e"><code>3f1b24e</code></a></li>
+                    </ul>
+                </li>
+                <li><B>DB 적재</B>
+                    <ul>
+                        <li>DB 핸들러 분리 · 해시태그 테이블 — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/commit/c998760"><code>c998760</code></a> · <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/commit/e85cb06"><code>e85cb06</code></a></li>
+                    </ul>
+                </li>
+            </ul>
+        </td>
+    </tr>
+    <tr>
+        <td align="center"><B>서가영</B></td>
+    </tr>
+    <tr>
+        <td align="center"><img src="https://github.com/caminobelllo.png?size=100" width="100"></td>
+    </tr>
+    <tr>
+        <td align="center"><a href="https://github.com/caminobelllo"><I>caminobelllo</I></a></td>
+    </tr>
+</table>

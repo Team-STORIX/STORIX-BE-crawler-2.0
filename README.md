@@ -72,20 +72,42 @@ STORIX-BE-Crawler
 
 ## 🛠️ Developers
 
-### 2026.10 ~ 현재 - 리팩터링 · 검수 · 운영 자동화
+### 2026.10 ~ : 리팩터링 · 검수 · 운영 자동화
 <table>
     <tr>
         <td align="center" width="160"><B>Lead·Backend</B></td>
         <td rowspan="4">
             <ul>
-                <li>검수 파이프라인 (staging DB · 규칙 검사 · 검수 API) — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/2">#2</a> · <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/56">#56</a></li>
-                <li>판정 매핑 승격 (Layer 3) · 바깥 검수 제안 반영 — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/71">#71</a> · <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/73">#73</a></li>
-                <li>노션 작품 추가 요청 자동 처리 — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/67">#67</a> · <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/69">#69</a></li>
-                <li>서버 야간 실행 · 슬랙 알림 · 폰 원격 로그인 · 세션 만료 대응 — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/78">#78</a> · <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/117">#117</a></li>
-                <li>크롤러 공통 구조 리팩터링 (인증 · 정규화 · 플랫폼 판별 공통화) — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/99">#99</a> · <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/100">#100</a> · <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/106">#106</a> · <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/124">#124</a></li>
-                <li>HTTP 우선 수집 · 메모리 절감 — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/50">#50</a></li>
-                <li>robots.txt 준수 · 봇 UA — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/132">#132</a> · <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/136">#136</a></li>
-                <li>레진코믹스 · 미스터블루 크롤러 — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/61">#61</a> · <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/108">#108</a></li>
+                <li><B>검수 파이프라인</B> (서비스 DB 직접 쓰기를 없애고 staging 검수를 거쳐 BE API 로만) — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/2">#2</a> · <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/48">#48</a>
+                    <ul>
+                        <li>판정 매핑 승격 (Layer 3) · 바깥 검수 제안 반영 — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/71">#71</a> · <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/73">#73</a></li>
+                        <li>작품별 수집 이력 · 링크 자동 복구 — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/53">#53</a></li>
+                        <li>staging DB 엔티티 · 마이그레이션 관리 — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/56">#56</a></li>
+                    </ul>
+                </li>
+                <li><B>운영 자동화</B>
+                    <ul>
+                        <li>노션 작품 추가 요청 자동 처리 (수집 → 검수 → BE 반영 → 노션 표시) — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/67">#67</a> · <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/69">#69</a></li>
+                        <li>서버 야간 실행 · 슬랙 알림 · 폰 원격 로그인 — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/78">#78</a></li>
+                        <li>인증 세션 만료 대응 — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/117">#117</a></li>
+                    </ul>
+                </li>
+                <li><B>크롤러 리팩터링</B>
+                    <ul>
+                        <li>인증 · 정규화 · 플랫폼 판별 공통화 — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/99">#99</a> · <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/100">#100</a> · <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/106">#106</a> · <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/124">#124</a></li>
+                        <li>HTTP 우선 수집 · 메모리 절감 — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/50">#50</a></li>
+                    </ul>
+                </li>
+                <li><B>수집 규칙 준수</B>
+                    <ul>
+                        <li>robots.txt 차단 경로 · 계정 자동 로그인 제거, 봇 UA — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/132">#132</a> · <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/136">#136</a></li>
+                    </ul>
+                </li>
+                <li><B>플랫폼 확장</B>
+                    <ul>
+                        <li>레진코믹스 · 미스터블루 — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/61">#61</a> · <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/108">#108</a></li>
+                    </ul>
+                </li>
             </ul>
         </td>
     </tr>
@@ -100,7 +122,7 @@ STORIX-BE-Crawler
     </tr>
 </table>
 
-### 2026.05 ~ 2026.10 - 크롤러 2.0 전환
+### 2026.05 ~ 2026.10 : 크롤러 2.0 전환
 <table>
     <tr>
         <td align="center" width="160"><B>Backend</B></td>
@@ -126,7 +148,7 @@ STORIX-BE-Crawler
     </tr>
 </table>
 
-### 2025.11 - 크롤러 1.0
+### 2025.11 : 크롤러 1.0
 <table>
     <tr>
         <td align="center" width="160"><B>Backend</B></td>

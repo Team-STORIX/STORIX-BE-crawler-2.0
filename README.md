@@ -67,7 +67,7 @@ STORIX-BE-Crawler
   </tr>
 </table>
 
-## Supported Platforms
+## 🌍 Supported Platforms
 
 | 플랫폼 | 수집 |
 |---|---|
@@ -76,7 +76,7 @@ STORIX-BE-Crawler
 | `ridibooks` · `naver_series` | 링크로만 (검색이 막힘) |
 | `naver_novel` · `bomtoon` | 수집 안 함 (robots.txt) |
 
-## Docs
+## 📚 Docs
 
 | | |
 |---|---|
@@ -84,7 +84,7 @@ STORIX-BE-Crawler
 | [검수 · 적재](review/README.md) | 판정 · 매핑 승격 · 링크 복구 · 노션 요청 · Alembic |
 | [서버 운영](deploy/README.md) | 야간 실행 · 슬랙 알림 · 세션 만료 대응 · 설정 · 점검 |
 
-## File Structure
+## 📂 File Structure
 
 ```
 .
@@ -113,7 +113,7 @@ STORIX-BE-Crawler
 └── output/<날짜>/                            # 수집 결과 JSONL · 리포트 (커밋 안 됨)
 ```
 
-## Development
+## 💻 Development
 
 - `develop` 에 기능 PR → `release/vX.Y.Z` → `main` (BE 와 같은 Release 방식)
 - CI: PR · 푸시마다 `pytest` (MySQL 8.0) · Docker 빌드

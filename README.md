@@ -19,12 +19,12 @@ STORIX-BE-Crawler
 
 ## 지원 플랫폼
 
-| `--platform` | 수집 |
+| 플랫폼 | 수집 |
 |---|---|
 | `naver_webtoon` · `kakao_page` | 목록 · 제목 검색 · 링크 |
 | `lezhin` · `mrblue` | 제목 검색 · 링크 |
 | `ridibooks` · `naver_series` | 링크로만 (검색이 막힘) |
-| 네이버 웹소설 · 봄툰 | 수집 안 함 (robots.txt) |
+| `naver_novel` · `bomtoon` | 수집 안 함 (robots.txt) |
 
 ## 문서
 
@@ -38,35 +38,36 @@ STORIX-BE-Crawler
 
 ```
 .
-├── cli.py                  # CLI 진입점 (login · keepalive · crawl · stage · requests)
-├── config.py               # URL · DB · 경로 상수
+├── cli.py                                    # CLI 진입점 (login · keepalive · crawl · stage · requests)
+├── config.py                                 # URL · DB · 경로 상수
 ├── crawler/
-│   ├── modes/              # initial · new_works · update_fields · search_titles · custom_url · recover · requests
-│   ├── output/             # JSONL 기록 (platform_work_id 로 중복 제거, 작가명 정규화)
-│   ├── notify.py           # 슬랙 알림
-│   └── remote_login.py     # 폰 원격 로그인 (noVNC + Cloudflare 임시 터널)
+│   ├── modes/                                # initial · new_works · update_fields · search_titles · custom_url · recover · requests
+│   ├── output/                               # JSONL 기록 (platform_work_id 로 중복 제거, 작가명 정규화)
+│   ├── notify.py                             # 슬랙 알림
+│   └── remote_login.py                       # 폰 원격 로그인 (noVNC + Cloudflare 임시 터널)
 ├── modules/crawler/
-│   ├── base_crawler.py     # 드라이버 · 상세 재시도 · 세션 복구
-│   ├── platforms.py        # 플랫폼 등록부 (크롤러 · 로그인 · 링크 규칙)
-│   ├── robots.py           # robots.txt 검사
-│   ├── cookies.py · titles.py · classify.py   # 쿠키 · 제목 규칙 · 작품 유형 판정
+│   ├── base_crawler.py                       # 드라이버 · 상세 재시도 · 세션 복구
+│   ├── platforms.py                          # 플랫폼 등록부 (크롤러 · 로그인 · 링크 규칙)
+│   ├── robots.py                             # robots.txt 검사
+│   ├── cookies.py · titles.py · classify.py  # 쿠키 · 제목 규칙 · 작품 유형 판정
 │   └── naver · kakao · ridibooks · naver_series · lezhin · mrblue _crawler.py
-├── review/                 # 검수 파이프라인
-│   ├── models.py · store.py · migrations/   # staging DB 구조 · 쿼리 · Alembic
-│   ├── rules.py · catalog.py                # Layer 1 규칙 · BE enum 카탈로그
-│   ├── service.py · app.py                  # 적재 · 승인 · 거절, 검수 API
-│   └── importer.py · backend.py             # BE import API 호출
-├── deploy/                 # 서버 야간 실행 · 쿠키 올리기 · 슬랙 버튼 Lambda · systemd
-├── api/ · tools/           # 세션 등록 API · 툴 (예전 방식)
+├── review/                                   # 검수 파이프라인
+│   ├── models.py · store.py · migrations/    # staging DB 구조 · 쿼리 · Alembic
+│   ├── rules.py · catalog.py                 # Layer 1 규칙 · BE enum 카탈로그
+│   ├── service.py · app.py                   # 적재 · 승인 · 거절, 검수 API
+│   └── importer.py · backend.py              # BE import API 호출
+├── deploy/                                   # 서버 야간 실행 · 쿠키 올리기 · 슬랙 버튼 Lambda · systemd
+├── api/ · tools/                             # 세션 등록 API · 툴 (예전 방식)
 ├── tests/
-├── sessions/               # 로그인 쿠키 (커밋 안 됨)
-└── output/<날짜>/          # 수집 결과 JSONL · 리포트 (커밋 안 됨)
+├── sessions/                                 # 로그인 쿠키 (커밋 안 됨)
+└── output/<날짜>/                            # 수집 결과 JSONL · 리포트 (커밋 안 됨)
 ```
 
 ## 개발
 
 - `develop` 에 기능 PR → `release/vX.Y.Z` → `main` (BE 와 같은 Release 방식)
-- CI: PR · 푸시마다 `pytest` (MySQL 8.0) · Docker 빌드. CD: `main` 푸시 때 ECR 에 이미지
+- CI: PR · 푸시마다 `pytest` (MySQL 8.0) · Docker 빌드
+- CD: `main` 푸시 때 ECR 에 이미지
 
 <br>
 
@@ -78,8 +79,9 @@ STORIX-BE-Crawler
         <td align="center" width="160"><B>Lead·Backend</B></td>
         <td rowspan="4">
             <ul>
-                <li><B>검수 파이프라인</B> (서비스 DB 직접 쓰기를 없애고 staging 검수를 거쳐 BE API 로만) — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/2">#2</a> · <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/48">#48</a>
+                <li><B>검수 파이프라인</B>
                     <ul>
+                        <li>서비스 DB 직접 쓰기를 없애고 staging 검수를 거쳐 BE API 로만 — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/2">#2</a> · <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/48">#48</a></li>
                         <li>판정 매핑 승격 (Layer 3) · 바깥 검수 제안 반영 — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/71">#71</a> · <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/73">#73</a></li>
                         <li>작품별 수집 이력 · 링크 자동 복구 — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/53">#53</a></li>
                         <li>staging DB 엔티티 · 마이그레이션 관리 — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/56">#56</a></li>
@@ -112,7 +114,7 @@ STORIX-BE-Crawler
                         <li>robots.txt 차단 경로 · 계정 자동 로그인 제거, 봇 UA — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/132">#132</a> · <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/136">#136</a></li>
                     </ul>
                 </li>
-                <li><B>플랫폼 확장</B>
+                <li><B>크롤러 수집 플랫폼 확장</B>
                     <ul>
                         <li>레진코믹스 · 미스터블루 — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/61">#61</a> · <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/108">#108</a></li>
                     </ul>
@@ -143,7 +145,7 @@ STORIX-BE-Crawler
                         <li>드라이버 크래시 복구 · 적재 안정화 — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/commit/72fec3b"><code>72fec3b</code></a></li>
                     </ul>
                 </li>
-                <li><B>플랫폼 확장</B>
+                <li><B>크롤러 수집 플랫폼 확장</B>
                     <ul>
                         <li>리디북스 크롤러 · 배치 적재 · 제목 검색 — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/commit/c654d24"><code>c654d24</code></a> · <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/commit/3dea57d"><code>3dea57d</code></a></li>
                         <li>네이버 웹소설 크롤러 — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/commit/9e5e0e6"><code>9e5e0e6</code></a></li>
@@ -182,7 +184,7 @@ STORIX-BE-Crawler
                         <li>BaseCrawler 공통화 — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/commit/c7341ef"><code>c7341ef</code></a></li>
                     </ul>
                 </li>
-                <li><B>카카오페이지</B>
+                <li><B>크롤러 수집 플랫폼 확장</B>
                     <ul>
                         <li>카카오 로그인 · 크롤러 — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/commit/b2d1075"><code>b2d1075</code></a> · <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/commit/3f1b24e"><code>3f1b24e</code></a></li>
                     </ul>

@@ -78,8 +78,9 @@ STORIX-BE-Crawler
         <td align="center" width="160"><B>Lead·Backend</B></td>
         <td rowspan="4">
             <ul>
-                <li><B>검수 파이프라인</B> (서비스 DB 직접 쓰기를 없애고 staging 검수를 거쳐 BE API 로만) — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/2">#2</a> · <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/48">#48</a>
+                <li><B>검수 파이프라인</B>
                     <ul>
+                        <li>서비스 DB 직접 쓰기를 없애고 staging 검수를 거쳐 BE API 로만 — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/2">#2</a> · <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/48">#48</a></li>
                         <li>판정 매핑 승격 (Layer 3) · 바깥 검수 제안 반영 — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/71">#71</a> · <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/73">#73</a></li>
                         <li>작품별 수집 이력 · 링크 자동 복구 — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/53">#53</a></li>
                         <li>staging DB 엔티티 · 마이그레이션 관리 — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/56">#56</a></li>

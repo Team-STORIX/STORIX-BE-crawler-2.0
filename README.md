@@ -128,12 +128,25 @@ STORIX-BE-Crawler
         <td align="center" width="160"><B>Backend</B></td>
         <td rowspan="4">
             <ul>
-                <li>크롤러 2.0 전환 — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/commit/adb20f9"><code>adb20f9</code></a></li>
-                <li>리디북스 크롤러 · 배치 적재 — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/commit/c654d24"><code>c654d24</code></a></li>
-                <li>커스텀 URL 모드 — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/commit/c9325f4"><code>c9325f4</code></a></li>
-                <li>네이버 웹소설 크롤러 — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/commit/9e5e0e6"><code>9e5e0e6</code></a></li>
-                <li>드라이버 크래시 복구 · 적재 안정화 — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/commit/72fec3b"><code>72fec3b</code></a></li>
-                <li>Docker · 크롬 드라이버 버전 고정 — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/commit/1b8c041"><code>1b8c041</code></a></li>
+                <li><B>크롤러 2.0 전환</B> — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/commit/adb20f9"><code>adb20f9</code></a>
+                    <ul>
+                        <li>Docker · 크롬 드라이버 버전 고정 — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/commit/1b8c041"><code>1b8c041</code></a></li>
+                        <li>드라이버 크래시 복구 · 적재 안정화 — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/commit/72fec3b"><code>72fec3b</code></a></li>
+                    </ul>
+                </li>
+                <li><B>플랫폼 확장</B>
+                    <ul>
+                        <li>리디북스 크롤러 · 배치 적재 · 제목 검색 — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/commit/c654d24"><code>c654d24</code></a> · <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/commit/3dea57d"><code>3dea57d</code></a></li>
+                        <li>네이버 웹소설 크롤러 — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/commit/9e5e0e6"><code>9e5e0e6</code></a></li>
+                        <li>실제 페이지 기준 셀렉터 교체 — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/commit/c992efc"><code>c992efc</code></a></li>
+                    </ul>
+                </li>
+                <li><B>수집 · 검수 보완</B>
+                    <ul>
+                        <li>커스텀 URL 모드 — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/commit/c9325f4"><code>c9325f4</code></a></li>
+                        <li>개정판 · 19금 키워드 유사 작품 검수 — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/commit/0f7ca28"><code>0f7ca28</code></a></li>
+                    </ul>
+                </li>
             </ul>
         </td>
     </tr>
@@ -148,15 +161,28 @@ STORIX-BE-Crawler
     </tr>
 </table>
 
-### 2025.11 : 크롤러 1.0
+### 2025.11 : 크롤러 1.0 구축
 <table>
     <tr>
         <td align="center" width="160"><B>Backend</B></td>
         <td rowspan="4">
             <ul>
-                <li>네이버 로그인 · 웹툰 크롤링 — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/commit/4397605"><code>4397605</code></a> · <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/commit/4311786"><code>4311786</code></a></li>
-                <li>DB 적재 · 해시태그 테이블 — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/commit/c998760"><code>c998760</code></a> · <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/commit/e85cb06"><code>e85cb06</code></a></li>
-                <li>BaseCrawler 공통화 · 카카오페이지 크롤러 — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/commit/c7341ef"><code>c7341ef</code></a> · <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/commit/3f1b24e"><code>3f1b24e</code></a></li>
+                <li><B>크롤러 기반 구축</B>
+                    <ul>
+                        <li>네이버 로그인 · 웹툰 크롤링 (완결 · 매일+) — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/commit/4397605"><code>4397605</code></a> · <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/commit/4311786"><code>4311786</code></a> · <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/commit/12702f2"><code>12702f2</code></a></li>
+                        <li>BaseCrawler 공통화 — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/commit/c7341ef"><code>c7341ef</code></a></li>
+                    </ul>
+                </li>
+                <li><B>카카오페이지</B>
+                    <ul>
+                        <li>카카오 로그인 · 크롤러 — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/commit/b2d1075"><code>b2d1075</code></a> · <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/commit/3f1b24e"><code>3f1b24e</code></a></li>
+                    </ul>
+                </li>
+                <li><B>DB 적재</B>
+                    <ul>
+                        <li>DB 핸들러 분리 · 해시태그 테이블 — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/commit/c998760"><code>c998760</code></a> · <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/commit/e85cb06"><code>e85cb06</code></a></li>
+                    </ul>
+                </li>
             </ul>
         </td>
     </tr>

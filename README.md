@@ -85,6 +85,15 @@ STORIX-BE-Crawler
                         <li>staging DB 엔티티 · 마이그레이션 관리 — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/56">#56</a></li>
                     </ul>
                 </li>
+                <li><B>검수 · 판정 규칙 바로잡기</B>
+                    <ul>
+                        <li>작품 판정: 제목 앞부분만 같은 다른 작품 · 작품 유형 구분 · 정식 계약 전 작품 제외 — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/35">#35</a> · <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/31">#31</a> · <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/12">#12</a></li>
+                        <li>연령 판정: e북 연령이 웹소설 연령을 덮던 문제 · 리디 연령 공지 — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/18">#18</a> · <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/35">#35</a> · <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/47">#47</a></li>
+                        <li>작가명 · 표지: 작가 중복 · 원작 출판사 분리 · 성인 가림 표지 — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/16">#16</a> · <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/24">#24</a> · <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/33">#33</a></li>
+                        <li>장르 매핑 실패 · 빈 연령 / 장르가 import 를 막던 문제 · 처리 순서로 검수 대기에 빠지던 문제 — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/43">#43</a> · <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/45">#45</a></li>
+                        <li>수집 실패가 성공으로 넘어가던 문제 · 필드별 판정 로직 공통화 — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/49">#49</a> · <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/123">#123</a></li>
+                    </ul>
+                </li>
                 <li><B>운영 자동화</B>
                     <ul>
                         <li>노션 작품 추가 요청 자동 처리 (수집 → 검수 → BE 반영 → 노션 표시) — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/67">#67</a> · <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/69">#69</a></li>

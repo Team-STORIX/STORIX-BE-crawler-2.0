@@ -38,35 +38,36 @@ STORIX-BE-Crawler
 
 ```
 .
-├── cli.py                  # CLI 진입점 (login · keepalive · crawl · stage · requests)
-├── config.py               # URL · DB · 경로 상수
+├── cli.py                                    # CLI 진입점 (login · keepalive · crawl · stage · requests)
+├── config.py                                 # URL · DB · 경로 상수
 ├── crawler/
-│   ├── modes/              # initial · new_works · update_fields · search_titles · custom_url · recover · requests
-│   ├── output/             # JSONL 기록 (platform_work_id 로 중복 제거, 작가명 정규화)
-│   ├── notify.py           # 슬랙 알림
-│   └── remote_login.py     # 폰 원격 로그인 (noVNC + Cloudflare 임시 터널)
+│   ├── modes/                                # initial · new_works · update_fields · search_titles · custom_url · recover · requests
+│   ├── output/                               # JSONL 기록 (platform_work_id 로 중복 제거, 작가명 정규화)
+│   ├── notify.py                             # 슬랙 알림
+│   └── remote_login.py                       # 폰 원격 로그인 (noVNC + Cloudflare 임시 터널)
 ├── modules/crawler/
-│   ├── base_crawler.py     # 드라이버 · 상세 재시도 · 세션 복구
-│   ├── platforms.py        # 플랫폼 등록부 (크롤러 · 로그인 · 링크 규칙)
-│   ├── robots.py           # robots.txt 검사
-│   ├── cookies.py · titles.py · classify.py   # 쿠키 · 제목 규칙 · 작품 유형 판정
+│   ├── base_crawler.py                       # 드라이버 · 상세 재시도 · 세션 복구
+│   ├── platforms.py                          # 플랫폼 등록부 (크롤러 · 로그인 · 링크 규칙)
+│   ├── robots.py                             # robots.txt 검사
+│   ├── cookies.py · titles.py · classify.py  # 쿠키 · 제목 규칙 · 작품 유형 판정
 │   └── naver · kakao · ridibooks · naver_series · lezhin · mrblue _crawler.py
-├── review/                 # 검수 파이프라인
-│   ├── models.py · store.py · migrations/   # staging DB 구조 · 쿼리 · Alembic
-│   ├── rules.py · catalog.py                # Layer 1 규칙 · BE enum 카탈로그
-│   ├── service.py · app.py                  # 적재 · 승인 · 거절, 검수 API
-│   └── importer.py · backend.py             # BE import API 호출
-├── deploy/                 # 서버 야간 실행 · 쿠키 올리기 · 슬랙 버튼 Lambda · systemd
-├── api/ · tools/           # 세션 등록 API · 툴 (예전 방식)
+├── review/                                   # 검수 파이프라인
+│   ├── models.py · store.py · migrations/    # staging DB 구조 · 쿼리 · Alembic
+│   ├── rules.py · catalog.py                 # Layer 1 규칙 · BE enum 카탈로그
+│   ├── service.py · app.py                   # 적재 · 승인 · 거절, 검수 API
+│   └── importer.py · backend.py              # BE import API 호출
+├── deploy/                                   # 서버 야간 실행 · 쿠키 올리기 · 슬랙 버튼 Lambda · systemd
+├── api/ · tools/                             # 세션 등록 API · 툴 (예전 방식)
 ├── tests/
-├── sessions/               # 로그인 쿠키 (커밋 안 됨)
-└── output/<날짜>/          # 수집 결과 JSONL · 리포트 (커밋 안 됨)
+├── sessions/                                 # 로그인 쿠키 (커밋 안 됨)
+└── output/<날짜>/                            # 수집 결과 JSONL · 리포트 (커밋 안 됨)
 ```
 
 ## 개발
 
 - `develop` 에 기능 PR → `release/vX.Y.Z` → `main` (BE 와 같은 Release 방식)
-- CI: PR · 푸시마다 `pytest` (MySQL 8.0) · Docker 빌드. CD: `main` 푸시 때 ECR 에 이미지
+- CI: PR · 푸시마다 `pytest` (MySQL 8.0) · Docker 빌드
+- CD: `main` 푸시 때 ECR 에 이미지
 
 <br>
 

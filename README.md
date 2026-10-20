@@ -78,16 +78,14 @@ deploy/      서버 야간 실행 · 쿠키 올리기 · 슬랙 버튼 Lambda
 <br>
 
 ## 🛠️ Developers
+
+### 2026.10 ~ · 검수 · 운영 자동화
 <table>
     <tr align="center">
         <td><B>Lead·Backend</B></td>
-        <td><B>Backend</B></td>
-        <td><B>Backend</B></td>
     </tr>
     <tr align="center">
         <td><B>이수아</B></td>
-        <td><B>Yoonji Lee</B></td>
-        <td><B>서가영</B></td>
     </tr>
     <tr align="center">
         <td>
@@ -95,19 +93,45 @@ deploy/      서버 야간 실행 · 쿠키 올리기 · 슬랙 버튼 Lambda
             <br>
             <a href="https://github.com/Immmii"><I>Immmii</I></a>
         </td>
+    <tr align="center">
+        <td><B>검수 파이프라인·노션 요청 자동화<br>·서버 야간 실행·robots 준수</B></td>
+    </tr>
+</table>
+
+### 2026.05 ~ 2026.10 · 크롤러 2.0
+<table>
+    <tr align="center">
+        <td><B>Backend</B></td>
+    </tr>
+    <tr align="center">
+        <td><B>이윤지</B></td>
+    </tr>
+    <tr align="center">
         <td>
             <img src="https://github.com/yooniicode.png?size=100" width="100">
             <br>
             <a href="https://github.com/yooniicode"><I>yooniicode</I></a>
         </td>
+    <tr align="center">
+        <td><B>크롤러 2.0 리팩터링·리디북스<br>·커스텀 URL·Docker</B></td>
+    </tr>
+</table>
+
+### 2025.11 · 크롤러 1.0
+<table>
+    <tr align="center">
+        <td><B>Backend</B></td>
+    </tr>
+    <tr align="center">
+        <td><B>서가영</B></td>
+    </tr>
+    <tr align="center">
         <td>
             <img src="https://github.com/caminobelllo.png?size=100" width="100">
             <br>
             <a href="https://github.com/caminobelllo"><I>caminobelllo</I></a>
         </td>
     <tr align="center">
-        <td><B>검수 파이프라인·노션 요청 자동화<br>·서버 야간 실행·robots 준수</B></td>
-        <td><B>크롤러 2.0 리팩터링·리디북스<br>·커스텀 URL·Docker</B></td>
         <td><B>크롤러 1.0 구축<br>·네이버·카카오페이지</B></td>
     </tr>
 </table>

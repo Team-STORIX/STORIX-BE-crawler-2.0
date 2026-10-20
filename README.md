@@ -114,7 +114,7 @@ STORIX-BE-Crawler
                         <li>robots.txt 차단 경로 · 계정 자동 로그인 제거, 봇 UA — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/132">#132</a> · <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/136">#136</a></li>
                     </ul>
                 </li>
-                <li><B>플랫폼 확장</B>
+                <li><B>크롤러 수집 플랫폼 확장</B>
                     <ul>
                         <li>레진코믹스 · 미스터블루 — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/61">#61</a> · <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/pull/108">#108</a></li>
                     </ul>
@@ -145,7 +145,7 @@ STORIX-BE-Crawler
                         <li>드라이버 크래시 복구 · 적재 안정화 — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/commit/72fec3b"><code>72fec3b</code></a></li>
                     </ul>
                 </li>
-                <li><B>플랫폼 확장</B>
+                <li><B>크롤러 수집 플랫폼 확장</B>
                     <ul>
                         <li>리디북스 크롤러 · 배치 적재 · 제목 검색 — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/commit/c654d24"><code>c654d24</code></a> · <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/commit/3dea57d"><code>3dea57d</code></a></li>
                         <li>네이버 웹소설 크롤러 — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/commit/9e5e0e6"><code>9e5e0e6</code></a></li>
@@ -184,7 +184,7 @@ STORIX-BE-Crawler
                         <li>BaseCrawler 공통화 — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/commit/c7341ef"><code>c7341ef</code></a></li>
                     </ul>
                 </li>
-                <li><B>카카오페이지</B>
+                <li><B>크롤러 수집 플랫폼 확장</B>
                     <ul>
                         <li>카카오 로그인 · 크롤러 — <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/commit/b2d1075"><code>b2d1075</code></a> · <a href="https://github.com/Team-STORIX/STORIX-BE-crawler-2.0/commit/3f1b24e"><code>3f1b24e</code></a></li>
                     </ul>

@@ -78,7 +78,7 @@ STORIX-BE-Crawler
 
 ## 📚 Docs
 
-| | |
+| 문서 | 내용 |
 |---|---|
 | [수집](crawler/README.md) | 설치 · 실행 · 수집 모드 · 제목 검색 규칙 · 플랫폼별 메모 · JSONL 형식 |
 | [검수 · 적재](review/README.md) | 판정 · 매핑 승격 · 링크 복구 · 노션 요청 · Alembic |

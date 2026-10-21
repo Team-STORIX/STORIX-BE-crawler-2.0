@@ -10,13 +10,12 @@ EventBridge Scheduler 00:00 → EC2 켜기
       1. Parameter Store /storix/crawler/* → /run/storix-crawler.env (메모리, 끝나면 지움)
       2. main 의 compose · 스크립트, ECR storix-crawler:latest 이미지 받기
       3. S3 에 더 새 쿠키가 있으면 받기
-      4. 쿠키 갱신   python cli.py keepalive
-      5. docker compose run --rm nightly   (= python cli.py requests --env prod)
-      6. S3 보다 새 쿠키를 올리고 끄기
+      4. docker compose run --rm nightly   (= python cli.py requests --env prod)
+      5. S3 보다 새 쿠키를 올리고 끄기
 EventBridge Scheduler 01:00 → EC2 끄기 (멈췄을 때 안전망)
 ```
 
-- **쿠키 갱신(`keepalive`)**: 쿠키 파일이 있는 플랫폼을 모두 쿠키로 열어 봅니다. 열리면 사이트가 새로 준 쿠키를 합쳐 저장하고(쓸 때마다 연장되는 세션 유지), 안 열리면 그날 요청이 없어도 만료 알림을 보냅니다 (같은 날 같은 쿠키는 한 번만)
+- **로그인 쿠키**: 노션 요청이 있을 때 그 작품의 연재처만 쿠키로 열어 봅니다. 열리면 사이트가 새로 준 쿠키를 합쳐 저장하고(쓸 때마다 연장되는 세션 유지), 안 열리면 만료 알림(`[다시 로그인]`)을 보내고 그 요청은 노션에 표시하지 않고 다음 실행 · `[다시 긁기]` 때 다시 찾습니다. 요청이 없는 날은 쿠키를 열지 않습니다. 전 플랫폼을 열어 보려면 `python cli.py keepalive`
 - 인스턴스 `t3a.small` (CPU 크레딧 standard, 추가 과금 없음). Google Chrome 의 리눅스 ARM 판이 없어 t4g 는 못 씁니다
 - 들어오는 연결이 없어 EIP · 열린 포트가 없습니다
 

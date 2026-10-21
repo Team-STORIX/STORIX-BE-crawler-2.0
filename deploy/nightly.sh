@@ -6,8 +6,8 @@
 #   4) 슬랙 버튼으로 켜졌으면(태그 crawler:mode) 그 일만 한다
 #      login: 폰 원격 로그인(crawler/remote_login.py). 성공하면 쿠키를 S3 에 올리고 [못 긁은 작품 다시 긁기] 버튼을 단다
 #      rerun: 5) 의 노션 요청 처리만 다시
-#   5) 로그인 쿠키를 모두 열어 갱신(cli.py keepalive, 만료면 요청이 없어도 [다시 로그인] 알림)한 뒤
-#      노션 작품 요청 처리 (cli.py requests --env prod). 세션 만료 · 실패 알림은 cli 가 슬랙으로 보낸다
+#   5) 노션 작품 요청 처리 (cli.py requests --env prod). 요청 작품의 연재처만 로그인해 보고, 만료면 [다시 로그인] 알림.
+#      요청이 없는 날은 쿠키를 열지 않는다 (전 플랫폼 keepalive 는 하지 않음). 세션 만료 · 실패 알림은 cli 가 슬랙으로 보낸다
 #   6) 실행 중에 버튼을 눌렀으면(태그 crawler:mode=login-after · rerun-after) 끄기 전에 처리
 #   7) 서버 종료 — 그 전에 S3 보다 새 쿠키를 올린다. /etc/storix-crawler/hold 가 있으면 끄지 않는다 (들어가서 고칠 때)
 set -uo pipefail
@@ -42,7 +42,7 @@ react() {
   notify react "$1" "$2" "$3"
 }
 
-# 서버에서 갱신한 쿠키(keepalive · 원격 로그인)를 S3 에 올린다. S3 쪽이 더 새 것(그사이 로컬에서 올림)은 덮지 않는다.
+# 서버에서 갱신한 쿠키(요청 처리 · 원격 로그인)를 S3 에 올린다. S3 쪽이 더 새 것(그사이 로컬에서 올림)은 덮지 않는다.
 # 올리는 건 deploy/push_sessions.sh 하나가 한다
 upload_sessions() {
   [ -d sessions ] || return 0
@@ -210,11 +210,7 @@ case "$mode" in
     clear_tags ;;
 esac
 
-# 5) 쿠키 갱신 뒤 요청 처리. 갱신이 실패해도 요청 처리는 한다 (만료 알림은 cli 가 보낸다)
-if [ -z "${NIGHTLY_ARGS:-}" ]; then
-  docker compose run --rm nightly python cli.py keepalive || log '쿠키 갱신에 실패한 플랫폼이 있습니다'
-fi
-
+# 5) 요청 처리
 crawl
 code=$?
 # 지난주 새로 만든 작품 주간 알림. 없으면 보내지 않는다

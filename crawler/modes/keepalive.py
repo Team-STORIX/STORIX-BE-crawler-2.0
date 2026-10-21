@@ -1,13 +1,12 @@
-"""keepalive 모드: 로그인 쿠키를 매일 한 번 열어 갱신한다.
+"""keepalive 모드: 로그인 쿠키를 열어 갱신한다. 야간 실행은 부르지 않는다 — 요청 처리가 쓰는 플랫폼만 저장한다 (search_titles).
 
     python cli.py keepalive                  # 쿠키 파일이 있는 플랫폼 전부
     python cli.py keepalive --platform naver_webtoon
 
 쿠키로만 로그인해 보고
   - 열리면 → 사이트가 그동안 새로 내려준 쿠키를 기존 파일에 합쳐 저장한다. 쓸 때마다 연장되는 세션이 끊기지 않는다
-  - 안 열리면 → AUTH_EXPIRED 로 남긴다. 그날 요청이 없는 플랫폼도 만료를 미리 알 수 있다 ([다시 로그인] 알림)
-쿠키로 로그인하는 길(login_with_cookies)은 저장하지 않아, 이걸 따로 돌지 않으면 갱신된 쿠키가 브라우저와 함께 버려진다.
-S3 에 올리는 건 nightly.sh 가 한다.
+  - 안 열리면 → AUTH_EXPIRED 로 남긴다 ([다시 로그인] 알림)
+쿠키로 로그인하는 길(login_with_cookies)은 저장하지 않아, 저장하지 않으면 갱신된 쿠키가 브라우저와 함께 버려진다.
 """
 from pathlib import Path
 

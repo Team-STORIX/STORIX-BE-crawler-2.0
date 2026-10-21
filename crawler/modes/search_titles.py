@@ -225,6 +225,15 @@ def _crawl_for_type(crawler, candidates: list[dict], ttype: str | None, crawled:
     return results
 
 
+def _save_session(crawler, label: str) -> None:
+    from crawler.modes.keepalive import save_cookies
+    try:
+        changed = save_cookies(crawler.driver, platforms.cookie_file(crawler.REPORT_PLATFORM))
+        print(f'🍪 [{label}] 쿠키 저장 (바뀐 쿠키 {changed}개)')
+    except Exception as e:  # 저장 실패가 수집을 막지 않게
+        print(f'⚠️  [{label}] 쿠키 저장 실패: {type(e).__name__}: {e}')
+
+
 def _search_and_write(
     wanted: dict[str, set[str | None]],
     platform: str,
@@ -240,6 +249,8 @@ def _search_and_write(
     try:
         if not crawler.login():
             raise AuthExpiredError(f'{label} 로그인 실패')
+        # 야간 실행이 전 플랫폼 쿠키 갱신(keepalive)을 하지 않아, 쓰는 플랫폼은 여기서 사이트가 새로 준 쿠키를 저장한다
+        _save_session(crawler, label)
 
         with JSONLWriter(platform, mode) as writer:
             ok_count = fail_count = skip_count = 0

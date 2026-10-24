@@ -52,6 +52,8 @@ def _tunnel() -> tuple[subprocess.Popen, str]:
 def run(platform: str, user: str, channel: str, thread: str | None) -> int:
     try:
         login_platform = platforms.get(platform).login   # 네이버 웹툰 · 시리즈 · 웹소설은 쿠키 하나
+        if not login_platform:
+            raise KeyError(platform)
     except KeyError:
         notify.thread_reply('x', f'원격 로그인을 지원하지 않는 플랫폼: {platform}', channel, thread)
         return 2

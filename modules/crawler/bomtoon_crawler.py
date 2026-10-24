@@ -1,27 +1,19 @@
-"""봄툰 크롤러 (#59).
+"""봄툰 크롤러 (#59). 작품 링크로만 수집한다 (#149).
 
-상세는 봄툰 화면이 쓰는 작품 API 로 받는다:
-    GET https://www.bomtoon.com/api/balcony-api-v2/contents/{alias}   헤더 x-balcony-id: BOMTOON_COM
-성인 작품은 성인 인증된 로그인 세션이 있어야 열린다 (없으면 ADULT_ONLY_CONTENTS).
-세션은 `python cli.py login --platform bomtoon` 으로 사람이 브라우저에서 로그인해 sessions/ 에 저장한다.
+작품 API · 검색 API(/api/)는 robots.txt 가 막는다 (#131). 상세 화면 /detail/{alias} 는 허용이고, 서버가 그린 HTML 의
+__NEXT_DATA__ 에 작품 정보가 들어 있다. 로그인 없이 받는다:
+    일반 작품  props.pageProps.ssrDetail      작품 API 응답과 같은 모양
+    성인 작품  props.pageProps.openGraphData  ssrDetail 이 비어 이것만 온다. 작가 · 태그가 쉼표로 이은 문자열
+표지(thumbnails)는 어느 쪽에도 없다 — 화면이 뜬 뒤 /api/ 로 받는다. 봄툰에만 있는 새 작품은 표지 값 부족으로 검수 대기가 된다.
 """
 import json
 import re
-import time
 
-from .base_crawler import PASS_THROUGH, BaseCrawler, HttpUnavailable, SessionExpiredError, manual_login_timeout
-from .cookies import apply_cookies, read_cookies, write_cookies
+from .base_crawler import PASS_THROUGH, BaseCrawler, HttpUnavailable
 from review.hashtags import is_noise_tag
 from review.landing import work_id
-from config import BOMTOON_COOKIE_FILE
 
 SITE = 'https://www.bomtoon.com'
-CONTENTS_API = SITE + '/api/balcony-api-v2/contents/{}'
-# 로그인 세션(next-auth). user.accessToken.token 을 API 에 Authorization: Bearer 로 붙인다 (쿠키만으로는 성인 작품이 안 열림)
-SESSION_API = SITE + '/api/auth/session'
-# 화면 검색과 같은 API
-SEARCH_API = SITE + '/api/balcony-api-v2/search/title'
-API_HEADERS = {'Accept': 'application/json', 'x-balcony-id': 'BOMTOON_COM', 'x-balcony-timeZone': 'Asia/Seoul'}
 
 # 첫 태그는 장르다. 연재 요일 · 봄툰 자체 분류 · 이벤트 태그는 작품 내용이 아니라 해시태그로 쓰지 않는다
 #   토요연재 · 열흘연재 · 4일/14일/24일 · 2/12/22일 · 단편선 · 오직봄툰 · 기다봄 · 웹툰판 · 월드드랍 · 봄툰공모전_당선웹툰 · BL비엘
@@ -34,6 +26,7 @@ _EXTRA_KEYWORD = re.compile(r'^[가-힣A-Za-z0-9/]{1,8}$')
 _PAIRING = re.compile(r'[가-힣0-9][xX×][가-힣0-9]')
 # COMIC 은 봄툰 웹툰, CARTOON 은 출판 만화 분류다 (#64)
 _TYPES = {'COMIC': '웹툰', 'CARTOON': '만화', 'NOVEL': '웹소설'}
+_NEXT_DATA = re.compile(r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>', re.S)
 
 
 def _keep_tag(tag: dict) -> bool:
@@ -77,187 +70,59 @@ def parse_bomtoon_contents(data: dict, url: str) -> dict:
     }
 
 
-def _api_result(body: str, url: str) -> dict | None:
-    """API 응답 → data. 없는 작품이면 None, 성인 인증이 필요하면 SessionExpiredError."""
+def _from_open_graph(og: dict, url: str) -> dict:
+    """성인 작품의 openGraphData → 작품 API 모양. 태그가 자유 태그인지 알 수 없어 장르 뒤는 자유 태그 규칙으로 거른다"""
+    names = [n.strip() for n in (og.get('tags') or '').split(',') if n.strip()]
+    return {
+        'alias': bomtoon_alias(url), 'title': og.get('title'), 'isAdult': og.get('isAdult'),
+        'type': og.get('contentsType'), 'synopsis': og.get('synopsis'),
+        'creators': [{'name': n} for n in (og.get('creators') or '').split(',')],
+        'tags': [{'name': n, 'isExtra': i > 0} for i, n in enumerate(names)],
+    }
+
+
+def parse_bomtoon_page(html: str, url: str) -> dict | None:
+    """상세 HTML → 수집 결과. 없는 작품이면 None (ssrDetail · openGraphData 가 둘 다 null)"""
+    m = _NEXT_DATA.search(html or '')
+    if not m:
+        raise HttpUnavailable('__NEXT_DATA__ 없음')
     try:
-        res = json.loads(body)
-    except ValueError:
-        raise HttpUnavailable('JSON 아님')
-    if res.get('result') == 'SUCCESS':
-        return res.get('data')
-    code = (res.get('error') or {}).get('code')
-    if code == 'ADULT_ONLY_CONTENTS':
-        raise SessionExpiredError(f'봄툰 성인 인증 세션 필요: {url}')
-    if code in ('NOT_EXIST', 'NOT_FOUND_CONTENTS', 'CONTENTS_NOT_FOUND', 'NOT_FOUND'):
-        return None
-    raise HttpUnavailable(f'봄툰 API 오류 {code}')
+        props = json.loads(m.group(1))['props']['pageProps']
+    except (ValueError, KeyError, TypeError):
+        raise HttpUnavailable('__NEXT_DATA__ 형식이 다름')
+    if props.get('ssrDetail'):
+        return parse_bomtoon_contents(props['ssrDetail'], url)
+    if props.get('openGraphData'):
+        return parse_bomtoon_contents(_from_open_graph(props['openGraphData'], url), url)
+    return None
 
 
 class BomtoonCrawler(BaseCrawler):
     REPORT_PLATFORM = 'bomtoon'
-    LOGIN_URL_MARKERS = ('/user/login',)
     REQUEST_INTERVAL = 1.0
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._token: tuple[str, float] | None = None  # (토큰, 만료 시각 epoch 초)
-
-    def _access_token(self) -> str:
-        """저장된 쿠키로 받는 세션 토큰. 로그인 세션이 없으면 ''."""
-        if self._token and self._token[1] - 60 > time.time():
-            return self._token[0]
-        cookie = self._cookie_header()
-        if not cookie:
-            return ''
-        try:
-            body = self.http_get(SESSION_API, headers={'Accept': 'application/json', 'Cookie': cookie})
-            token = ((json.loads(body or '{}').get('user') or {}).get('accessToken') or {})
-        except (HttpUnavailable, ValueError):
-            return ''
-        if not token.get('token'):
-            return ''
-        self._token = (token['token'], (token.get('expiredAt') or 0) / 1000)
-        return self._token[0]
-
-    def _cookie_header(self) -> str:
-        if not BOMTOON_COOKIE_FILE.exists():
-            return ''
-        try:
-            cookies = read_cookies(BOMTOON_COOKIE_FILE)
-        except Exception:
-            return ''
-        return '; '.join(f"{c['name']}={c['value']}" for c in cookies if 'bomtoon' in (c.get('domain') or ''))
 
     def crawl_detail_http(self, url: str) -> dict | None:
         alias = bomtoon_alias(url)
         if not alias:
             raise HttpUnavailable('작품 주소 아님')
-        headers = dict(API_HEADERS)
-        token = self._access_token()
-        if token:
-            headers['Authorization'] = f'Bearer {token}'
-        body = self.http_get(CONTENTS_API.format(alias), headers=headers)
-        if body is None:
-            return None
-        try:
-            data = _api_result(body, url)
-        except SessionExpiredError:
-            # 저장된 쿠키로 안 열린다 — 브라우저 세션으로 다시 연다
-            raise HttpUnavailable('성인 작품: 로그인 세션으로 다시 엶')
-        return parse_bomtoon_contents(data, url) if data else None
+        html = self.http_get(f'{SITE}/detail/{alias}')
+        return parse_bomtoon_page(html, url) if html is not None else None
 
     def crawl_detail(self, url: str) -> dict | None:
-        """브라우저 세션(로그인 쿠키)으로 같은 API 를 부른다."""
         alias = bomtoon_alias(url)
         if not alias:
             return None
         try:
             self.driver.get(f'{SITE}/detail/{alias}')
-            body = self._fetch_in_page(CONTENTS_API.format(alias))
-            data = _api_result(body, url)
-            return parse_bomtoon_contents(data, url) if data else None
+            return parse_bomtoon_page(self.driver.page_source, url)
         except PASS_THROUGH:
             raise
         except Exception as e:
             self._log.warning('crawl_detail 실패 (%s): %s', url, e)
             return None
 
-    def _fetch_in_page(self, api_url: str) -> str:
-        """브라우저 세션으로 API 를 부른다. 화면과 같이 세션 토큰을 Authorization 에 붙인다."""
-        return self.driver.execute_async_script(
-            """const [url, headers, sessionUrl, done] = arguments;
-               fetch(sessionUrl, {credentials: 'include'}).then(r => r.json()).catch(() => ({}))
-                 .then(s => {
-                   const t = s && s.user && s.user.accessToken && s.user.accessToken.token;
-                   const h = t ? {...headers, Authorization: 'Bearer ' + t} : headers;
-                   return fetch(url, {headers: h, credentials: 'include'});
-                 })
-                 .then(r => r.text()).then(done).catch(e => done(String(e)));""",
-            api_url, API_HEADERS, SESSION_API)
-
-    def _adult_check(self) -> str:
-        """성인 작품 API 결과 코드. SUCCESS 면 로그인 · 성인 인증이 된 것이다."""
-        try:
-            body = self._fetch_in_page(CONTENTS_API.format('URMYWORLD'))
-            res = json.loads(body)
-            return res.get('result') if res.get('result') == 'SUCCESS' else (res.get('error') or {}).get('code', '?')
-        except Exception as e:
-            return f'확인 실패: {e}'
-
-    def _adult_session_ok(self) -> bool:
-        return self._adult_check() == 'SUCCESS'
+    def login(self) -> bool:
+        return True
 
     def login_with_cookies(self) -> bool:
-        if not BOMTOON_COOKIE_FILE.exists():
-            return False
-        try:
-            self.driver.get(SITE)
-            time.sleep(1)
-            apply_cookies(self.driver, BOMTOON_COOKIE_FILE)
-            self.driver.get(SITE)
-            return self._adult_session_ok()
-        except Exception as e:
-            print(f'⚠️ 봄툰 쿠키 로그인 실패: {e}')
-            return False
-
-    def _http_adult_ok(self) -> bool:
-        """저장된 쿠키(세션 토큰)로 성인 작품 API 가 열리는지. 상세는 HTTP 로 받으므로 이게 되면 브라우저 로그인은 필요 없다."""
-        token = self._access_token()
-        if not token:
-            return False
-        try:
-            body = self.http_get(CONTENTS_API.format('URMYWORLD'),
-                                 headers={**API_HEADERS, 'Authorization': f'Bearer {token}'})
-            return json.loads(body or '{}').get('result') == 'SUCCESS'
-        except (HttpUnavailable, ValueError):
-            return False
-
-    def login(self) -> bool:
-        if self._http_adult_ok():
-            print('✅ [봄툰] 저장된 세션으로 성인 작품 열림')
-            return True
-        if self.login_with_cookies():
-            print('✅ [봄툰] 쿠키 로그인 성공 (성인 작품 열림)')
-            return True
-        self.no_manual_login_on_server()
-        print('\n' + '=' * 60)
-        print('🔐 브라우저 창에서 봄툰 로그인을 완료하세요 (성인 인증된 계정).')
-        print('   성인 작품이 열리면 자동으로 감지합니다 (최대 5분).')
-        print('=' * 60 + '\n')
-        self.driver.get(SITE + '/user/login')
-        deadline = time.time() + manual_login_timeout(300)
-        last = None
-        while time.time() < deadline:
-            time.sleep(4)
-            if '/user/login' in (self.driver.current_url or ''):
-                continue
-            # 로그인 화면을 벗어나면 쿠키부터 저장한다. 성인 인증 확인은 따로 알린다
-            write_cookies(BOMTOON_COOKIE_FILE, self.driver.get_cookies())
-            code = self._adult_check()
-            if code == 'SUCCESS':
-                print('✅ [봄툰] 로그인 · 성인 인증 확인. 쿠키를 저장했습니다.')
-                return True
-            if code != last:
-                print(f'⏳ [봄툰] 로그인 쿠키 저장. 성인 작품은 아직 안 열림: {code} '
-                      '(성인 인증 · 성인 작품 보기 설정을 확인하세요)', flush=True)
-                last = code
-        print('⏰ 봄툰 로그인 대기 시간 초과.')
-        return False
-
-    def search_candidates(self, title: str) -> list[dict]:
-        """성인 작품도 받으려면 로그인 세션 토큰이 필요하다."""
-        import urllib.parse
-        headers = dict(API_HEADERS)
-        token = self._access_token()
-        if token:
-            headers['Authorization'] = f'Bearer {token}'
-        body = self.http_get(SEARCH_API + '?' + urllib.parse.urlencode({
-            'searchText': title, 'isIncludeAdult': 'true', 'page': 0, 'size': 30,
-            'isCheckDevice': 'true', 'contentsThumbnailType': 'MAIN'}), headers=headers)
-        try:
-            contents = ((json.loads(body or '{}').get('data') or {}).get('contents')) or []
-        except ValueError:
-            return []
-        raw = [(f"{SITE}/detail/{c['alias']}", c.get('title') or '', _TYPES.get(c.get('type')))
-               for c in contents if c.get('alias')]
-        return self.rank_candidates(title, raw)
+        return True

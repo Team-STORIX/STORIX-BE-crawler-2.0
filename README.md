@@ -73,8 +73,8 @@ STORIX-BE-Crawler
 |---|---|
 | `naver_webtoon` · `kakao_page` | 목록 · 제목 검색 · 링크 |
 | `lezhin` · `mrblue` | 제목 검색 · 링크 |
-| `ridibooks` · `naver_series` | 링크로만 (검색이 막힘) |
-| `naver_novel` · `bomtoon` | 수집 안 함 (robots.txt) |
+| `ridibooks` · `naver_series` · `bomtoon` | 링크로만 (검색이 막힘) |
+| `naver_novel` | 수집 안 함 (robots.txt) |
 
 ## 📚 Docs
 
@@ -100,7 +100,7 @@ STORIX-BE-Crawler
 │   ├── platforms.py                          # 플랫폼 등록부 (크롤러 · 로그인 · 링크 규칙)
 │   ├── robots.py                             # robots.txt 검사
 │   ├── cookies.py · titles.py · classify.py  # 쿠키 · 제목 규칙 · 작품 유형 판정
-│   └── naver · kakao · ridibooks · naver_series · lezhin · mrblue _crawler.py
+│   └── naver · kakao · ridibooks · naver_series · bomtoon · lezhin · mrblue _crawler.py
 ├── review/                                   # 검수 파이프라인
 │   ├── models.py · store.py · migrations/    # staging DB 구조 · 쿼리 · Alembic
 │   ├── rules.py · catalog.py                 # Layer 1 규칙 · BE enum 카탈로그

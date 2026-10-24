@@ -96,6 +96,9 @@ def cmd_login(args):
         except KeyError:
             print(f'❌ 지원하지 않는 플랫폼: {name} ({" | ".join(x.key for x in platforms.PLATFORMS)})')
             continue
+        if not p.login:
+            print(f'ℹ️  [{p.key}] 로그인 없이 수집하는 플랫폼입니다')
+            continue
         # 네이버 웹소설 · 시리즈는 네이버 웹툰 로그인 쿠키를 같이 쓴다
         p = platforms.get(p.login)
         print(f'\n{"="*60}')

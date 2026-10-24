@@ -42,7 +42,7 @@ _PLATFORM_TYPES = {
     'naver_series': {'웹툰', '웹소설'},
     'kakao_page': {'웹툰', '웹소설', '만화'},
     'ridibooks': {'웹툰', '웹소설', '만화'},
-    'bomtoon': {'웹툰', '웹소설', '만화'},
+    'bomtoon': {'웹툰', '웹소설'},
     'lezhin': {'웹툰'},
     'mrblue': {'웹툰', '웹소설', '만화'},
 }

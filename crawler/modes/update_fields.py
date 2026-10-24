@@ -187,10 +187,15 @@ def _recrawl_mrblue(urls: list[str], writer: JSONLWriter):
     _recrawl_logged_in(platforms.crawler_class('mrblue'), platforms.get('mrblue').label, urls, writer)
 
 
+def _recrawl_bomtoon(urls: list[str], writer: JSONLWriter):
+    _recrawl_logged_in(platforms.crawler_class('bomtoon'), platforms.get('bomtoon').label, urls, writer)
+
+
 _RECRAWL_MAP = {
     'naver_webtoon': _recrawl_naver,
     'kakao_page': _recrawl_kakao,
     'ridibooks': _recrawl_ridibooks,
+    'bomtoon': _recrawl_bomtoon,
     'lezhin': _recrawl_lezhin,
     'mrblue': _recrawl_mrblue,
 }

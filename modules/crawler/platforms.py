@@ -35,8 +35,9 @@ PLATFORMS = (
     Platform('kakao_page', 'KAKAO_PAGE', '카카오페이지', 'modules.crawler.kakao_crawler:KakaoCrawler', 'kakao_page'),
     Platform('ridibooks', 'RIDIBOOKS', '리디북스', 'modules.crawler.ridibooks_crawler:RidibooksCrawler', 'ridibooks',
              no_search='리디북스는 봇의 검색을 막아 제목으로 찾지 않습니다 — 작품 링크가 있어야 수집합니다'),
-    # 봄툰 크롤러 코드는 HTML 수집으로 바꿀 때 쓴다
-    Platform('bomtoon', 'BOMTOON', '봄툰', None, 'bomtoon', '봄툰은 상세 · 검색 API(/api/)를 robots.txt 가 막아 수집하지 않습니다'),
+    # 상세 HTML 은 로그인 없이 받는다 (#149). login 이 비어 있으면 로그인 · 쿠키가 없는 플랫폼
+    Platform('bomtoon', 'BOMTOON', '봄툰', 'modules.crawler.bomtoon_crawler:BomtoonCrawler', '',
+             no_search='봄툰은 robots.txt 가 검색 API 를 막아 제목으로 찾지 않습니다 — 작품 링크가 있어야 수집합니다'),
     Platform('lezhin', 'LEZHIN', '레진코믹스', 'modules.crawler.lezhin_crawler:LezhinCrawler', 'lezhin'),
     Platform('mrblue', 'MRBLUE', '미스터블루', 'modules.crawler.mrblue_crawler:MrblueCrawler', 'mrblue'),
 )
@@ -99,6 +100,8 @@ def cookie_file(name: str):
 def log_in(crawler, name: str, login: str = 'interactive') -> bool:
     """login: 'interactive' = crawler.login() (쿠키 → 계정 → 사람), 'cookies' = 쿠키로만 (사람 없이 도는 작업)."""
     p = get(name)
+    if not p.login:
+        return True
     if login == 'cookies':
         if not cookie_file(name).exists():
             print(f'⚠️  [{p.label}] 로그인 쿠키 없음 — python cli.py login --platform {p.login}')

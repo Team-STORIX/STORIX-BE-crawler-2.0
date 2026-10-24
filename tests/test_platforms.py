@@ -17,7 +17,8 @@ def test_naver_shares_one_login():
 
 
 def test_every_platform_has_cookie_file():
-    assert {p.login for p in platforms.PLATFORMS if p.crawler} <= set(platforms.COOKIE_FILES)
+    # login 이 비어 있으면 로그인 없이 수집하는 플랫폼 (봄툰 #149)
+    assert {p.login for p in platforms.PLATFORMS if p.crawler and p.login} <= set(platforms.COOKIE_FILES)
 
 
 def test_landing_platforms_are_registered():
@@ -31,18 +32,18 @@ def test_crawler_matches_key():
             assert platforms.crawler_class(p.key).REPORT_PLATFORM == p.key
 
 
-@pytest.mark.parametrize('name', ['naver_novel', 'bomtoon'])
+@pytest.mark.parametrize('name', ['naver_novel'])
 def test_robots_blocked_platforms_are_not_crawled(name):
-    # 네이버 웹소설은 사이트 전체, 봄툰은 상세 · 검색 API 를 robots.txt 가 막는다 (#131)
+    # 네이버 웹소설은 robots.txt 가 사이트 전체를 막는다 (#131)
     assert not platforms.searchable(name)
     with pytest.raises(KeyError):
         platforms.crawler_class(name)
     assert name not in platforms.COOKIE_FILES
 
 
-@pytest.mark.parametrize('name', ['naver_series', 'ridibooks'])
+@pytest.mark.parametrize('name', ['naver_series', 'ridibooks', 'bomtoon'])
 def test_no_search_platforms_crawl_links_only(name):
-    # 시리즈는 robots.txt 가, 리디는 봇 UA 응답이 검색을 막는다. 상세(링크) 수집은 그대로 (#135)
+    # 시리즈 · 봄툰은 robots.txt 가, 리디는 봇 UA 응답이 검색을 막는다. 상세(링크) 수집은 그대로 (#135 · #149)
     pytest.importorskip('selenium')
     from modules.crawler.base_crawler import BaseCrawler
     assert not platforms.searchable(name) and name not in platforms.GENERAL_SEARCH

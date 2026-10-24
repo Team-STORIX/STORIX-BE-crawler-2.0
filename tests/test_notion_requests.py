@@ -62,13 +62,14 @@ def test_no_search_request_is_skipped_with_reason(label, word):
 
 
 def test_bomtoon_request_is_skipped_with_reason():
-    """봄툰은 수집하지 않는다. 봄툰만 적힌 요청은 다른 플랫폼에서 찾지 않고 이유를 남긴다 (#131)"""
+    """봄툰은 제목으로 찾지 않는다. 봄툰만 적힌 요청은 다른 플랫폼에서 찾지 않고 이유를 남긴다 (#149)"""
+    pytest.importorskip('selenium')
     only = Request('e', 449, '봄툰 작품', ['웹툰'], ['봄툰'])
     assert plan([only]) == {}
     assert set(plan([Request('f', 450, '둘 다', ['웹툰'], ['봄툰', '카카오페이지'])])) == {'kakao_page'}
     assert set(plan([Request('g', 451, '기타도', ['웹툰'], ['봄툰', '기타'])])) == set(FALLBACK_KEYS)
     [(_, outcome)] = _report(None, [only], {})
-    assert not outcome.done and not outcome.retry and '봄툰' in outcome.note
+    assert not outcome.done and not outcome.retry and '봄툰' in outcome.note and '링크' in outcome.note
 
 
 def test_plan_platforms_are_registered():

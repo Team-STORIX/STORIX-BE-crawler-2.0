@@ -30,7 +30,7 @@ _DRIVER_ERRORS = (
 )
 
 # 레진코믹스 · 미스터블루는 성인 인증 세션이 필요해 all 에 넣지 않는다 (--platform 으로 따로 · 노션 요청 연재처로 돌린다)
-SUPPORTED_PLATFORMS = ['naver_webtoon', 'naver_series', 'kakao_page', 'ridibooks', 'lezhin', 'mrblue', 'all']
+SUPPORTED_PLATFORMS = ['naver_webtoon', 'naver_series', 'kakao_page', 'ridibooks', 'bomtoon', 'lezhin', 'mrblue', 'all']
 
 _ALL_TARGETS = list(platforms.GENERAL_SEARCH)
 
@@ -42,6 +42,7 @@ _PLATFORM_TYPES = {
     'naver_series': {'웹툰', '웹소설'},
     'kakao_page': {'웹툰', '웹소설', '만화'},
     'ridibooks': {'웹툰', '웹소설', '만화'},
+    'bomtoon': {'웹툰', '웹소설'},
     'lezhin': {'웹툰'},
     'mrblue': {'웹툰', '웹소설', '만화'},
 }

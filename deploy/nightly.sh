@@ -97,15 +97,18 @@ if git fetch -q origin "$DEPLOY_REF" && git checkout -q --detach FETCH_HEAD; the
 else
   log "코드 갱신 실패 — 기존 코드로 진행"
 fi
+# 새 이미지를 받을 때마다 옛 이미지(1.5GB)가 태그 없이 남는다. 15GB 디스크가 차서 pull · 빌드가 둘 다 실패했다 (10/22)
+docker image prune -f >/dev/null 2>&1; docker builder prune -f >/dev/null 2>&1
 registry=${ECR_IMAGE%%/*}
 if aws ecr get-login-password | docker login -u AWS --password-stdin "$registry" >/dev/null 2>&1 \
    && docker pull -q "$ECR_IMAGE" >/dev/null 2>&1; then
   docker tag "$ECR_IMAGE" storix-crawler:latest
+  docker image prune -f >/dev/null 2>&1
   log "이미지 $(docker image inspect -f '{{index .RepoDigests 0}}' "$ECR_IMAGE" | cut -c1-90)"
 elif docker image inspect storix-crawler:latest >/dev/null 2>&1 && [ "$before" = "$(git rev-parse HEAD)" ]; then
-  log 'ECR 에서 못 받음 — 코드가 그대로라 기존 이미지로 진행'
+  log "ECR 에서 못 받음 — 코드가 그대로라 기존 이미지로 진행 (디스크 남은 $(df -h --output=avail / | tail -1 | tr -d ' '))"
 else
-  log 'ECR 에서 못 받음 — 코드가 바뀌었거나 이미지가 없어 직접 빌드'
+  log "ECR 에서 못 받음 — 코드가 바뀌었거나 이미지가 없어 직접 빌드 (디스크 남은 $(df -h --output=avail / | tail -1 | tr -d ' '))"
   docker compose build -q nightly || { slack '🚨 크롤러 이미지를 받지도 빌드하지도 못했습니다'; exit 1; }
 fi
 

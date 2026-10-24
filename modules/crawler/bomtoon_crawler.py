@@ -24,8 +24,8 @@ BOMTOON_META_TAGS = re.compile(
 # 캐릭터 커플링('도해x단조')이 섞여 있다. 짧은 단어형만 남긴다
 _EXTRA_KEYWORD = re.compile(r'^[가-힣A-Za-z0-9/]{1,8}$')
 _PAIRING = re.compile(r'[가-힣0-9][xX×][가-힣0-9]')
-# COMIC 은 봄툰 웹툰, CARTOON 은 출판 만화 분류다 (#64)
-_TYPES = {'COMIC': '웹툰', 'CARTOON': '만화', 'NOVEL': '웹소설'}
+# CARTOON 을 출판 만화로 봤지만(#64) 레진 연재 웹툰 녹색전상도 CARTOON 이다. 봄툰 그림 작품은 모두 웹툰 (사용자 결정 2026-10-25)
+_TYPES = {'COMIC': '웹툰', 'CARTOON': '웹툰', 'NOVEL': '웹소설'}
 _NEXT_DATA = re.compile(r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>', re.S)
 
 

@@ -36,8 +36,8 @@ def test_plan_maps_platforms_and_types():
     p = plan(reqs)
     assert p['naver_webtoon'] == [('외모지상주의', '웹툰')]
     assert p['kakao_page'] == [('블랙 스완', '웹툰'), ('블랙 스완', '웹소설'), ('천관사복', '웹소설'), ('천관사복', '만화')]
-    # 네이버 웹소설은 robots.txt 가 막고 (#131), 시리즈 · 리디는 검색을 막아 제목으로 찾지 않는다 (#135)
-    assert not {'naver_novel', 'naver_series', 'ridibooks'} & set(p)
+    # 시리즈 · 리디는 검색을 막아 제목으로 찾지 않는다 (#135)
+    assert not {'naver_series', 'ridibooks'} & set(p)
 
 
 def test_plan_lezhin_mrblue_and_other():

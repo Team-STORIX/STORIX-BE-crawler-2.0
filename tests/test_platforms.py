@@ -12,7 +12,7 @@ def test_get_by_key_or_enum():
 
 
 def test_naver_shares_one_login():
-    assert {platforms.get(n).login for n in ('NAVER_WEBTOON', 'NAVER_NOVEL', 'NAVER_SERIES')} == {'naver_webtoon'}
+    assert {platforms.get(n).login for n in ('NAVER_WEBTOON', 'NAVER_SERIES')} == {'naver_webtoon'}
     assert platforms.cookie_file('naver_series') == platforms.cookie_file('naver_webtoon')
 
 
@@ -32,15 +32,6 @@ def test_crawler_matches_key():
             assert platforms.crawler_class(p.key).REPORT_PLATFORM == p.key
 
 
-@pytest.mark.parametrize('name', ['naver_novel'])
-def test_robots_blocked_platforms_are_not_crawled(name):
-    # 네이버 웹소설은 robots.txt 가 사이트 전체를 막는다 (#131)
-    assert not platforms.searchable(name)
-    with pytest.raises(KeyError):
-        platforms.crawler_class(name)
-    assert name not in platforms.COOKIE_FILES
-
-
 @pytest.mark.parametrize('name', ['naver_series', 'ridibooks', 'bomtoon'])
 def test_no_search_platforms_crawl_links_only(name):
     # 시리즈 · 봄툰은 robots.txt 가, 리디는 봇 UA 응답이 검색을 막는다. 상세(링크) 수집은 그대로 (#135 · #149)
@@ -49,11 +40,6 @@ def test_no_search_platforms_crawl_links_only(name):
     assert not platforms.searchable(name) and name not in platforms.GENERAL_SEARCH
     assert platforms.crawler_class(name).search_candidates is BaseCrawler.search_candidates
     assert '링크' in platforms.why_not_searchable(name)
-
-
-def test_skip_reason_only_when_not_crawled():
-    for p in platforms.PLATFORMS:
-        assert bool(p.skip) == (p.crawler is None)
 
 
 # ---- 공통 정규화 · 검색 (#98)

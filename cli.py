@@ -99,7 +99,7 @@ def cmd_login(args):
         if not p.login:
             print(f'ℹ️  [{p.key}] 로그인 없이 수집하는 플랫폼입니다')
             continue
-        # 네이버 웹소설 · 시리즈는 네이버 웹툰 로그인 쿠키를 같이 쓴다
+        # 네이버 시리즈는 네이버 웹툰 로그인 쿠키를 같이 쓴다
         p = platforms.get(p.login)
         print(f'\n{"="*60}')
         print(f'🔐 [{p.key}] 로그인 세션 저장')
@@ -442,7 +442,7 @@ def main():
     login_p = subparsers.add_parser('login', help='로그인 세션 저장 (Docker 실행 전 선행)')
     login_p.add_argument('--platform', required=True,
                          help='naver_webtoon | kakao_page | ridibooks | lezhin | mrblue | all (lezhin · mrblue 는 all 에 안 들어감). '
-                              'BE enum(KAKAO_PAGE) · 네이버 웹소설 · 시리즈도 받는다')
+                              'BE enum(KAKAO_PAGE) · 네이버 시리즈도 받는다')
 
     keep_p = subparsers.add_parser('keepalive', help='로그인 쿠키를 열어 갱신 · 만료면 슬랙 알림 (서버 야간 실행)')
     keep_p.add_argument('--platform', nargs='*', help='플랫폼 (기본: 쿠키 파일이 있는 플랫폼 전부)')

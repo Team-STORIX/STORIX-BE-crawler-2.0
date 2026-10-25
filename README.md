@@ -74,7 +74,6 @@ STORIX-BE-Crawler
 | `naver_webtoon` · `kakao_page` | 목록 · 제목 검색 · 링크 |
 | `lezhin` · `mrblue` | 제목 검색 · 링크 |
 | `ridibooks` · `naver_series` · `bomtoon` | 링크로만 (검색이 막힘) |
-| `naver_novel` | 수집 안 함 (robots.txt) |
 
 ## 📚 Docs
 

@@ -51,7 +51,7 @@ def _tunnel() -> tuple[subprocess.Popen, str]:
 
 def run(platform: str, user: str, channel: str, thread: str | None) -> int:
     try:
-        login_platform = platforms.get(platform).login   # 네이버 웹툰 · 시리즈 · 웹소설은 쿠키 하나
+        login_platform = platforms.get(platform).login   # 네이버 웹툰 · 시리즈는 쿠키 하나
         if not login_platform:
             raise KeyError(platform)
     except KeyError:

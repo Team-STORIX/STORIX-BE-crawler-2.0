@@ -82,9 +82,9 @@ def test_wildcard_and_anchor(path, ok):
 
 
 def test_check_raises_on_blocked_site(cached):
-    cached['novel.naver.com'] = [('disallow', '/')]
+    cached['blocked.example.com'] = [('disallow', '/')]
     with pytest.raises(RobotsDisallowed, match='Disallow: /'):
-        robots.check('https://novel.naver.com/webnovel/list?novelId=1', 'ua')
+        robots.check('https://blocked.example.com/works/1', 'ua')
 
 
 def test_exception_skips_only_listed_path(cached):
@@ -130,9 +130,9 @@ def test_http_get_checks_before_request(cached, monkeypatch):
     def no_network(*a, **k):
         raise AssertionError('막힌 경로인데 요청을 보냄')
     monkeypatch.setattr(urllib.request, 'urlopen', no_network)
-    cached['novel.naver.com'] = [('disallow', '/')]
+    cached['blocked.example.com'] = [('disallow', '/')]
     with pytest.raises(RobotsDisallowed):
-        BaseCrawler().http_get('https://novel.naver.com/webnovel/list?novelId=1')
+        BaseCrawler().http_get('https://blocked.example.com/works/1')
 
 
 def test_http_get_stops_on_bot_denial(cached, monkeypatch):

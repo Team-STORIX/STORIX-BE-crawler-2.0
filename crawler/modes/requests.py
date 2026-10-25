@@ -47,8 +47,8 @@ def plan(requests: list[Request]) -> dict[str, list[tuple[str, str | None]]]:
     out: dict[str, list[tuple[str, str | None]]] = defaultdict(list)
     for r in requests:
         listed = [k for p in r.platforms for k in PLATFORM_KEYS.get(p, [])]
-        # 제목으로 찾을 수 없는 연재처(수집 안 함 · 검색 안 함)만 적힌 요청은 다른 플랫폼에서 찾지 않는다
-        # — 엉뚱한 작품이 걸리지 않게 (#131, #135)
+        # 제목으로 찾을 수 없는 연재처만 적힌 요청은 다른 플랫폼에서 찾지 않는다
+        # — 엉뚱한 작품이 걸리지 않게 (#135)
         keys = [k for k in listed if platforms.searchable(k)]
         # '기타' 는 표에 없는 연재처라는 뜻이라, 다른 연재처와 같이 적혀도 전체에서 찾는다
         if '기타' in r.platforms or not listed:

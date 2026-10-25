@@ -10,8 +10,6 @@ import re
 _RULES = (
     (re.compile(r'comic\.naver\.com/webtoon/[^?#]*\?(?:.*&)?titleId=(\d+)'),
      'https://comic.naver.com/webtoon/list?titleId={}', 'NAVER_WEBTOON'),
-    (re.compile(r'novel\.naver\.com/webnovel/[^?#]*\?(?:.*&)?novelId=(\d+)'),
-     'https://novel.naver.com/webnovel/list?novelId={}', 'NAVER_NOVEL'),
     (re.compile(r'series\.naver\.com/(novel|comic)/detail\.series\?(?:.*&)?productNo=(\d+)'),
      'https://series.naver.com/{}/detail.series?productNo={}', 'NAVER_SERIES'),
     (re.compile(r'(?:page\.kakao|kakaopage)\.com/content/(\d+)'),   # kakaopage.com 은 옛 도메인
@@ -27,9 +25,9 @@ _RULES = (
 )
 
 
-# 정식 계약 전 작품 (네이버 웹툰 도전만화 · 베스트도전, 네이버 웹소설 베스트리그 · 챌린지리그). 받지 않는다.
+# 정식 계약 전 작품 (네이버 웹툰 도전만화 · 베스트도전). 받지 않는다.
 # 검수(review/rules)와 네이버 크롤러가 같이 쓴다 (#122)
-PRE_CONTRACT_URL = re.compile(r'comic\.naver\.com/(?:challenge|bestChallenge)/|novel\.naver\.com/(?:best|challenge)/')
+PRE_CONTRACT_URL = re.compile(r'comic\.naver\.com/(?:challenge|bestChallenge)/')
 
 
 def is_pre_contract_url(url: str) -> bool:

@@ -37,18 +37,16 @@ def parse_url_to_platform(url: str) -> tuple[str, str]:
     domain = parsed.netloc.lower()
 
     # 작품 링크는 링크 판정(review/landing)과 같은 규칙으로 플랫폼을 정한다 (#121).
-    # 아래 도메인 분기는 'naver.com' 을 모두 웹툰으로 봐서 네이버 웹소설 작품이 웹툰으로 갔다.
     # 목록 · 탭 주소가 있는 네 플랫폼은 아래 분기가 그대로 처리한다
     found = platform_work_key(url)
     if found and platforms.get(found[0]).key not in SUPPORTED_PLATFORMS:
         return platforms.get(found[0]).key, 'detail'
 
-    # 네이버 시리즈 — 아래 'naver.com' 분기가 모든 네이버 도메인을 웹툰으로
-    # 삼켜버리므로 반드시 먼저 걸러야 한다. (m.series 포함)
-    if 'series.naver.com' in domain:
+    if 'series.naver.com' in domain:   # m.series 포함
         return 'naver_series', ('detail' if 'detail.series' in parsed.path else 'list')
 
-    if 'naver.com' in domain:
+    # 네이버 웹소설(novel.naver.com)은 robots.txt 가 막아 수집하지 않는다 — 웹툰으로 열지 않게 comic 만 받는다 (#131)
+    if 'comic.naver.com' in domain:
         params = parse_qs(parsed.query)
         if params.get('titleId'):
             return 'naver_webtoon', 'detail'

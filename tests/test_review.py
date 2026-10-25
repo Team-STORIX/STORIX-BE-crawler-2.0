@@ -162,7 +162,6 @@ def test_layer1_sends_normalized_artist_name():
     ('https://comic.naver.com/webtoon/list?titleId=747269&week=wed&tab=genre',
      'https://comic.naver.com/webtoon/list?titleId=747269'),
     ('https://comic.naver.com/webtoon/detail?titleId=747269&no=5', 'https://comic.naver.com/webtoon/list?titleId=747269'),
-    ('https://novel.naver.com/webnovel/list?novelId=1165165', 'https://novel.naver.com/webnovel/list?novelId=1165165'),
     ('https://series.naver.com/novel/detail.series?productNo=14490883&isWebtoonAgreePopUp=true',
      'https://series.naver.com/novel/detail.series?productNo=14490883'),
     ('https://series.naver.com/comic/detail.series?productNo=123', 'https://series.naver.com/comic/detail.series?productNo=123'),
@@ -212,8 +211,6 @@ def test_unknown_platform_is_rejected():
 @pytest.mark.parametrize('url', [
     'https://comic.naver.com/challenge/list?titleId=1',
     'https://comic.naver.com/bestChallenge/list?titleId=1',
-    'https://novel.naver.com/best/list?novelId=1206587',
-    'https://m.novel.naver.com/challenge/list?novelId=1',
 ])
 def test_pre_contract_works_are_rejected(url):
     v = validate_item(item(source_url=url), CATALOG)
@@ -229,9 +226,7 @@ def test_section_title_as_works_name_is_rejected(name):
 
 
 def test_official_naver_urls_pass():
-    for url in ('https://comic.naver.com/webtoon/list?titleId=747269',
-                'https://novel.naver.com/webnovel/list?novelId=1'):
-        assert validate_item(item(source_url=url), CATALOG).status == AUTO_PASS
+    assert validate_item(item(source_url='https://comic.naver.com/webtoon/list?titleId=747269'), CATALOG).status == AUTO_PASS
 
 
 def test_invalid_url_is_rejected():

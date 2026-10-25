@@ -68,9 +68,16 @@ def test_naver_login_checks_cookie_like_other_platforms(monkeypatch, tmp_path):
 def test_custom_url_detects_platform_like_landing():
     from crawler.modes.custom_url import parse_url_to_platform
     from crawler.modes.update_fields import platform_of_url
-    for url in ('https://novel.naver.com/webnovel/list?novelId=1', 'https://www.lezhin.com/ko/comic/jinx',
+    for url in ('https://comic.naver.com/webtoon/list?titleId=1', 'https://www.lezhin.com/ko/comic/jinx',
                 'https://series.naver.com/novel/detail.series?productNo=1', 'https://ridibooks.com/books/1'):
         assert parse_url_to_platform(url)[0] == platform_of_url(url)
+
+
+def test_custom_url_rejects_naver_novel():
+    # robots.txt 가 사이트 전체를 막는다 (#131). 'naver.com' 이라고 웹툰 목록으로 열지 않는다
+    from crawler.modes.custom_url import parse_url_to_platform
+    with pytest.raises(ValueError):
+        parse_url_to_platform('https://novel.naver.com/webnovel/list?novelId=1')
 
 
 def test_genre_alias_same_for_genre_and_tags():

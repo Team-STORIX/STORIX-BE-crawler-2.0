@@ -19,17 +19,13 @@ class Platform:
     key: str        # cli --platform · 리포트 · 수집 파일 이름 (crawler.REPORT_PLATFORM)
     enum: str
     label: str
-    crawler: str | None  # 'modules.crawler.<모듈>:<클래스>' (selenium 을 늦게 불러오려고 문자열로 둔다). None = 수집 안 함
-    login: str      # 로그인 쿠키를 같이 쓰는 플랫폼 key (네이버 웹툰 · 웹소설 · 시리즈는 네이버 쿠키 하나)
-    skip: str = ''  # 수집하지 않는 이유 (crawler=None 인 플랫폼). 노션 요청 결과에 그대로 남긴다
+    crawler: str    # 'modules.crawler.<모듈>:<클래스>' (selenium 을 늦게 불러오려고 문자열로 둔다)
+    login: str      # 로그인 쿠키를 같이 쓰는 플랫폼 key (네이버 웹툰 · 시리즈는 네이버 쿠키 하나)
     no_search: str = ''  # 제목으로 찾지 않는 이유. 작품 링크로만 수집한다 (#135)
 
 
 PLATFORMS = (
     Platform('naver_webtoon', 'NAVER_WEBTOON', '네이버 웹툰', 'modules.crawler.naver_crawler:NaverCrawler', 'naver_webtoon'),
-    # 수집하지 않는 플랫폼도 BE 에 남은 링크의 이름 · 로그인 표시용으로 둔다 (#131)
-    Platform('naver_novel', 'NAVER_NOVEL', '네이버 웹소설', None, 'naver_webtoon',
-             '네이버 웹소설은 robots.txt 가 사이트 전체를 막아 수집하지 않습니다'),
     Platform('naver_series', 'NAVER_SERIES', '네이버 시리즈', 'modules.crawler.naver_series_crawler:NaverSeriesCrawler', 'naver_webtoon',
              no_search='네이버 시리즈는 robots.txt 가 검색을 막아 제목으로 찾지 않습니다 — 작품 링크가 있어야 수집합니다'),
     Platform('kakao_page', 'KAKAO_PAGE', '카카오페이지', 'modules.crawler.kakao_crawler:KakaoCrawler', 'kakao_page'),
@@ -72,25 +68,22 @@ def get(name: str) -> Platform:
 
 
 def crawler_class(name: str):
-    p = get(name)
-    if not p.crawler:
-        raise KeyError(p.skip)
-    module, cls = p.crawler.split(':')
+    module, cls = get(name).crawler.split(':')
     return getattr(importlib.import_module(module), cls)
 
 
 def searchable(name: str) -> bool:
     """제목 검색 후보(search_candidates)를 내는 크롤러인지. 링크 채우기 · 복구가 같이 쓴다 (#121)"""
     from modules.crawler.base_crawler import BaseCrawler
-    if not get(name).crawler or get(name).no_search:
+    if get(name).no_search:
         return False
     return crawler_class(name).search_candidates is not BaseCrawler.search_candidates
 
 
 def why_not_searchable(name: str) -> str:
-    """제목으로 찾지 않는 이유 (수집 안 함 · 검색 안 함). 노션 요청 결과에 남긴다"""
+    """제목으로 찾지 않는 이유. 노션 요청 결과에 남긴다"""
     p = get(name)
-    return p.skip or p.no_search or f'{p.label}는 제목 검색을 지원하지 않습니다'
+    return p.no_search or f'{p.label}는 제목 검색을 지원하지 않습니다'
 
 
 def cookie_file(name: str):

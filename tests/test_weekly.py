@@ -4,6 +4,18 @@ from datetime import date, datetime
 import pytest
 
 from crawler import weekly
+from review.catalog import EnumCatalog
+
+# BE enum-catalog 응답 모양. 유형 표시 · 순서는 이걸 따른다
+CATALOG = EnumCatalog({
+    'platform': {'storedAs': 'name', 'values': [{'name': 'KAKAO_PAGE'}]},
+    'genre': {'storedAs': 'dbValue', 'values': [{'name': 'FANTASY', 'dbValue': '판타지'}]},
+    'ageClassification': {'storedAs': 'dbValue', 'values': [{'name': 'ALL', 'dbValue': '전체이용가'}]},
+    'worksType': {'storedAs': 'dbValue', 'values': [
+        {'name': 'WEBTOON', 'dbValue': '웹툰'}, {'name': 'WEBNOVEL', 'dbValue': '웹소설'},
+        {'name': 'COMIC', 'dbValue': '만화'}, {'name': 'BOOK', 'dbValue': '단행본'}]},
+})
+TYPE_ORDER = ['웹툰', '웹소설', '만화', '단행본']
 
 
 def test_last_week_is_previous_monday_to_monday():
@@ -37,7 +49,7 @@ def test_sections_group_by_platform_and_merge_types():
             {'works_name': '블랙 스완', 'works_type': '웹툰', 'platforms': 'KAKAO_PAGE'},
             {'works_name': '야화첩', 'works_type': '웹툰', 'platforms': 'LEZHIN,NAVER_WEBTOON'},   # 두 곳에서 만듦
             {'works_name': '이상한 곳', 'works_type': None, 'platforms': None}]
-    assert weekly.sections(rows) == [
+    assert weekly.sections(rows, TYPE_ORDER) == [
         ('네이버 웹툰', ['- [웹툰] 야화첩']),
         ('카카오페이지', ['- [웹툰/웹소설] 블랙 스완']),
         ('리디북스', ['- [웹소설] 넷카마 펀치!!!']),
@@ -51,8 +63,25 @@ def test_multi_platform_summary():
             {'works_name': '블랙 스완', 'works_type': '웹툰', 'platforms': 'KAKAO_PAGE,RIDIBOOKS'},
             {'works_name': '블랙 스완', 'works_type': '웹소설', 'platforms': 'KAKAO_PAGE,RIDIBOOKS'},
             {'works_name': '한 곳', 'works_type': '웹툰', 'platforms': 'KAKAO_PAGE'}]
-    assert weekly.multi_platform(rows) == ['- [웹툰] 야화첩 — 네이버 웹툰 · 레진코믹스',
+    assert weekly.multi_platform(rows, TYPE_ORDER) == ['- [웹툰] 야화첩 — 네이버 웹툰 · 레진코믹스',
                                            '- [웹툰/웹소설] 블랙 스완 — 카카오페이지 · 리디북스']
+
+
+def test_types_follow_catalog_labels():
+    """staging 원본 유형이 '웹소설' · 'WEBNOVEL' 로 섞여 와도 카탈로그 dbValue 로 (10월 4주차 [WEBNOVEL] 표기)"""
+    rows = [{'works_name': '인소의 법칙', 'works_type': 'WEBNOVEL', 'platforms': 'RIDIBOOKS'},
+            {'works_name': '인소의 법칙', 'works_type': 'BOOK', 'platforms': 'RIDIBOOKS'},
+            {'works_name': '인소의 법칙', 'works_type': '웹툰', 'platforms': 'RIDIBOOKS'},
+            {'works_name': '모르는 유형', 'works_type': '오디오북', 'platforms': 'RIDIBOOKS'}]
+    labeled, order = weekly.with_type_labels(rows, CATALOG)
+    assert order == TYPE_ORDER
+    assert weekly.sections(labeled, order) == [
+        ('리디북스', ['- [웹툰/웹소설/단행본] 인소의 법칙', '- [오디오북] 모르는 유형'])]
+
+
+def test_types_stay_raw_without_catalog():
+    rows = [{'works_name': 'a', 'works_type': 'WEBNOVEL', 'platforms': 'RIDIBOOKS'}]
+    assert weekly.with_type_labels(rows, None) == (rows, [])
 
 
 class FakeStore:
@@ -71,8 +100,8 @@ def test_run_posts_headline_then_names_in_thread(monkeypatch):
                         lambda text, blocks=None, thread_ts=None: replies.append((blocks[0]['text'], thread_ts)) or True)
     monkeypatch.setattr(weekly, 'THREAD_CHUNK', 1)
     store = FakeStore([{'works_name': '작품1', 'works_type': '웹툰', 'platforms': 'KAKAO_PAGE'},
-                       {'works_name': '작품2', 'works_type': '웹소설', 'platforms': 'RIDIBOOKS,KAKAO_PAGE'}])
-    r = weekly.run(store, date(2026, 10, 19))
+                       {'works_name': '작품2', 'works_type': 'WEBNOVEL', 'platforms': 'RIDIBOOKS,KAKAO_PAGE'}])
+    r = weekly.run(store, date(2026, 10, 19), catalog=CATALOG)
     assert store.asked == (datetime(2026, 10, 11, 15, 0), datetime(2026, 10, 18, 15, 0))
     assert r['week'] == '10월 3주차' and r['created'] == 2 and r['sent'] is True
     # 원글에는 안내만. markdown 블록에 **굵게**, text 에는 굵게 표시를 뗀 문구 (#109)

@@ -57,6 +57,14 @@ class EnumCatalog:
     def names(self, kind: str) -> list[str]:
         return list(self._names[kind])
 
+    def label(self, kind: str, value: str | None) -> str | None:
+        """name / dbValue 어느 쪽으로 와도 사람이 읽는 dbValue 로. 못 맞추면 None"""
+        name = self.resolve(kind, value)
+        if not name:
+            return None
+        entry = next(e for e in self.raw[kind]['values'] if e['name'] == name)
+        return entry.get('dbValue') or name
+
 
 def _norm(s: str) -> str:
     return ''.join(s.split())

@@ -12,6 +12,10 @@
         **여러 플랫폼에 등재** (1)     ← 마지막 답글. 두 곳 이상에 연결된 작품만
         - [웹툰] 작품명3 — 네이버 웹툰 · 레진코믹스
 
+유형은 BE enum 카탈로그의 dbValue(웹툰 · 웹소설 · 만화 · 단행본)로, 순서도 카탈로그 순서로 (#155).
+staging 의 works_type 은 크롤러 원본이라 '웹소설' · 'WEBNOVEL' 이 섞여 그대로 찍혔다.
+카탈로그를 못 받으면 원본 값을 그대로 쓴다 — 알림이 빠지는 것보다 낫다.
+
 새로 만든 작품 = works_staging.import_result 가 CREATED. 갱신(UPDATED · UNCHANGED)은 넣지 않는다.
 노션 요청뿐 아니라 로컬 stage import 로 넣은 것도 같은 staging DB 를 거치므로 함께 잡힌다.
 """
@@ -23,7 +27,6 @@ from modules.crawler import platforms
 
 KST = ZoneInfo('Asia/Seoul')
 THREAD_CHUNK = 100  # 스레드 답글 하나에 넣는 작품 수
-TYPE_ORDER = ('웹툰', '웹소설', '만화')
 
 
 def last_week(today: date) -> tuple[date, date]:
@@ -66,7 +69,16 @@ def _platform_label(enum: str) -> str:
         return enum or '기타'
 
 
-def sections(rows: list[dict]) -> list[tuple[str, list[str]]]:
+def with_type_labels(rows: list[dict], catalog=None) -> tuple[list[dict], list[str]]:
+    """works_type 을 카탈로그 dbValue 로 바꾼 행들과 유형 순서(카탈로그 순서)"""
+    if catalog is None:
+        return rows, []
+    order = [catalog.label('worksType', n) for n in catalog.names('worksType')]
+    return [{**r, 'works_type': catalog.label('worksType', r.get('works_type')) or r.get('works_type')}
+            for r in rows], order
+
+
+def sections(rows: list[dict], type_order: list[str] = ()) -> list[tuple[str, list[str]]]:
     """작품들 → [(플랫폼 표시명, ['- [웹툰/웹소설] 작품명', …])]. 플랫폼은 등록부 순서, 작품은 추가된 순서.
     같은 플랫폼에서 같은 이름이 여러 유형으로 추가됐으면 한 줄로 합친다."""
     order = {p.enum: i for i, p in enumerate(platforms.PLATFORMS)}
@@ -80,17 +92,17 @@ def sections(rows: list[dict]) -> list[tuple[str, list[str]]]:
     for enum in sorted(grouped, key=lambda e: (order.get(e, len(order)), e)):
         lines = []
         for name, types in grouped[enum].items():
-            ordered = _types(types)
+            ordered = _types(types, type_order)
             lines.append(f"- [{'/'.join(ordered)}] {name}" if ordered else f'- {name}')
         out.append((_platform_label(enum), lines))
     return out
 
 
-def _types(types: set[str]) -> list[str]:
-    return sorted(types, key=lambda t: (TYPE_ORDER.index(t) if t in TYPE_ORDER else len(TYPE_ORDER), t))
+def _types(types: set[str], order: list[str]) -> list[str]:
+    return sorted(types, key=lambda t: (order.index(t) if t in order else len(order), t))
 
 
-def multi_platform(rows: list[dict]) -> list[str]:
+def multi_platform(rows: list[dict], type_order: list[str] = ()) -> list[str]:
     """두 곳 이상에 연결된 작품 → ['- [웹툰] 작품명 — 네이버 웹툰 · 레진코믹스']. 이름 · 플랫폼이 같으면 유형을 합친다"""
     order = {p.enum: i for i, p in enumerate(platforms.PLATFORMS)}
     merged: dict[tuple[str, tuple[str, ...]], set[str]] = {}
@@ -104,7 +116,7 @@ def multi_platform(rows: list[dict]) -> list[str]:
     lines = []
     for (name, enums), types in merged.items():
         where = ' · '.join(_platform_label(e) for e in enums)
-        lines.append(f"- [{'/'.join(_types(types))}] {name} — {where}" if types else f'- {name} — {where}')
+        lines.append(f"- [{'/'.join(_types(types, type_order))}] {name} — {where}" if types else f'- {name} — {where}')
     return lines
 
 
@@ -117,14 +129,14 @@ def chunks(groups: list[tuple[str, list[str]]]) -> list[str]:
     return out
 
 
-def run(store, today: date | None = None, send: bool = True) -> dict:
+def run(store, today: date | None = None, send: bool = True, catalog=None) -> dict:
     today = today or datetime.now(KST).date()
     start, end = last_week(today)
     label = week_label(start)
-    rows = store.created_works(*utc_bounds(start, end))
+    rows, type_order = with_type_labels(store.created_works(*utc_bounds(start, end)), catalog)
     text = headline(label, len(rows))
-    multi = multi_platform(rows)
-    replies = chunks(sections(rows) + ([('여러 플랫폼에 등재', multi)] if multi else []))
+    multi = multi_platform(rows, type_order)
+    replies = chunks(sections(rows, type_order) + ([('여러 플랫폼에 등재', multi)] if multi else []))
     sent = False
     if rows and send:
         ts = notify.post(plain(text), blocks=markdown_blocks(text))

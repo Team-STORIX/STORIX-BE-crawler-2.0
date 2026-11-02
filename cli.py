@@ -404,7 +404,13 @@ def cmd_stage(args):
             # 지난주(월~일) BE 에 새로 만든 작품을 슬랙으로 (#77). 서버는 월요일 자정 실행 때 --send 로 부른다
             from datetime import date
             from crawler import weekly
-            result = weekly.run(store, date.fromisoformat(args.date) if args.date else None, send=args.send)
+            try:
+                catalog = load_catalog()
+            except Exception as e:
+                catalog = None
+                print(f'⚠️ enum 카탈로그를 못 받아 유형을 원본 값으로 표시합니다: {e}')
+            result = weekly.run(store, date.fromisoformat(args.date) if args.date else None, send=args.send,
+                                catalog=catalog)
             print(result.pop('text') or '(지난주 새로 만든 작품 없음)')
             print(json.dumps(result, ensure_ascii=False))
         else:

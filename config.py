@@ -97,11 +97,10 @@ RIDIBOOKS_INITIAL_TARGETS = [
 ]
 
 # (base_url, 추가 파라미터, 레이블, 최대 수집 수, 장르 힌트, 작품 유형)
+# 신작: 웹툰 전체 신작 인기순 상위 35 (#160). 리디는 상세 70건 안팎이면 차단돼 목록을 작게 잡는다.
+# (url, 쿼리, 이름, 최대, 고정 장르 — None 이면 상세에서 판정, 유형)
 RIDIBOOKS_NEW_TARGETS = [
-    ("https://ridibooks.com/category/bestsellers/1612", "adult_exclude=y&period=monthly", "웹툰 로판 월간 성인제외",    100, "로판",   "웹툰"),
-    ("https://ridibooks.com/category/bestsellers/1613", "adult_exclude=y&period=monthly", "웹툰 로맨스 월간 성인제외", 100, "로맨스", "웹툰"),
-    ("https://ridibooks.com/category/bestsellers/1606", "period=monthly",                  "웹툰 판타지 월간",          100, "판타지", "웹툰"),
-    ("https://ridibooks.com/category/bestsellers/4250", "adult_exclude=y&period=monthly", "웹툰 BL 월간 성인제외",     100, "BL",    "웹툰"),
+    ("https://ridibooks.com/category/new-releases/1600", "order=popular", "웹툰 전체 신작 인기순", 35, None, "웹툰"),
 ]
 
 

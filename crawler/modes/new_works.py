@@ -158,7 +158,8 @@ def run_ridibooks(writer: JSONLWriter):
                 print(f'[{label} {i}/{len(urls)}]', end='\r')
                 data = crawler.crawl_detail_with_retry(url)
                 if data:
-                    data['genre'] = genre_hint
+                    if genre_hint:  # 장르별 목록일 때만. 전체 목록은 상세에서 판정한 장르를 둔다
+                        data['genre'] = genre_hint
                     data['works_type'] = works_type
                     write_if_new(data)
                 crawler.human_pause(1.0, 2.5)

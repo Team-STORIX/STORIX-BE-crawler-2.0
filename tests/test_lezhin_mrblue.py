@@ -88,6 +88,23 @@ def test_links():
     assert platform_work_key('https://www.mrblue.com/webtoon/wt_000070142') == ('MRBLUE', 'wt_000070142')
 
 
+@pytest.mark.parametrize('href, alias', [
+    ('/ko/comic/curse_of_immortality', 'curse_of_immortality'),
+    ('https://www.lezhin.com/ko/comic/deep-space_love?utm=x', 'deep-space_love'),
+    ('/ko/comic/inflame/1', None),          # 회차 링크
+    ('/ko/comic', None), ('/ko/ranking', None), (None, None),
+])
+def test_lezhin_list_alias(href, alias):
+    from modules.crawler.lezhin_crawler import lezhin_list_alias
+    assert lezhin_list_alias(href) == alias
+
+
+def test_lezhin_rating_1_is_all_ages():
+    """rating '1' 은 화면에 '전체 이용가' 로 나온다 (#162)"""
+    from modules.crawler.lezhin_crawler import LEZHIN_AGES
+    assert LEZHIN_AGES['1'] == '전체연령가'
+
+
 def test_parse_mrblue_list_reads_list_area_in_order():
     from modules.crawler.mrblue_crawler import parse_mrblue_list
     src = ('<a href="/webtoon/wt_000000001">머리말 추천</a><ul class="thumb-list04">'

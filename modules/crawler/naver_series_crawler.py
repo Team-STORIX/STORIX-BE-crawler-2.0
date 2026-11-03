@@ -54,6 +54,33 @@ class NaverSeriesCrawler(NaverCrawler):
             'age_classification': age,
         }
 
+    def get_list_urls(self, list_url: str, max_count: int) -> list[str]:
+        """신작 목록(recentList.series) → 작품 링크, 화면 순서대로. 한 쪽 25개라 page 를 넘긴다 (#161)"""
+        kind = 'comic' if '/comic/' in list_url else 'novel'
+        urls: list[str] = []
+        page = 1
+        while len(urls) < max_count:
+            src = self.http_get(f"{list_url}?page={page}")
+            found = [u for u in parse_series_list(src or '', kind) if u not in urls]
+            if not found:
+                break
+            urls += found
+            page += 1
+        return urls[:max_count]
+
+    def _episode_unit(self, timeout: float = 3.0) -> str:
+        """'총 7화' · '총 1권' 의 단위. 회차 목록은 스크립트로 그려져 잠깐 기다린다. 못 찾으면 ''"""
+        end = time.time() + timeout
+        while True:
+            try:
+                body = self.driver.find_element(By.TAG_NAME, 'body').text
+            except Exception:
+                body = ''
+            unit = episode_unit(body)
+            if unit or time.time() > end:
+                return unit
+            time.sleep(0.5)
+
     def crawl_detail(self, url: str) -> dict | None:
         try:
             self.driver.get(url)
@@ -68,7 +95,7 @@ class NaverSeriesCrawler(NaverCrawler):
                 self._log.warning("페이지 로딩 시간 초과: %s", url)
                 return None
 
-            works_type = "웹툰" if "/comic/" in url else "웹소설"
+            works_type = series_works_type(url, self._episode_unit())
 
             # h2 안의 연령 배지(<span class="ico_age2 n19_v2">19</span>)는 DOM 에서 뗀다.
             # '191305호'처럼 배지 뒤가 숫자로 이어지면 문자열로는 '19'만 못 뗀다
@@ -157,3 +184,29 @@ class NaverSeriesCrawler(NaverCrawler):
         except Exception as e:
             self._log.error("crawl_detail 실패 (%s): %s", url, e)
             return None
+
+
+_LIST_LINK = re.compile(r'href="/(comic|novel)/detail\.series\?productNo=(\d+)"')
+_EPISODE_UNIT = re.compile(r'총\s*\d+\s*(화|권)')
+
+
+def parse_series_list(src: str, kind: str) -> list[str]:
+    """목록 HTML → 그 종류(comic · novel) 작품 링크, 처음 나온 순서대로"""
+    out: dict[str, None] = {}
+    for k, pid in _LIST_LINK.findall(src):
+        if k == kind:
+            out.setdefault(f"https://series.naver.com/{k}/detail.series?productNo={pid}")
+    return list(out)
+
+
+def episode_unit(text: str) -> str:
+    m = _EPISODE_UNIT.search(text or '')
+    return m.group(1) if m else ''
+
+
+def series_works_type(url: str, unit: str) -> str:
+    """시리즈 만화 탭에는 웹툰과 출판 만화가 섞여 있다. '화' 로 세면 웹툰, '권' 이면 만화.
+    웹소설 탭의 '권' 은 e북이라 단행본 (#161, 사용자 결정 11/03). 단위를 못 읽으면 예전처럼 탭으로만"""
+    if '/comic/' in url:
+        return '만화' if unit == '권' else '웹툰'
+    return '단행본' if unit == '권' else '웹소설'

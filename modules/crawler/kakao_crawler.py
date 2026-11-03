@@ -169,7 +169,17 @@ class KakaoCrawler(BaseCrawler):
                 self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
                 time.sleep(1.5)
 
-    def get_list_urls(self, genre_url):
+    def selected_tab(self, timeout: float = 10.0) -> str:
+        """탭 메뉴는 목록보다 2~3초 늦게 그려진다. 선택된 탭이 나올 때까지 기다리고, 끝내 없으면 ''"""
+        def read(_=None):
+            texts = self.driver.execute_script("return [...document.querySelectorAll('a')].map(a => a.innerText)")
+            return parse_selected_tab(texts or [])
+        try:
+            return WebDriverWait(self.driver, timeout, poll_frequency=0.5).until(read)
+        except TimeoutException:
+            return read()
+
+    def get_list_urls(self, genre_url, expect_tab: str | None = None):
         print(f"📂 URL 수집 시작: {genre_url}")
         self.driver.get(genre_url)
         
@@ -177,6 +187,16 @@ class KakaoCrawler(BaseCrawler):
             WebDriverWait(self.driver, 15).until(
                 EC.presence_of_element_located((By.XPATH, "//div[contains(@class, 'grid')]"))
             )
+
+            if expect_tab:
+                tab = self.selected_tab()
+                if tab != expect_tab:
+                    # 빈 목록이라 '목록 0건' 도 같이 남는다. 원인을 알 수 있게 열린 탭을 따로 적는다
+                    from crawler import report
+                    print(f"❌ 열린 탭이 '{expect_tab}' 이 아님: {tab!r} — 탭 번호가 바뀌었을 수 있음")
+                    report.record(self.REPORT_PLATFORM, report.PARSING_FAILED, genre_url,
+                                  f"탭 '{expect_tab}' 대신 {tab!r} 이 열림")
+                    return []
             
             item_xpath = "//a[contains(@href, '/content/')]"
             
@@ -387,6 +407,19 @@ class KakaoCrawler(BaseCrawler):
 
 
 _KAKAO_SITE_NAMES = {'카카오페이지', '콘텐츠홈', ''}  # 화면이 그려지기 전 기본값
+
+
+# 탭 링크 글자 (화면 읽기용): '선택됨,\n오늘신작\n탭, 총 19개 중 5번째'
+_SELECTED_TAB = re.compile(r'^선택됨,\s*(.+?)\s+탭, 총 \d+개')
+
+
+def parse_selected_tab(link_texts: list[str]) -> str:
+    """메뉴 탭 중 선택된 것의 이름. 그 아래 하위 탭('전체')도 선택됨으로 나오는데 메뉴 탭이 먼저 나온다. 없으면 ''"""
+    for t in link_texts:
+        m = _SELECTED_TAB.match((t or '').strip())
+        if m:
+            return m.group(1).strip()
+    return ''
 
 
 def kakao_genre(category: str) -> str:

@@ -162,21 +162,25 @@ class RidibooksCrawler(BaseCrawler):
         self.driver.get(url)
         time.sleep(3)
 
-        collected: set[str] = set()
+        collected: dict[str, None] = {}   # 화면 순서 그대로 (인기순 상위 N 을 자를 때 순서가 섞이면 안 된다, #160)
         prev_count = 0
         stuck = 0
+        page, page_tried = 1, False
 
         while len(collected) < max_count:
             elems = self.driver.find_elements(By.CSS_SELECTOR, "a[href*='/books/']")
             for e in elems:
-                href = e.get_attribute('href') or ''
+                try:
+                    href = e.get_attribute('href') or ''
+                except Exception:  # 페이지를 넘기는 사이 사라진 요소 (stale)
+                    continue
                 if '/books/' not in href:
                     continue
                 book_id = href.rstrip('/').split('/books/')[-1].split('?')[0]
-                # 1612 는 도서가 아닌 서비스 메타 페이지
-                _RIDI_NON_BOOK_IDS = {'1612'}
+                # 1612 는 도서가 아닌 서비스 메타 페이지. 목록 머리의 카테고리 링크(/books/<카테고리 번호>)도 뺀다
+                _RIDI_NON_BOOK_IDS = {'1612', base_url.rstrip('/').rsplit('/', 1)[-1]}
                 if book_id.isdigit() and book_id not in _RIDI_NON_BOOK_IDS:
-                    collected.add(f"https://ridibooks.com/books/{book_id}")
+                    collected.setdefault(f"https://ridibooks.com/books/{book_id}")
 
             curr_count = len(collected)
             if curr_count >= max_count:
@@ -186,10 +190,20 @@ class RidibooksCrawler(BaseCrawler):
                 print(f"    └─ {curr_count}개 수집 중...")
                 prev_count = curr_count
                 stuck = 0
+                page_tried = False
             else:
                 stuck += 1
                 if stuck >= 3:
-                    break
+                    # 더보기 없이 페이지로 나뉜 목록(신작 인기순 등)은 다음 페이지로. 거기서도 안 늘면 끝 (#160)
+                    if page_tried:
+                        break
+                    page += 1
+                    page_tried = True
+                    sep = '&' if '?' in url else '?'
+                    self.driver.get(f"{url}{sep}page={page}")
+                    time.sleep(3)
+                    stuck = 0
+                    continue
 
             try:
                 more_btn = self.driver.find_element(

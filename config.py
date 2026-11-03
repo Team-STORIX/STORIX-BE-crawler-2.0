@@ -36,6 +36,11 @@ DAILY_PLUS_URL = 'https://comic.naver.com/webtoon?tab=dailyPlus'
 COMPLETED_URL = 'https://comic.naver.com/webtoon?tab=finish'
 
 NAVER_NEW_URL = 'https://comic.naver.com/webtoon?tab=new'
+# 네이버 시리즈 신작 (목록 url, 최대). 최신순 25개씩 (#161)
+NAVER_SERIES_NEW_TARGETS = [
+    ("https://series.naver.com/comic/recentList.series", 100),
+    ("https://series.naver.com/novel/recentList.series", 100),
+]
 # 레진 신작 (목록 url, 최대, 유형 — None 이면 상세 판정). 만화 목록은 스크롤하면 수백 개라 최신 100 만 (#162)
 LEZHIN_NEW_TARGETS = [
     ("https://www.lezhin.com/ko/scheduled/new-released", 50, None),
@@ -48,7 +53,7 @@ WEEKLY_NEW_SCHEDULE = {
     0: 'naver_webtoon',
     1: 'kakao_page',
     2: 'ridibooks',
-    3: 'naver_series',   # 목록 수집기 #161
+    3: 'naver_series',
     4: 'lezhin',
     5: 'mrblue',         # #163
 }

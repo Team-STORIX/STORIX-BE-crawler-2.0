@@ -1061,6 +1061,18 @@ def test_created_works_only_counts_new_works_once(store):
     assert store.created_works(now + timedelta(minutes=5), now + timedelta(minutes=10)) == []
 
 
+@needs_mysql
+def test_collected_keys_only_successful_sources(store):
+    """신작 수집이 건너뛸 작품: 상세 수집에 성공한 적이 있는 것만. 실패 기록만 있으면 다시 수집한다 (#158)"""
+    from review import service
+
+    service.load_run(store, CATALOG, [item(source_url='https://comic.naver.com/webtoon/list?titleId=501')], 'naver_test')
+    store.record_source_failure('https://comic.naver.com/webtoon/list?titleId=502', 'PARSING_FAILED', 'x')
+    keys = [('NAVER_WEBTOON', '501'), ('NAVER_WEBTOON', '502'), ('NAVER_WEBTOON', '503')]
+    assert store.collected_keys(keys) == {('NAVER_WEBTOON', '501')}
+    assert store.collected_keys([]) == set()
+
+
 def test_ebook_age_only_fills_when_nothing_to_attach():
     """e북으로 대신한 웹소설(논 제로섬): 붙을 작품이 없으면 마지막 재전송에서만 e북 연령으로 새 작품을 만든다."""
     v = validate_item(item(age_classification='', create_age_classification='18세 이용가'), CATALOG)

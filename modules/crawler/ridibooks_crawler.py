@@ -529,10 +529,14 @@ def parse_ridi_age(src: str, book_id: str) -> str:
     """
     if not src or not book_id:
         return ''
-    book = re.search(r'"id"\s*:\s*"%s"[^{}]*?"is_adult_only"\s*:\s*(true|false)' % re.escape(book_id), src)
+    # 화면 개편 뒤 책 데이터가 스크립트 문자열 안에 들어가 따옴표가 \" 로 온다.
+    # 키도 is_adult_only → isAdultOnly 로 바뀌어 연령이 전부 비었다 (#177). 둘 다 읽는다
+    src = src.replace('\\"', '"')
+    book = re.search(r'"id"\s*:\s*"%s"[^{}]*?"(?:is_adult_only|isAdultOnly)"\s*:\s*(true|false)'
+                     % re.escape(book_id), src)
     if not book:
         return ''
-    limit = re.search(r'"age_limit"\s*:\s*"?(\d+)"?', book.group(0))
+    limit = re.search(r'"(?:age_limit|ageLimit)"\s*:\s*"?(\d+)"?', book.group(0))
     if book.group(1) == 'true' or (limit and int(limit.group(1)) >= 19):
         return '18세 이용가'
     notices = re.search(r'"notices"\s*:\s*\[(.*?)\]', src, re.S)

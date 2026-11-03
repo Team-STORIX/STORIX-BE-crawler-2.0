@@ -216,6 +216,12 @@ esac
 # 5) 요청 처리
 crawl
 code=$?
+# 신작 주간 수집 (#158). 요일마다 플랫폼 하나 (config.WEEKLY_NEW_SCHEDULE), 일요일은 없음.
+# 요청 처리 뒤에 해서 01:00 종료 전 남는 시간을 쓴다. 실패 알림은 cli 가 보낸다
+if [ -z "${NIGHTLY_ARGS:-}" ]; then
+  log '신작 수집 시작'
+  docker compose run --rm nightly python cli.py new-works --env prod || log '신작 수집 실패'
+fi
 # 지난주 새로 만든 작품 주간 알림. 없으면 보내지 않는다
 if [ "$(TZ=Asia/Seoul date +%u)" = 1 ] && [ -z "${NIGHTLY_ARGS:-}" ]; then
   docker compose run --rm nightly python cli.py stage weekly --env prod --send || log '주간 작품 추가 알림 실패'

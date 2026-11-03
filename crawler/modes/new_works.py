@@ -1,7 +1,7 @@
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from config import NAVER_NEW_URL, KAKAO_NEW_URL, RIDIBOOKS_NEW_TARGETS
+from config import NAVER_NEW_URL, KAKAO_NEW_TAB, KAKAO_NEW_URLS, RIDIBOOKS_NEW_TARGETS
 from modules.crawler.naver_crawler import NaverCrawler
 from modules.crawler.kakao_crawler import KakaoCrawler
 from modules.crawler.ridibooks_crawler import RidibooksCrawler
@@ -15,6 +15,24 @@ from crawler.modes.initial import (
 )
 
 WORKERS = 3
+
+# 이미 긁은 작품 거르기 (#158). 목록 링크 → 이미 긁은 링크 집합. None 이면 거르지 않는다 (직접 실행)
+_known = None
+# 플랫폼별 목록 · 건너뜀 · 상세 수집 건수
+STATS: dict[str, dict[str, int]] = {}
+
+
+def _only_new(platform: str, urls: list[str]) -> list[str]:
+    """신작 탭은 주마다 다 바뀌지 않아 이미 긁은 작품이 많다. 상세를 열기 전에 뺀다"""
+    known = _known(urls) if _known and urls else set()
+    fresh = [u for u in urls if u not in known]
+    st = STATS.setdefault(platform, {'listed': 0, 'skipped': 0, 'crawled': 0})
+    st['listed'] += len(urls)
+    st['skipped'] += len(urls) - len(fresh)
+    st['crawled'] += len(fresh)
+    if known:
+        print(f'⏭️  이미 긁은 작품 {len(urls) - len(fresh)}개 건너뜀 → {len(fresh)}개 수집')
+    return fresh
 
 
 def _make_dedup_writer(writer: JSONLWriter):
@@ -46,6 +64,7 @@ def run_naver_webtoon(writer: JSONLWriter):
         print(f'\n=== [네이버 신작 URL 수집] ===')
         urls = lead.get_genre_urls(NAVER_NEW_URL)
         print(f'📊 {len(urls)}개 URL 수집')
+        urls = _only_new('naver_webtoon', urls)
 
         workers = _build_naver_workers()
         if not workers:
@@ -87,9 +106,12 @@ def run_kakao_page(writer: JSONLWriter):
         if not lead.login():
             raise RuntimeError('카카오 로그인 실패')
 
-        print(f'\n=== [카카오 신작 URL 수집] ===')
-        urls = lead.get_list_urls(KAKAO_NEW_URL)
+        urls = []
+        for list_url, works_type in KAKAO_NEW_URLS:
+            print(f'\n=== [카카오 {works_type} 신작 URL 수집] ===')
+            urls += [u for u in lead.get_list_urls(list_url, expect_tab=KAKAO_NEW_TAB) if u not in urls]
         print(f'📊 {len(urls)}개 URL 수집')
+        urls = _only_new('kakao_page', urls)
 
         workers = _build_kakao_workers()
         if not workers:
@@ -130,6 +152,7 @@ def run_ridibooks(writer: JSONLWriter):
             print(f'\n=== [리디북스 신작: {label}] ===')
             urls = crawler.get_category_urls(base_url, extra_params, max_count)
             print(f'📊 {len(urls)}개')
+            urls = _only_new('ridibooks', urls)
 
             for i, url in enumerate(urls, 1):
                 print(f'[{label} {i}/{len(urls)}]', end='\r')
@@ -156,8 +179,13 @@ _PLATFORM_MAP = {
 SUPPORTED_PLATFORMS = list(_PLATFORM_MAP.keys())
 
 
-def run_new_works(platform: str, parallel: int = 1):
+def run_new_works(platform: str, parallel: int = 1, known=None) -> list:
+    """known: 목록 링크 → 이미 긁은 링크 집합 (#158). 저장한 JSONL 경로들을 돌려준다"""
+    global _known
+    _known = known
+    STATS.clear()
     targets = SUPPORTED_PLATFORMS if platform == 'all' else [platform]
+    files = []
 
     def run(p: str) -> None:
         if p not in _PLATFORM_MAP:
@@ -169,5 +197,8 @@ def run_new_works(platform: str, parallel: int = 1):
         with JSONLWriter(platform=p, mode='new_works') as writer:
             _PLATFORM_MAP[p](writer)
         print(f'\n✅ [{p}] 완료. {writer.count}건 저장됨.')
+        if writer.count:
+            files.append(writer.path)
 
     run_platforms(targets, run, parallel)
+    return files

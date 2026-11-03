@@ -18,6 +18,8 @@ _AGE_GATE_TEXTS = ('연령 확인이 필요', '로그인 후 이용해 주세요
 
 class KakaoCrawler(BaseCrawler):
     REPORT_PLATFORM = 'kakao_page'
+    # 작가 · 연령 줄을 기다리는 최대 시간(초)
+    INFO_WAIT_SEC = 5.0
     LOGIN_URL_MARKERS = ('accounts.kakao.com', 'kauth.kakao.com')
     REQUEST_INTERVAL = 1.0
 
@@ -169,7 +171,17 @@ class KakaoCrawler(BaseCrawler):
                 self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
                 time.sleep(1.5)
 
-    def get_list_urls(self, genre_url):
+    def selected_tab(self, timeout: float = 10.0) -> str:
+        """탭 메뉴는 목록보다 2~3초 늦게 그려진다. 선택된 탭이 나올 때까지 기다리고, 끝내 없으면 ''"""
+        def read(_=None):
+            texts = self.driver.execute_script("return [...document.querySelectorAll('a')].map(a => a.innerText)")
+            return parse_selected_tab(texts or [])
+        try:
+            return WebDriverWait(self.driver, timeout, poll_frequency=0.5).until(read)
+        except TimeoutException:
+            return read()
+
+    def get_list_urls(self, genre_url, expect_tab: str | None = None):
         print(f"📂 URL 수집 시작: {genre_url}")
         self.driver.get(genre_url)
         
@@ -177,6 +189,16 @@ class KakaoCrawler(BaseCrawler):
             WebDriverWait(self.driver, 15).until(
                 EC.presence_of_element_located((By.XPATH, "//div[contains(@class, 'grid')]"))
             )
+
+            if expect_tab:
+                tab = self.selected_tab()
+                if tab != expect_tab:
+                    # 빈 목록이라 '목록 0건' 도 같이 남는다. 원인을 알 수 있게 열린 탭을 따로 적는다
+                    from crawler import report
+                    print(f"❌ 열린 탭이 '{expect_tab}' 이 아님: {tab!r} — 탭 번호가 바뀌었을 수 있음")
+                    report.record(self.REPORT_PLATFORM, report.PARSING_FAILED, genre_url,
+                                  f"탭 '{expect_tab}' 대신 {tab!r} 이 열림")
+                    return []
             
             item_xpath = "//a[contains(@href, '/content/')]"
             
@@ -214,6 +236,48 @@ class KakaoCrawler(BaseCrawler):
             if parse_kakao_title(*sources) or time.time() > end:
                 return sources
             time.sleep(0.5)
+
+    def _read_info(self) -> dict:
+        """정보 탭의 '라벨 | 값' 줄 (글 · 그림 · 원작 · 연령등급 · 분류)"""
+        info = dict.fromkeys(('author', 'illustrator', 'original_author', 'age', 'genre', 'works_type'), '')
+        try:
+            rows = self.driver.find_elements(By.XPATH, "//div[contains(@class, 'font-small1')]")
+        except Exception:
+            return info
+        for row in rows:
+            try:
+                spans = row.find_elements(By.XPATH, "./span | ./div")
+                if len(spans) < 2:
+                    continue
+                label = spans[0].text.strip()
+                value = spans[1].text.strip().replace("\n", " ")
+                if label == "분류":
+                    # .text 는 화면에 보이는 글자만 준다. 값 상자가 한 줄로 잘려 있어(line-clamp-1)
+                    # '웹소설 ▸ 판타지' 의 장르가 둘째 줄로 밀리면 '웹소설' 만 읽혀 장르가 비었다 (#165)
+                    value = ' '.join((spans[1].get_attribute('textContent') or '').split())
+            except Exception:
+                continue
+            if label == "글": info['author'] = value
+            elif label == "그림": info['illustrator'] = value
+            elif label == "원작": info['original_author'] = value
+            elif label in ("지은이", "작가", "저자"): info['author'] = value
+            elif label == "글/그림": info['author'] = info['illustrator'] = value
+            elif label in ("연령등급", "이용등급"): info['age'] = age_from_text(value)
+            elif label == "분류":
+                info['works_type'] = works_type_from_category(value)
+                info['genre'] = kakao_genre(value) or info['genre']
+        return info
+
+    def _info_when_ready(self) -> dict:
+        """정보 줄이 다 그려질 때까지 다시 읽는다. 일부 줄만 그려진 채 읽혀 작가 · 연령이 빈 채로 들어갔다
+        (#167, 워커 여럿이 동시에 돌 때 몰림). 작가는 있는데 연령만 빈 경우도 있었다.
+        연령 줄은 모든 작품에 있고 정보 영역 아래쪽이라 그걸 기다린다"""
+        info = self._read_info()
+        deadline = time.time() + self.INFO_WAIT_SEC
+        while not info['age'] and time.time() < deadline:
+            time.sleep(0.5)
+            info = self._read_info()
+        return info
 
     def crawl_detail(self, url):
         try:
@@ -300,34 +364,9 @@ class KakaoCrawler(BaseCrawler):
                     desc = ""
             desc = clean_kakao_synopsis(desc)
 
-            author, illustrator, original_author, age, genre, works_type = "", "", "", "", "", ""
-            
-            try:
-                info_rows = self.driver.find_elements(By.XPATH, "//div[contains(@class, 'font-small1')]")
-                
-                for row in info_rows:
-                    try:
-                        spans = row.find_elements(By.XPATH, "./span | ./div") 
-                        if len(spans) < 2: continue
-                        
-                        label = spans[0].text.strip()
-                        value = spans[1].text.strip().replace("\n", " ")
-                        
-                        if label == "글": author = value
-                        elif label == "그림": illustrator = value
-                        elif label == "원작": original_author = value
-                        elif label in ("지은이", "작가", "저자"): author = value
-                        elif label == "글/그림": author = value; illustrator = value
-                        elif label == "연령등급" or label == "이용등급":
-                            age = age_from_text(value)
-                        elif label == "분류":
-                            works_type = works_type_from_category(value)
-                            clean_genre = value.replace("웹소설", "").replace("소설", "").replace("웹툰", "").replace("만화", "").strip()
-                            if clean_genre: genre = clean_genre
-                    except Exception: continue
-            except Exception: pass
-
-            if genre == "무협": genre = "무협"
+            info = self._info_when_ready()
+            author, illustrator, original_author = info['author'], info['illustrator'], info['original_author']
+            age, genre, works_type = info['age'], info['genre'], info['works_type']
 
             artist_map = {} 
             if author: artist_map.setdefault(author, set()).add("글")
@@ -381,6 +420,24 @@ class KakaoCrawler(BaseCrawler):
 
 
 _KAKAO_SITE_NAMES = {'카카오페이지', '콘텐츠홈', ''}  # 화면이 그려지기 전 기본값
+
+
+# 탭 링크 글자 (화면 읽기용): '선택됨,\n오늘신작\n탭, 총 19개 중 5번째'
+_SELECTED_TAB = re.compile(r'^선택됨,\s*(.+?)\s+탭, 총 \d+개')
+
+
+def parse_selected_tab(link_texts: list[str]) -> str:
+    """메뉴 탭 중 선택된 것의 이름. 그 아래 하위 탭('전체')도 선택됨으로 나오는데 메뉴 탭이 먼저 나온다. 없으면 ''"""
+    for t in link_texts:
+        m = _SELECTED_TAB.match((t or '').strip())
+        if m:
+            return m.group(1).strip()
+    return ''
+
+
+def kakao_genre(category: str) -> str:
+    """'분류' 값 → 장르. '웹소설 BL' → 'BL', 장르 없이 '웹툰' 만 있으면 ''"""
+    return category.replace("웹소설", "").replace("소설", "").replace("웹툰", "").replace("만화", "").strip()
 
 
 def parse_kakao_title(og_title: str, doc_title: str, big_title: str) -> str:

@@ -1,10 +1,11 @@
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from config import NAVER_NEW_URL, KAKAO_NEW_TAB, KAKAO_NEW_URLS, RIDIBOOKS_NEW_TARGETS
+from config import NAVER_NEW_URL, MRBLUE_NEW_TARGETS, KAKAO_NEW_TAB, KAKAO_NEW_URLS, RIDIBOOKS_NEW_TARGETS
 from modules.crawler.naver_crawler import NaverCrawler
 from modules.crawler.kakao_crawler import KakaoCrawler
 from modules.crawler.ridibooks_crawler import RidibooksCrawler
+from modules.crawler.mrblue_crawler import MrblueCrawler
 from crawler.output.jsonl_writer import JSONLWriter
 from crawler.parallel import run_platforms
 from crawler.modes.initial import (
@@ -171,10 +172,36 @@ def run_ridibooks(writer: JSONLWriter):
             pass
 
 
+def run_mrblue(writer: JSONLWriter):
+    """웹툰 신작 (#163). 목록 · 상세 모두 서버 HTML 이라 HTTP 로 받는다 (상세는 안 되면 브라우저)"""
+    write_if_new = _make_dedup_writer(writer)
+    crawler = MrblueCrawler()
+    try:
+        crawler.start_driver()
+        if not crawler.login():
+            raise RuntimeError('미스터블루 로그인 실패')
+        for list_url, max_count in MRBLUE_NEW_TARGETS:
+            print(f'\n=== [미스터블루 신작: {list_url}] ===')
+            urls = crawler.get_list_urls(list_url, max_count)
+            print(f'📊 {len(urls)}개')
+            urls = _only_new('mrblue', urls)
+            for i, url in enumerate(urls, 1):
+                print(f'[{i}/{len(urls)}]', end='\r')
+                data = crawler.crawl_detail_with_retry(url)
+                if data:
+                    write_if_new(data)
+    finally:
+        try:
+            crawler.close_driver()
+        except Exception:
+            pass
+
+
 _PLATFORM_MAP = {
     'naver_webtoon': run_naver_webtoon,
     'kakao_page': run_kakao_page,
     'ridibooks': run_ridibooks,
+    'mrblue': run_mrblue,
 }
 
 SUPPORTED_PLATFORMS = list(_PLATFORM_MAP.keys())

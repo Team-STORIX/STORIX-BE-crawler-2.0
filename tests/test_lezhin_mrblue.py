@@ -86,3 +86,11 @@ def test_links():
     assert mrblue_work('https://www.mrblue.com/webtoon/wt_bossbaby_wz') == ('webtoon', 'wt_bossbaby_wz')
     assert canonical_landing_url('https://www.mrblue.com/webtoon/wt_000070142?a=1') == 'https://www.mrblue.com/webtoon/wt_000070142'
     assert platform_work_key('https://www.mrblue.com/webtoon/wt_000070142') == ('MRBLUE', 'wt_000070142')
+
+
+def test_parse_mrblue_list_reads_list_area_in_order():
+    from modules.crawler.mrblue_crawler import parse_mrblue_list
+    src = ('<a href="/webtoon/wt_000000001">머리말 추천</a><ul class="thumb-list04">'
+           '<a href="/webtoon/wt_000000003"></a><a href="/webtoon/wt_000000002"></a><a href="/webtoon/wt_000000003"></a>'
+           '<a href="/webtoon/wt_000000004/1">회차</a></ul>')
+    assert parse_mrblue_list(src) == ['https://www.mrblue.com/webtoon/wt_000000003', 'https://www.mrblue.com/webtoon/wt_000000002']

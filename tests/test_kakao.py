@@ -2,7 +2,7 @@
 import pytest
 
 pytest.importorskip('selenium')
-from modules.crawler.kakao_crawler import clean_kakao_synopsis, parse_kakao_title, parse_selected_tab  # noqa: E402
+from modules.crawler.kakao_crawler import clean_kakao_synopsis, kakao_genre, parse_kakao_title, parse_selected_tab  # noqa: E402
 
 
 @pytest.mark.parametrize('og,doc,big,expected', [
@@ -34,6 +34,14 @@ def test_clean_kakao_synopsis(raw, expected):
 def test_kakao_title_keeps_edition_label():
     # [19세 완전판] 을 떼면 BE 가 본편과 같은 작품으로 보고 본편을 덮어쓴다
     assert parse_kakao_title('넷카마 펀치!!! 외전2 [19세 완전판]', '', '') == '넷카마 펀치!!! 외전2 [19세 완전판]'
+
+
+@pytest.mark.parametrize('category, expected', [
+    ('웹소설BL', 'BL'), ('웹소설 판타지', '판타지'), ('웹툰 로판', '로판'), ('만화 드라마', '드라마'),
+    ('웹소설', ''), ('웹툰', ''),
+])
+def test_kakao_genre(category, expected):
+    assert kakao_genre(category) == expected
 
 
 def test_parse_selected_tab_reads_menu_tab_first():

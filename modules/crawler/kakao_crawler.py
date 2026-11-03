@@ -215,6 +215,37 @@ class KakaoCrawler(BaseCrawler):
                 return sources
             time.sleep(0.5)
 
+    def _read_info(self) -> dict:
+        """정보 탭의 '라벨 | 값' 줄 (글 · 그림 · 원작 · 연령등급 · 분류)"""
+        info = dict.fromkeys(('author', 'illustrator', 'original_author', 'age', 'genre', 'works_type'), '')
+        try:
+            rows = self.driver.find_elements(By.XPATH, "//div[contains(@class, 'font-small1')]")
+        except Exception:
+            return info
+        for row in rows:
+            try:
+                spans = row.find_elements(By.XPATH, "./span | ./div")
+                if len(spans) < 2:
+                    continue
+                label = spans[0].text.strip()
+                value = spans[1].text.strip().replace("\n", " ")
+                if label == "분류":
+                    # .text 는 화면에 보이는 글자만 준다. 값 상자가 한 줄로 잘려 있어(line-clamp-1)
+                    # '웹소설 ▸ 판타지' 의 장르가 둘째 줄로 밀리면 '웹소설' 만 읽혀 장르가 비었다 (#165)
+                    value = ' '.join((spans[1].get_attribute('textContent') or '').split())
+            except Exception:
+                continue
+            if label == "글": info['author'] = value
+            elif label == "그림": info['illustrator'] = value
+            elif label == "원작": info['original_author'] = value
+            elif label in ("지은이", "작가", "저자"): info['author'] = value
+            elif label == "글/그림": info['author'] = info['illustrator'] = value
+            elif label in ("연령등급", "이용등급"): info['age'] = age_from_text(value)
+            elif label == "분류":
+                info['works_type'] = works_type_from_category(value)
+                info['genre'] = kakao_genre(value) or info['genre']
+        return info
+
     def crawl_detail(self, url):
         try:
             target_url = url
@@ -300,34 +331,9 @@ class KakaoCrawler(BaseCrawler):
                     desc = ""
             desc = clean_kakao_synopsis(desc)
 
-            author, illustrator, original_author, age, genre, works_type = "", "", "", "", "", ""
-            
-            try:
-                info_rows = self.driver.find_elements(By.XPATH, "//div[contains(@class, 'font-small1')]")
-                
-                for row in info_rows:
-                    try:
-                        spans = row.find_elements(By.XPATH, "./span | ./div") 
-                        if len(spans) < 2: continue
-                        
-                        label = spans[0].text.strip()
-                        value = spans[1].text.strip().replace("\n", " ")
-                        
-                        if label == "글": author = value
-                        elif label == "그림": illustrator = value
-                        elif label == "원작": original_author = value
-                        elif label in ("지은이", "작가", "저자"): author = value
-                        elif label == "글/그림": author = value; illustrator = value
-                        elif label == "연령등급" or label == "이용등급":
-                            age = age_from_text(value)
-                        elif label == "분류":
-                            works_type = works_type_from_category(value)
-                            clean_genre = value.replace("웹소설", "").replace("소설", "").replace("웹툰", "").replace("만화", "").strip()
-                            if clean_genre: genre = clean_genre
-                    except Exception: continue
-            except Exception: pass
-
-            if genre == "무협": genre = "무협"
+            info = self._read_info()
+            author, illustrator, original_author = info['author'], info['illustrator'], info['original_author']
+            age, genre, works_type = info['age'], info['genre'], info['works_type']
 
             artist_map = {} 
             if author: artist_map.setdefault(author, set()).add("글")
@@ -381,6 +387,11 @@ class KakaoCrawler(BaseCrawler):
 
 
 _KAKAO_SITE_NAMES = {'카카오페이지', '콘텐츠홈', ''}  # 화면이 그려지기 전 기본값
+
+
+def kakao_genre(category: str) -> str:
+    """'분류' 값 → 장르. '웹소설 BL' → 'BL', 장르 없이 '웹툰' 만 있으면 ''"""
+    return category.replace("웹소설", "").replace("소설", "").replace("웹툰", "").replace("만화", "").strip()
 
 
 def parse_kakao_title(og_title: str, doc_title: str, big_title: str) -> str:

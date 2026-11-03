@@ -27,8 +27,9 @@ LEZHIN_GENRES = {
     'mystery': '스릴러', 'thriller': '스릴러', 'horror': '스릴러', 'sports': '스포츠', 'day': '일상', 'daily': '일상',
     'historical': '무협', 'martial': '무협', 'gl': 'GL', 'school': '학원',
 }
+# '1' 은 화면에 '전체 이용가' 로 나온다 (11/03 확인). 없을 땐 연령이 비어 새 작품 생성이 거절됐다 (#162)
 LEZHIN_AGES = {'19': '18세 이용가', '18': '18세 이용가', '15': '15세 이용가', '12': '12세 이용가',
-               'all': '전체연령가', '0': '전체연령가'}
+               'all': '전체연령가', '0': '전체연령가', '1': '전체연령가'}
 # 작가 역할. writer 는 글 · 그림을 같이 한 작가, scripter 는 글, painter 는 그림.
 # label(스튜디오) · publisher(출판사)는 작가가 아니라 넣지 않는다
 _ROLES = {'writer': 'author', 'scripter': 'author', 'painter': 'illustrator', 'original': 'original_author'}
@@ -40,6 +41,15 @@ LEZHIN_META_TAGS = re.compile(r'^(?:스낵타임|.*인기\d*|[A-Za-z0-9 _-]+)$')
 
 def lezhin_alias(url: str) -> str | None:
     return work_id(url, 'LEZHIN')   # 작품 주소 규칙은 review/landing 한 곳
+
+
+_LIST_HREF = re.compile(r'^(?:https://www\.lezhin\.com)?/ko/comic/([A-Za-z0-9_-]+)/?(?:\?.*)?$')
+
+
+def lezhin_list_alias(href: str | None) -> str | None:
+    """목록의 작품 링크 → alias. 회차 링크(/ko/comic/<alias>/1)는 작품 링크가 아니라 뺀다"""
+    m = _LIST_HREF.match(href or '')
+    return m.group(1) if m else None
 
 
 def lezhin_content(src: str) -> dict | None:
@@ -106,6 +116,25 @@ class LezhinCrawler(BaseCrawler):
         except Exception:
             return ''
         return '; '.join(f"{c['name']}={c['value']}" for c in cookies if 'lezhin' in (c.get('domain') or ''))
+
+    def get_list_urls(self, list_url: str, max_count: int) -> list[str]:
+        """신작 목록 → 작품 링크, 화면 순서대로. 목록은 화면에서 그려지고 스크롤하면 더 나온다 (#162)"""
+        self.driver.get(list_url)
+        time.sleep(4)
+        urls: dict[str, None] = {}
+        stuck = 0
+        while len(urls) < max_count and stuck < 3:
+            hrefs = self.driver.execute_script(
+                "return [...document.querySelectorAll('a[href*=\"/comic/\"]')].map(a => a.getAttribute('href'))")
+            before = len(urls)
+            for href in hrefs or []:
+                alias = lezhin_list_alias(href)
+                if alias:
+                    urls.setdefault(f'{SITE}/ko/comic/{alias}')
+            stuck = stuck + 1 if len(urls) == before else 0
+            self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight)")
+            time.sleep(1.5)
+        return list(urls)[:max_count]
 
     def crawl_detail_http(self, url: str) -> dict | None:
         alias = lezhin_alias(url)

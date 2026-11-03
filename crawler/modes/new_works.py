@@ -1,10 +1,11 @@
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from config import NAVER_NEW_URL, KAKAO_NEW_TAB, KAKAO_NEW_URLS, RIDIBOOKS_NEW_TARGETS
+from config import NAVER_NEW_URL, LEZHIN_NEW_TARGETS, KAKAO_NEW_TAB, KAKAO_NEW_URLS, RIDIBOOKS_NEW_TARGETS
 from modules.crawler.naver_crawler import NaverCrawler
 from modules.crawler.kakao_crawler import KakaoCrawler
 from modules.crawler.ridibooks_crawler import RidibooksCrawler
+from modules.crawler.lezhin_crawler import LezhinCrawler
 from crawler.output.jsonl_writer import JSONLWriter
 from crawler.parallel import run_platforms
 from crawler.modes.initial import (
@@ -171,10 +172,38 @@ def run_ridibooks(writer: JSONLWriter):
             pass
 
 
+def run_lezhin(writer: JSONLWriter):
+    """웹툰 · 만화 신작. 만화 목록에서 온 작품은 만화로 넣는다 — 상세는 유형을 구분하지 않고 웹툰으로 준다 (#162)"""
+    write_if_new = _make_dedup_writer(writer)
+    crawler = LezhinCrawler()
+    try:
+        crawler.start_driver()
+        if not crawler.login():
+            raise RuntimeError('레진 로그인 실패')
+        for list_url, max_count, works_type in LEZHIN_NEW_TARGETS:
+            print(f'\n=== [레진 신작: {list_url}] ===')
+            urls = crawler.get_list_urls(list_url, max_count)
+            print(f'📊 {len(urls)}개')
+            urls = _only_new('lezhin', urls)
+            for i, url in enumerate(urls, 1):
+                print(f'[{i}/{len(urls)}]', end='\r')
+                data = crawler.crawl_detail_with_retry(url)
+                if data:
+                    if works_type:
+                        data['works_type'] = works_type
+                    write_if_new(data)
+    finally:
+        try:
+            crawler.close_driver()
+        except Exception:
+            pass
+
+
 _PLATFORM_MAP = {
     'naver_webtoon': run_naver_webtoon,
     'kakao_page': run_kakao_page,
     'ridibooks': run_ridibooks,
+    'lezhin': run_lezhin,
 }
 
 SUPPORTED_PLATFORMS = list(_PLATFORM_MAP.keys())

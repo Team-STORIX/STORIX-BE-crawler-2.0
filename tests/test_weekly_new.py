@@ -48,8 +48,8 @@ def test_only_new_without_filter_keeps_all(monkeypatch):
 def test_run_weekly_new_stops_without_db_on_off_day_or_unsupported(monkeypatch):
     monkeypatch.setattr(weekly_new, 'platform_for', lambda today=None: None)
     assert weekly_new.run_weekly_new() == {'platform': None}
-    # 목록 수집기가 아직 없는 플랫폼 (#161 ~ #163)
-    assert weekly_new.run_weekly_new('lezhin') == {'platform': 'lezhin', 'supported': False}
+    # 목록 수집기가 아직 없는 플랫폼
+    assert weekly_new.run_weekly_new('bomtoon') == {'platform': 'bomtoon', 'supported': False}
 
 
 def test_only_count_hold_is_released():

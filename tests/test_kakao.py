@@ -55,10 +55,11 @@ def test_parse_selected_tab_reads_menu_tab_first():
 
 
 def test_info_waits_for_age_or_author_rows(monkeypatch):
-    """'분류' 줄만 그려진 채 읽히면 작가 · 연령 줄이 나올 때까지 다시 읽는다 (#167)"""
+    """일부 줄만 그려진 채 읽히면 연령 줄이 나올 때까지 다시 읽는다 (#167)"""
     partial = {'author': '', 'illustrator': '', 'original_author': '', 'age': '', 'genre': 'BL', 'works_type': '웹소설'}
-    full = {**partial, 'author': '정모결', 'age': '15세 이용가'}
-    reads = iter([partial, partial, full])
+    author_only = {**partial, 'author': '정모결'}   # 작가는 있는데 연령만 아직 없는 경우도 기다린다
+    full = {**author_only, 'age': '15세 이용가'}
+    reads = iter([partial, author_only, full])
     c = KakaoCrawler.__new__(KakaoCrawler)
     monkeypatch.setattr(c, '_read_info', lambda: next(reads))
     monkeypatch.setattr('modules.crawler.kakao_crawler.time.sleep', lambda s: None)

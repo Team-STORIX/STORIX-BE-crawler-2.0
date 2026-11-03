@@ -269,11 +269,12 @@ class KakaoCrawler(BaseCrawler):
         return info
 
     def _info_when_ready(self) -> dict:
-        """정보 줄이 다 그려질 때까지 다시 읽는다. '분류' 줄만 먼저 그려진 채 읽혀 작가 · 연령이 빈 채로
-        들어갔다 (#167, 워커 여럿이 동시에 돌 때 몰림). 연령 줄은 모든 작품에 있어 그걸 기다린다"""
+        """정보 줄이 다 그려질 때까지 다시 읽는다. 일부 줄만 그려진 채 읽혀 작가 · 연령이 빈 채로 들어갔다
+        (#167, 워커 여럿이 동시에 돌 때 몰림). 작가는 있는데 연령만 빈 경우도 있었다.
+        연령 줄은 모든 작품에 있고 정보 영역 아래쪽이라 그걸 기다린다"""
         info = self._read_info()
         deadline = time.time() + self.INFO_WAIT_SEC
-        while not (info['age'] or info['author']) and time.time() < deadline:
+        while not info['age'] and time.time() < deadline:
             time.sleep(0.5)
             info = self._read_info()
         return info

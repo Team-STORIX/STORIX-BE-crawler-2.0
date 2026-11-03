@@ -88,3 +88,15 @@ def test_ridi_discount_keyword_is_not_hashtag():
     from review.hashtags import is_noise_tag
     assert is_noise_tag('10%할인') and is_noise_tag('2만원초과') and is_noise_tag('기다리면 무료')
     assert not is_noise_tag('다정공')
+
+
+def test_ridi_age_reads_new_camelcase_escaped_data():
+    """11/03 화면 개편: 책 데이터가 스크립트 문자열 안(\\" 이스케이프)에 isAdultOnly 로 온다"""
+    from modules.crawler.ridibooks_crawler import parse_ridi_age
+    other = r'{\"id\":\"111\",\"title\":\"다른 책\",\"isAdultOnly\":false}'
+    adult = r'{\"id\":\"4895004138\",\"title\":\"캣로스 증후군\",\"isAdultOnly\":true}'
+    allage = r'{\"id\":\"777192901\",\"title\":\"인사반파자구계통\",\"isAdultOnly\":false}'
+    page = f'<script>self.__next_f.push([1,"{other}{adult}{allage}"])</script>'
+    assert parse_ridi_age(page, '4895004138') == '18세 이용가'
+    assert parse_ridi_age(page, '777192901') == '전체연령가'
+    assert parse_ridi_age(page, '999') == ''          # 이 책 데이터가 없으면 판정 실패

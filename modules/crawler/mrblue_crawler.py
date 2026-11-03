@@ -38,6 +38,18 @@ _SYNOPSIS = re.compile(r'<div class="txt-box">(.*?)</div>', re.S)
 MRBLUE_META_TAGS = re.compile(r'^(?:미블뿐|선물함)$')
 
 
+_LIST_LINK = re.compile(r'href="/(webtoon|comic|novel)/([a-z]{2}_\d+)"')
+
+
+def parse_mrblue_list(src: str) -> list[str]:
+    """목록 페이지 → 작품 링크, 처음 나온 순서대로. 목록 영역(thumb-list)부터 읽어 머리말 · 추천 링크를 뺀다"""
+    start = src.find('thumb-list')
+    out: dict[str, None] = {}
+    for kind, code in _LIST_LINK.findall(src[start:] if start >= 0 else src):
+        out.setdefault(f'https://www.mrblue.com/{kind}/{code}')
+    return list(out)
+
+
 def mrblue_work(url: str) -> tuple[str, str] | None:
     """작품 주소 → (구분, 작품코드)."""
     m = _WORK.search(url or '')
@@ -109,6 +121,10 @@ class MrblueCrawler(BaseCrawler):
         except Exception:
             return ''
         return '; '.join(f"{c['name']}={c['value']}" for c in cookies if 'mrblue' in (c.get('domain') or ''))
+
+    def get_list_urls(self, list_url: str, max_count: int) -> list[str]:
+        """웹툰 신작 목록(서버 HTML) → 작품 링크, 화면 순서대로 (#163)"""
+        return parse_mrblue_list(self.http_get(list_url) or '')[:max_count]
 
     def crawl_detail_http(self, url: str) -> dict | None:
         work = mrblue_work(url)

@@ -103,3 +103,11 @@ def test_lezhin_rating_1_is_all_ages():
     """rating '1' 은 화면에 '전체 이용가' 로 나온다 (#162)"""
     from modules.crawler.lezhin_crawler import LEZHIN_AGES
     assert LEZHIN_AGES['1'] == '전체연령가'
+
+
+def test_parse_mrblue_list_reads_list_area_in_order():
+    from modules.crawler.mrblue_crawler import parse_mrblue_list
+    src = ('<a href="/webtoon/wt_000000001">머리말 추천</a><ul class="thumb-list04">'
+           '<a href="/webtoon/wt_000000003"></a><a href="/webtoon/wt_000000002"></a><a href="/webtoon/wt_000000003"></a>'
+           '<a href="/webtoon/wt_000000004/1">회차</a></ul>')
+    assert parse_mrblue_list(src) == ['https://www.mrblue.com/webtoon/wt_000000003', 'https://www.mrblue.com/webtoon/wt_000000002']

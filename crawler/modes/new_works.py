@@ -1,10 +1,13 @@
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from config import NAVER_NEW_URL, KAKAO_NEW_TAB, KAKAO_NEW_URLS, RIDIBOOKS_NEW_TARGETS
+from config import NAVER_NEW_URL, LEZHIN_NEW_TARGETS, MRBLUE_NEW_TARGETS, KAKAO_NEW_TAB, KAKAO_NEW_URLS, RIDIBOOKS_NEW_TARGETS, NAVER_SERIES_NEW_TARGETS
 from modules.crawler.naver_crawler import NaverCrawler
 from modules.crawler.kakao_crawler import KakaoCrawler
 from modules.crawler.ridibooks_crawler import RidibooksCrawler
+from modules.crawler.lezhin_crawler import LezhinCrawler
+from modules.crawler.mrblue_crawler import MrblueCrawler
+from modules.crawler.naver_series_crawler import NaverSeriesCrawler
 from crawler.output.jsonl_writer import JSONLWriter
 from crawler.parallel import run_platforms
 from crawler.modes.initial import (
@@ -171,10 +174,92 @@ def run_ridibooks(writer: JSONLWriter):
             pass
 
 
+def run_naver_series(writer: JSONLWriter):
+    """만화 · 웹소설 신작. 유형(웹툰 · 만화 · 웹소설 · 단행본)은 상세의 '총 N화/권' 으로 판정한다 (#161)"""
+    write_if_new = _make_dedup_writer(writer)
+    crawler = NaverSeriesCrawler()
+    try:
+        crawler.start_driver()
+        if not crawler.login():
+            raise RuntimeError('네이버 로그인 실패')
+        urls = []
+        for list_url, max_count in NAVER_SERIES_NEW_TARGETS:
+            print(f'\n=== [네이버 시리즈 신작: {list_url}] ===')
+            urls += [u for u in crawler.get_list_urls(list_url, max_count) if u not in urls]
+        print(f'📊 {len(urls)}개 URL 수집')
+        urls = _only_new('naver_series', urls)
+        for i, url in enumerate(urls, 1):
+            print(f'[{i}/{len(urls)}]', end='\r')
+            data = crawler.crawl_detail_with_retry(url)
+            if data:
+                write_if_new(data)
+            crawler.human_pause(1.0, 2.5)
+    finally:
+        try:
+            crawler.close_driver()
+        except Exception:
+            pass
+
+
+def run_lezhin(writer: JSONLWriter):
+    """웹툰 · 만화 신작. 만화 목록에서 온 작품은 만화로 넣는다 — 상세는 유형을 구분하지 않고 웹툰으로 준다 (#162)"""
+    write_if_new = _make_dedup_writer(writer)
+    crawler = LezhinCrawler()
+    try:
+        crawler.start_driver()
+        if not crawler.login():
+            raise RuntimeError('레진 로그인 실패')
+        for list_url, max_count, works_type in LEZHIN_NEW_TARGETS:
+            print(f'\n=== [레진 신작: {list_url}] ===')
+            urls = crawler.get_list_urls(list_url, max_count)
+            print(f'📊 {len(urls)}개')
+            urls = _only_new('lezhin', urls)
+            for i, url in enumerate(urls, 1):
+                print(f'[{i}/{len(urls)}]', end='\r')
+                data = crawler.crawl_detail_with_retry(url)
+                if data:
+                    if works_type:
+                        data['works_type'] = works_type
+                    write_if_new(data)
+    finally:
+        try:
+            crawler.close_driver()
+        except Exception:
+            pass
+
+
+def run_mrblue(writer: JSONLWriter):
+    """웹툰 신작 (#163). 목록 · 상세 모두 서버 HTML 이라 HTTP 로 받는다 (상세는 안 되면 브라우저)"""
+    write_if_new = _make_dedup_writer(writer)
+    crawler = MrblueCrawler()
+    try:
+        crawler.start_driver()
+        if not crawler.login():
+            raise RuntimeError('미스터블루 로그인 실패')
+        for list_url, max_count in MRBLUE_NEW_TARGETS:
+            print(f'\n=== [미스터블루 신작: {list_url}] ===')
+            urls = crawler.get_list_urls(list_url, max_count)
+            print(f'📊 {len(urls)}개')
+            urls = _only_new('mrblue', urls)
+            for i, url in enumerate(urls, 1):
+                print(f'[{i}/{len(urls)}]', end='\r')
+                data = crawler.crawl_detail_with_retry(url)
+                if data:
+                    write_if_new(data)
+    finally:
+        try:
+            crawler.close_driver()
+        except Exception:
+            pass
+
+
 _PLATFORM_MAP = {
     'naver_webtoon': run_naver_webtoon,
     'kakao_page': run_kakao_page,
     'ridibooks': run_ridibooks,
+    'naver_series': run_naver_series,
+    'lezhin': run_lezhin,
+    'mrblue': run_mrblue,
 }
 
 SUPPORTED_PLATFORMS = list(_PLATFORM_MAP.keys())

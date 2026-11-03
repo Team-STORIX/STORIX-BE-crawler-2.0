@@ -36,6 +36,20 @@ DAILY_PLUS_URL = 'https://comic.naver.com/webtoon?tab=dailyPlus'
 COMPLETED_URL = 'https://comic.naver.com/webtoon?tab=finish'
 
 NAVER_NEW_URL = 'https://comic.naver.com/webtoon?tab=new'
+# 네이버 시리즈 신작 (목록 url, 최대). 최신순 25개씩 (#161)
+NAVER_SERIES_NEW_TARGETS = [
+    ("https://series.naver.com/comic/recentList.series", 100),
+    ("https://series.naver.com/novel/recentList.series", 100),
+]
+# 레진 신작 (목록 url, 최대, 유형 — None 이면 상세 판정). 만화 목록은 스크롤하면 수백 개라 최신 100 만 (#162)
+LEZHIN_NEW_TARGETS = [
+    ("https://www.lezhin.com/ko/scheduled/new-released", 50, None),
+    ("https://www.lezhin.com/ko/bookshome/new-released", 100, "만화"),
+]
+# 미스터블루 웹툰 신작 (목록 url, 최대). 소설 · 만화 신작 페이지는 없다 (#163)
+MRBLUE_NEW_TARGETS = [
+    ("https://www.mrblue.com/webtoon/new", 60),
+]
 
 # 신작 주간 수집 요일 (월=0). 서버는 자정에 켜져 01:00 에 꺼져서 하루에 플랫폼 하나씩 (#158).
 # 일요일은 비워 둔다 — 월요일 주간 작품 추가 알림이 한 주 수집분을 다 담고, 랭킹(월 1회) 자리로 쓴다
@@ -43,9 +57,9 @@ WEEKLY_NEW_SCHEDULE = {
     0: 'naver_webtoon',
     1: 'kakao_page',
     2: 'ridibooks',
-    3: 'naver_series',   # 목록 수집기 #161
-    4: 'lezhin',         # #162
-    5: 'mrblue',         # #163
+    3: 'naver_series',
+    4: 'lezhin',
+    5: 'mrblue',
 }
 
 # ---- 카카오 웹툰 설정 ----

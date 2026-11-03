@@ -1,7 +1,7 @@
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from config import NAVER_NEW_URL, KAKAO_NEW_URL, RIDIBOOKS_NEW_TARGETS
+from config import NAVER_NEW_URL, KAKAO_NEW_TAB, KAKAO_NEW_URLS, RIDIBOOKS_NEW_TARGETS
 from modules.crawler.naver_crawler import NaverCrawler
 from modules.crawler.kakao_crawler import KakaoCrawler
 from modules.crawler.ridibooks_crawler import RidibooksCrawler
@@ -87,8 +87,10 @@ def run_kakao_page(writer: JSONLWriter):
         if not lead.login():
             raise RuntimeError('카카오 로그인 실패')
 
-        print(f'\n=== [카카오 신작 URL 수집] ===')
-        urls = lead.get_list_urls(KAKAO_NEW_URL)
+        urls = []
+        for list_url, works_type in KAKAO_NEW_URLS:
+            print(f'\n=== [카카오 {works_type} 신작 URL 수집] ===')
+            urls += [u for u in lead.get_list_urls(list_url, expect_tab=KAKAO_NEW_TAB) if u not in urls]
         print(f'📊 {len(urls)}개 URL 수집')
 
         workers = _build_kakao_workers()

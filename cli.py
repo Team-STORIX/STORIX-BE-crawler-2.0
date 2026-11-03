@@ -244,6 +244,34 @@ def cmd_requests(args):
         sys.exit(1)
 
 
+def cmd_new_works(args):
+    """신작 주간 수집 (#158). 오늘 요일의 플랫폼 신작 → 이미 긁은 작품 건너뜀 → 적재 → BE 반영."""
+    import json
+    import os
+
+    if args.env:
+        os.environ['STORIX_ENV'] = args.env  # review 모듈을 불러오기 전에 정한다
+    from config import RUN_DIR
+    from crawler import notify, report
+    from crawler.modes.weekly_new import run_weekly_new
+    from review import env as storix_env
+
+    target = storix_env.target()
+    print(f"🎯 대상 {target.upper()} — BE {storix_env.api_base_url(target)}{' (dry-run)' if args.dry_run else ''}")
+    report.reset()
+    try:
+        summary = run_weekly_new(args.platform, args.dry_run)
+    except Exception as e:
+        notify.notify_error('new_works', e)
+        raise
+    finally:
+        report.save(RUN_DIR, 'new_works')
+    notify.notify_report('new_works')
+    print(json.dumps(summary, ensure_ascii=False))
+    if report.failed():
+        sys.exit(1)
+
+
 def cmd_stage(args):
     """검수 파이프라인. JSONL → works_staging(Layer 1 · 1.5) → BE import API."""
     import json
@@ -509,6 +537,11 @@ def main():
     stage_apply_p.add_argument('--all', action='store_true', help='런과 상관없이 제안이 붙은 검수 대기 전체')
     stage_apply_p.add_argument('--import', action='store_true', dest='do_import', help='이번에 승인한 건을 BE 로 보낸다')
 
+    new_p = subparsers.add_parser('new-works', help='신작 주간 수집 (요일별 플랫폼 → 적재 → BE 반영)')
+    new_p.add_argument('--env', choices=('dev', 'prod'), help='BE 대상 환경 (기본 STORIX_ENV, 없으면 dev)')
+    new_p.add_argument('--platform', help='요일 대신 이 플랫폼 (naver_webtoon | kakao_page | ridibooks)')
+    new_p.add_argument('--dry-run', action='store_true', dest='dry_run', help='수집 · 적재까지만. BE 에 보내지 않는다')
+
     req_p = subparsers.add_parser('requests', help='노션 작품 추가 요청 자동 처리 (수집 → 검수 적재 → BE 반영 → 노션 표시)')
     req_p.add_argument('--env', choices=('dev', 'prod'), help='BE 대상 환경 (기본 STORIX_ENV, 없으면 dev)')
     req_p.add_argument('--min-id', type=int, dest='min_id', help='이 ID 부터 (기본 NOTION_REQUEST_MIN_ID, 없으면 441)')
@@ -536,6 +569,8 @@ def main():
         cmd_stage(args)
     elif args.command == 'requests':
         cmd_requests(args)
+    elif args.command == 'new-works':
+        cmd_new_works(args)
     elif args.command == 'keepalive':
         cmd_keepalive(args)
     else:

@@ -306,6 +306,20 @@ class StagingStore:
         row = cur.fetchone()
         return _loads(row, 'search_keywords') if row else None
 
+    def collected_keys(self, keys: list[tuple[str, str]]) -> set[tuple[str, str]]:
+        """이 중 상세 수집에 성공한 적이 있는 (플랫폼, 플랫폼 작품 ID). 신작 수집이 이미 긁은 작품을 건너뛸 때 쓴다 (#158).
+        실패 기록만 있는 작품은 빠진다 — 다시 수집한다"""
+        found: set[tuple[str, str]] = set()
+        cur = self._cursor()
+        keys = list(dict.fromkeys(keys))
+        for i in range(0, len(keys), 500):
+            chunk = keys[i:i + 500]
+            cur.execute('SELECT platform, platform_work_id FROM works_source WHERE crawl_status = %s AND ('
+                        + ' OR '.join(['(platform = %s AND platform_work_id = %s)'] * len(chunk)) + ')',
+                        (SOURCE_SUCCESS, *[v for k in chunk for v in k]))
+            found |= {(r['platform'], r['platform_work_id']) for r in cur.fetchall()}
+        return found
+
     def get_source(self, url: str) -> dict | None:
         key = platform_work_key(canonical_landing_url(url))
         if not key:

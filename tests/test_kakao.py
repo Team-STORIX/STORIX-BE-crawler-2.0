@@ -2,7 +2,7 @@
 import pytest
 
 pytest.importorskip('selenium')
-from modules.crawler.kakao_crawler import clean_kakao_synopsis, kakao_genre, parse_kakao_title, parse_selected_tab  # noqa: E402
+from modules.crawler.kakao_crawler import KakaoCrawler, clean_kakao_synopsis, kakao_genre, parse_kakao_title, parse_selected_tab  # noqa: E402
 
 
 @pytest.mark.parametrize('og,doc,big,expected', [
@@ -52,3 +52,15 @@ def test_parse_selected_tab_reads_menu_tab_first():
     assert parse_selected_tab(['선택됨,\n지금핫한\n탭, 총 19개 중 1번째']) == '지금핫한'
     assert parse_selected_tab(['선택됨,\n실시간 랭킹\n탭, 총 16개 중 2번째']) == '실시간 랭킹'
     assert parse_selected_tab(['오늘신작', None, '']) == ''
+
+
+def test_info_waits_for_age_or_author_rows(monkeypatch):
+    """일부 줄만 그려진 채 읽히면 연령 줄이 나올 때까지 다시 읽는다 (#167)"""
+    partial = {'author': '', 'illustrator': '', 'original_author': '', 'age': '', 'genre': 'BL', 'works_type': '웹소설'}
+    author_only = {**partial, 'author': '정모결'}   # 작가는 있는데 연령만 아직 없는 경우도 기다린다
+    full = {**author_only, 'age': '15세 이용가'}
+    reads = iter([partial, author_only, full])
+    c = KakaoCrawler.__new__(KakaoCrawler)
+    monkeypatch.setattr(c, '_read_info', lambda: next(reads))
+    monkeypatch.setattr('modules.crawler.kakao_crawler.time.sleep', lambda s: None)
+    assert c._info_when_ready() == full

@@ -97,6 +97,14 @@ if git fetch -q origin "$DEPLOY_REF" && git checkout -q --detach FETCH_HEAD; the
 else
   log "코드 갱신 실패 — 기존 코드로 진행"
 fi
+# 지금 도는 건 받기 전 스크립트라, 그대로 가면 머지한 스크립트 변경이 다음 날 밤에야 돈다 (#180, 11/04 리디 신작 수집이 빠짐).
+# 바뀌었으면 새 스크립트로 처음부터 다시 시작한다. exec 라 EXIT trap(서버 종료)은 돌지 않는다. 한 번만
+if [ -z "${NIGHTLY_REEXEC:-}" ] && ! cmp -s deploy/nightly.sh /run/storix-crawler-nightly.sh; then
+  log 'nightly.sh 가 바뀌어 새 스크립트로 다시 시작합니다'
+  cp deploy/nightly.sh /run/storix-crawler-nightly.sh \
+    && NIGHTLY_COPY=1 NIGHTLY_REEXEC=1 exec bash /run/storix-crawler-nightly.sh
+  log '다시 시작 실패 — 기존 스크립트로 진행'
+fi
 # 새 이미지를 받을 때마다 옛 이미지(1.5GB)가 태그 없이 남는다. 15GB 디스크가 차서 pull · 빌드가 둘 다 실패했다 (10/22)
 docker image prune -f >/dev/null 2>&1; docker builder prune -f >/dev/null 2>&1
 registry=${ECR_IMAGE%%/*}

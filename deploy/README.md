@@ -8,7 +8,7 @@
 EventBridge Scheduler 00:00 → EC2 켜기
   └ systemd storix-crawler-nightly (deploy/nightly.sh)
       1. Parameter Store /storix/crawler/* → /run/storix-crawler.env (메모리, 끝나면 지움)
-      2. main 의 compose · 스크립트, ECR storix-crawler:latest 이미지 받기
+      2. main 의 compose · 스크립트, ECR storix-crawler:latest 이미지 받기 (nightly.sh 가 바뀌었으면 새 스크립트로 다시 시작)
       3. S3 에 더 새 쿠키가 있으면 받기
       4. docker compose run --rm nightly   (= python cli.py requests --env prod)
       5. S3 보다 새 쿠키를 올리고 끄기

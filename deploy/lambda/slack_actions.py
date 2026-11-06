@@ -3,7 +3,7 @@
 [📱 <플랫폼> 다시 로그인] 버튼 → 크롤러 서버에 로그인 모드 태그를 달고 켠다.
 서버가 켜지면 deploy/nightly.sh 가 태그를 보고 수집 대신 crawler/remote_login.py 를 돌린다.
 만료 알림은 야간 실행 중에 오므로 서버가 켜져 있으면 crawler:mode=login-after 만 단다 — 수집이 끝나면 끄기 전에 로그인한다.
-[🔄 못 긁은 작품 다시 긁기] 버튼(다시 로그인 성공 답글) → 같은 방식으로 crawler:mode=rerun(-after). 노션 요청 처리만 다시 돈다.
+[🔄 못 긁은 작품 다시 긁기] 버튼(다시 로그인 성공 답글) → 같은 방식으로 crawler:mode=rerun(-after). 노션 요청 처리 · 세션 만료로 못 긁은 신작만 다시 돈다.
 
 보안
   - 슬랙 서명(X-Slack-Signature, Signing Secret) 검사 + 5분 지난 요청 거절 (재전송 막기)
@@ -84,10 +84,10 @@ def start(kind: str, platform: str, user: str, channel: str, thread: str) -> str
     if mode == 'login-after':
         return f'🕐 크롤러가 지금 실행 중입니다. 끝나면 이어서 *{platform}* 원격 로그인 링크를 DM 으로 보냅니다.'
     if mode == 'rerun-after':
-        return '🕐 크롤러가 지금 실행 중입니다. 끝나면 이어서 노션 요청을 다시 긁고 이 스레드에 결과를 답니다.'
+        return '🕐 크롤러가 지금 실행 중입니다. 끝나면 이어서 노션 요청 · 못 긁은 신작을 다시 긁고 이 스레드에 결과를 답니다.'
     ec2.start_instances(InstanceIds=[INSTANCE_ID])
     if mode == 'rerun':
-        return '🚀 크롤러 서버를 켜는 중입니다. 노션 요청을 다시 긁고 이 스레드에 결과를 답니다.'
+        return '🚀 크롤러 서버를 켜는 중입니다. 노션 요청 · 못 긁은 신작을 다시 긁고 이 스레드에 결과를 답니다.'
     return f'🚀 크롤러 서버를 켜는 중입니다. 1~2분 뒤 *{platform}* 원격 로그인 링크가 DM 으로 옵니다.'
 
 

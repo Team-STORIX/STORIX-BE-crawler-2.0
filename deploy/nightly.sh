@@ -5,7 +5,7 @@
 #   3) 로그인 쿠키: S3 에 더 새 것이 있으면 받음 (로컬에서 deploy/push_sessions.sh 로 올림)
 #   4) 슬랙 버튼으로 켜졌으면(태그 crawler:mode) 그 일만 한다
 #      login: 폰 원격 로그인(crawler/remote_login.py). 성공하면 쿠키를 S3 에 올리고 [못 긁은 작품 다시 긁기] 버튼을 단다
-#      rerun: 5) 의 노션 요청 처리만 다시
+#      rerun: 5) 의 노션 요청 처리 + 세션 만료 · 차단으로 못 긁은 신작 플랫폼만 다시
 #   5) 노션 작품 요청 처리 (cli.py requests --env prod). 요청 작품의 연재처만 로그인해 보고, 만료면 [다시 로그인] 알림.
 #      요청이 없는 날은 쿠키를 열지 않는다 (전 플랫폼 keepalive 는 하지 않음). 세션 만료 · 실패 알림은 cli 가 슬랙으로 보낸다
 #   6) 실행 중에 버튼을 눌렀으면(태그 crawler:mode=login-after · rerun-after) 끄기 전에 처리
@@ -135,7 +135,7 @@ done
 
 # 4) 무엇으로 켜졌나. 슬랙 버튼이면 Lambda 가 태그를 달아 둔다
 #    [다시 로그인]      서버가 꺼져 있을 때 crawler:mode=login (바로 로그인), 켜져 있을 때 login-after (하던 일 뒤 로그인)
-#    [다시 긁기]        서버가 꺼져 있을 때 crawler:mode=rerun (5) 만), 켜져 있을 때 rerun-after (하던 일 뒤 5))
+#    [다시 긁기]        서버가 꺼져 있을 때 crawler:mode=rerun (5) · 못 긁은 신작만), 켜져 있을 때 rerun-after (하던 일 뒤)
 imds=$(curl -s -X PUT http://169.254.169.254/latest/api/token -H 'X-aws-ec2-metadata-token-ttl-seconds: 60')
 instance_id=$(curl -s -H "X-aws-ec2-metadata-token: $imds" http://169.254.169.254/latest/meta-data/instance-id)
 tag() { aws ec2 describe-tags --filters "Name=resource-id,Values=$instance_id" "Name=key,Values=$1" --query 'Tags[0].Value' --output text 2>/dev/null | grep -v '^None$'; }
@@ -181,14 +181,21 @@ crawl() {
 }
 
 # [다시 긁기]. 결과는 누른 알림 스레드에 단다 (실패 내용은 cli 가 따로 알린다)
+# 신작은 요일마다 플랫폼 하나라, 세션 만료로 못 긁은 플랫폼(output/new_works_pending.json)도 여기서 다시 긁는다
 rerun() {
-  local channel thread code
+  local channel thread code new_code
   channel=$(tag crawler:login-channel) thread=$(tag crawler:login-thread)
   clear_tags
   crawl
   code=$?
+  if [ -z "${NIGHTLY_ARGS:-}" ]; then
+    log '못 긁은 신작 다시 수집'
+    docker compose run --rm nightly python cli.py new-works --env prod --pending
+    new_code=$?
+    [ "$code" -eq 0 ] && [ "$new_code" -ne 0 ] && code=$new_code
+  fi
   case "$code" in
-    0) slack ":white_check_mark: 다시 긁기 끝 — 노션 요청 결과를 확인하세요" "$channel" "$thread" ;;
+    0) slack ":white_check_mark: 다시 긁기 끝 — 노션 요청 · 신작 결과를 확인하세요" "$channel" "$thread" ;;
     1) slack ":warning: 다시 긁기는 끝났지만 실패한 플랫폼이 있습니다 (채널 알림 확인)" "$channel" "$thread" ;;
     *) slack ":x: 다시 긁기가 비정상 종료했습니다 (종료 코드 $code)" "$channel" "$thread" ;;
   esac

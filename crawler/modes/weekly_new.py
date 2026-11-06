@@ -9,22 +9,42 @@
 2. 남은 작품 상세 수집 → staging 적재 (load_run) → BE 반영 (run_import)
    분포 보류 중 건수 급변만 풀고, 파서 깨짐이 의심되는 보류(작가 빈 값 · 연령 쏠림 · 장르 하나)는 보내지 않는다
 3. 실패(세션 만료 · 차단 · 목록 0건 · 보류 유지)만 슬랙으로 알린다. 새로 만든 작품은 월요일 주간 알림에 나온다
+4. 세션 만료 · 차단으로 못 긁은 플랫폼은 남겨 둔다 — 다시 로그인 뒤 [다시 긁기] 가 `--pending` 으로 다시 돈다.
+   요일마다 플랫폼 하나라, 안 그러면 다음 주 같은 요일까지 그 플랫폼 신작이 빠진다
 """
 import json
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from config import WEEKLY_NEW_SCHEDULE
+from config import OUTPUT_DIR, WEEKLY_NEW_SCHEDULE
 from crawler import report
 from crawler.modes import new_works
 
 SOURCE = 'new_works_{}'   # 플랫폼마다 따로 — 직전 런과 건수를 비교할 단위
 COUNT_HOLD = '수집 건수'   # review.rules.check_run 의 건수 급변 보류 사유 앞부분
+# 다시 긁을 플랫폼. 날짜 폴더(RUN_DIR) 밖에 둔다 — 다시 긁기는 다음 날 누를 수도 있다
+PENDING_FILE = OUTPUT_DIR / 'new_works_pending.json'
+RETRY_STATUSES = {report.AUTH_EXPIRED, report.RATE_LIMITED}   # 파서 깨짐 · 보류 유지는 다시 긁어도 같다
 
 
 def platform_for(today=None) -> str | None:
     today = today or datetime.now(ZoneInfo('Asia/Seoul')).date()
     return WEEKLY_NEW_SCHEDULE.get(today.weekday())
+
+
+def pending() -> list[str]:
+    try:
+        return json.loads(PENDING_FILE.read_text())
+    except (OSError, ValueError):
+        return []
+
+
+def remember(platform: str) -> None:
+    """이번 리포트에 이 플랫폼의 세션 만료 · 차단이 있으면 남기고, 없으면(긁었으면) 지운다."""
+    retry = any(f['platform'] == platform and f['status'] in RETRY_STATUSES for f in report.summary()['failures'])
+    platforms = [p for p in pending() if p != platform] + ([platform] if retry else [])
+    PENDING_FILE.parent.mkdir(parents=True, exist_ok=True)
+    PENDING_FILE.write_text(json.dumps(platforms))
 
 
 def suspicious_holds(reasons: list[str]) -> list[str]:

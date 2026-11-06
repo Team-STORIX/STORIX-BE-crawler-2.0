@@ -253,14 +253,26 @@ def cmd_new_works(args):
         os.environ['STORIX_ENV'] = args.env  # review 모듈을 불러오기 전에 정한다
     from config import RUN_DIR
     from crawler import notify, report
-    from crawler.modes.weekly_new import run_weekly_new
+    from crawler.modes import weekly_new
     from review import env as storix_env
 
     target = storix_env.target()
     print(f"🎯 대상 {target.upper()} — BE {storix_env.api_base_url(target)}{' (dry-run)' if args.dry_run else ''}")
     report.reset()
     try:
-        summary = run_weekly_new(args.platform, args.dry_run)
+        if args.pending:
+            # [다시 긁기] — 세션 만료 · 차단으로 못 긁고 남은 플랫폼만
+            platforms = weekly_new.pending()
+            print(f"🔁 다시 긁을 신작 플랫폼: {', '.join(platforms) or '없음'}")
+            summary = []
+            for p in platforms:
+                summary.append(weekly_new.run_weekly_new(p, args.dry_run))
+                if not args.dry_run:
+                    weekly_new.remember(p)
+        else:
+            summary = weekly_new.run_weekly_new(args.platform, args.dry_run)
+            if summary.get('platform') and summary.get('supported', True) and not args.dry_run:
+                weekly_new.remember(summary['platform'])
     except Exception as e:
         notify.notify_error('new_works', e)
         raise
@@ -539,7 +551,10 @@ def main():
 
     new_p = subparsers.add_parser('new-works', help='신작 주간 수집 (요일별 플랫폼 → 적재 → BE 반영)')
     new_p.add_argument('--env', choices=('dev', 'prod'), help='BE 대상 환경 (기본 STORIX_ENV, 없으면 dev)')
-    new_p.add_argument('--platform', help='요일 대신 이 플랫폼 (naver_webtoon | kakao_page | ridibooks)')
+    new_target = new_p.add_mutually_exclusive_group()
+    new_target.add_argument('--platform', help='요일 대신 이 플랫폼 (naver_webtoon | kakao_page | ridibooks)')
+    new_target.add_argument('--pending', action='store_true',
+                            help='세션 만료 · 차단으로 못 긁고 남은 플랫폼만 다시 ([다시 긁기])')
     new_p.add_argument('--dry-run', action='store_true', dest='dry_run', help='수집 · 적재까지만. BE 에 보내지 않는다')
 
     req_p = subparsers.add_parser('requests', help='노션 작품 추가 요청 자동 처리 (수집 → 검수 적재 → BE 반영 → 노션 표시)')

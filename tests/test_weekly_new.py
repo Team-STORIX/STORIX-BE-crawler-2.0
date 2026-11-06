@@ -61,3 +61,22 @@ def test_only_count_hold_is_released():
     broken = check_run([{'artist_name': '', 'age_classification': a, 'genre': g}
                         for a, g in [('전체연령가', '로맨스'), ('15세 이용가', '판타지')] * 10])
     assert weekly_new.suspicious_holds(broken) == broken and broken
+
+
+def test_remember_keeps_only_expired_or_blocked_platforms(monkeypatch, tmp_path):
+    """세션 만료 · 차단으로 못 긁은 플랫폼만 남겨 [다시 긁기] 가 다시 돈다. 긁으면 지운다"""
+    from crawler import report
+    monkeypatch.setattr(weekly_new, 'PENDING_FILE', tmp_path / 'pending.json')
+    assert weekly_new.pending() == []
+
+    report.reset()
+    report.record('kakao_page', report.AUTH_EXPIRED, '플랫폼 중단')
+    weekly_new.remember('kakao_page')
+    report.reset()
+    report.record('ridibooks', report.PARSING_FAILED, 'run-1', '작가 빈 값')   # 다시 긁어도 같다
+    weekly_new.remember('ridibooks')
+    assert weekly_new.pending() == ['kakao_page']
+
+    report.reset()   # 다시 로그인 뒤 긁음
+    weekly_new.remember('kakao_page')
+    assert weekly_new.pending() == []

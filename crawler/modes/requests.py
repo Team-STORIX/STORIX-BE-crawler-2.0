@@ -5,7 +5,9 @@
     python cli.py requests --env prod --resume        # dry-run 을 이어받아 검수 제안 반영 → BE 반영 → 노션 표시 (#68)
 
 1. 노션에서 '추가 여부' · '적재 검토 중' 이 둘 다 꺼진 요청을 읽는다 (NOTION_REQUEST_MIN_ID 부터)
-2. 요청의 연재처 · 작품 형태로 작품명 검색 → 수집 (search_titles 흐름, 출력 <플랫폼>_requests.jsonl)
+2. '작품 링크' 가 있는 요청은 그 링크로 바로 수집한다 (여러 개면 전부). 앱 공유 링크는 웹 대표 주소로 바꾼다
+   링크가 없거나 알아볼 수 없는 링크뿐인 요청은 연재처 · 작품 형태로 작품명 검색 → 수집
+   (search_titles 흐름, 출력 <플랫폼>_requests.jsonl)
 3. staging 적재 → BE import. 이미 있는 작품이면 BE 가 갱신(UPDATED)하고 비어 있던 플랫폼 링크가 채워진다
 4. 결과를 노션에 표시
    - 수집한 작품이 하나라도 BE 에 들어감 → '추가 여부' 체크
@@ -22,6 +24,7 @@ from pathlib import Path
 from config import OUTPUT_DIR, RUN_DIR
 from modules.crawler import platforms
 from modules.crawler.classify import REQUEST_SECTIONS
+from review.landing import platform_work_key, resolve_landing_url
 from review.notion import DEFAULT_MIN_ID, NotionError, NotionRequests, Request
 
 SOURCE = 'notion_requests'
@@ -42,10 +45,35 @@ PLATFORM_KEYS = {
 FALLBACK_KEYS = list(platforms.GENERAL_SEARCH)
 
 
+def link_platforms(r: Request) -> list[str]:
+    """요청 링크 중 작품으로 알아본 것의 플랫폼."""
+    return list(dict.fromkeys(platforms.get(k[0]).key for u in r.links if (k := platform_work_key(u))))
+
+
+def plan_links(requests: list[Request]) -> dict[str, list[tuple[str, str]]]:
+    """요청들 → 플랫폼별 (작품명, 작품 링크) 목록. 링크는 resolve_links 를 거친 대표 주소."""
+    out: dict[str, list[tuple[str, str]]] = defaultdict(list)
+    for r in requests:
+        for u in r.links:
+            k = platform_work_key(u)
+            if k and (r.title, u) not in out[platforms.get(k[0]).key]:
+                out[platforms.get(k[0]).key].append((r.title, u))
+    return dict(out)
+
+
+def resolve_links(requests: list[Request]) -> None:
+    """요청 링크를 대표 주소로 바꿔 둔다 (단축 링크는 열어서). dry-run 상태에도 바뀐 주소가 남아 --resume 은 다시 열지 않는다."""
+    for r in requests:
+        r.links = list(dict.fromkeys(resolve_landing_url(u) for u in r.links))
+
+
 def plan(requests: list[Request]) -> dict[str, list[tuple[str, str | None]]]:
-    """요청들 → 플랫폼별 (작품명, 섹션) 목록."""
+    """요청들 → 플랫폼별 (작품명, 섹션) 목록. 작품 링크가 있는 요청은 제목으로 찾지 않는다."""
     out: dict[str, list[tuple[str, str | None]]] = defaultdict(list)
     for r in requests:
+        if link_platforms(r):
+            # 신청자가 짚은 작품이라 제목 검색으로 다른 판본 · 동명 작품이 끼지 않게 한다
+            continue
         listed = [k for p in r.platforms for k in PLATFORM_KEYS.get(p, [])]
         # 제목으로 찾을 수 없는 연재처만 적힌 요청은 다른 플랫폼에서 찾지 않는다
         # — 엉뚱한 작품이 걸리지 않게 (#135)
@@ -87,7 +115,8 @@ def decide(urls: list[str], rows: list[dict]) -> Outcome:
 
 
 def run_requests(target: str, min_id: int | None = None, dry_run: bool = False, limit: int | None = None) -> dict:
-    from crawler.modes.search_titles import run_search_titles
+    from crawler.modes.search_titles import run_links, run_search_titles
+    from crawler.parallel import run_platforms
     from review.app import load_catalog
     from review.service import load_run, read_jsonl
     from review.store import StagingStore, connect, ensure_schema
@@ -96,8 +125,9 @@ def run_requests(target: str, min_id: int | None = None, dry_run: bool = False, 
     notion = NotionRequests()
     requests = notion.pending(min_id)[:limit] if limit else notion.pending(min_id)
     print(f'📮 노션 요청 {len(requests)}건 (ID {min_id}~)')
+    resolve_links(requests)
     for r in requests:
-        print(f'   #{r.id} {r.title} | {r.types} | {r.platforms}')
+        print(f'   #{r.id} {r.title} | {r.types} | {r.platforms}' + (f' | 링크 {r.links}' if r.links else ''))
     if not requests:
         return {'requests': 0}
 
@@ -107,6 +137,8 @@ def run_requests(target: str, min_id: int | None = None, dry_run: bool = False, 
     def on_found(title: str, result: dict) -> None:
         found[title.strip()].append(result['source_url'])
 
+    by_link = plan_links(requests)
+    run_platforms(list(by_link), lambda p: run_links(p, by_link[p], mode=MODE, on_found=on_found))
     for platform, titles in plan(requests).items():
         run_search_titles(platform, titles, mode=MODE, on_found=on_found)
 
@@ -213,16 +245,21 @@ def _report(store, requests: list[Request], found: dict[str, list[str]]) -> list
     out = []
     for r in requests:
         urls = list(dict.fromkeys(found.get(r.title, [])))
+        linked = link_platforms(r)
         planned = plan([r])
-        blocked = sorted(expired & planned.keys())
-        if not planned:
+        blocked = sorted(expired & (set(linked) | planned.keys()))
+        if not linked and not planned:
             outcome = Outcome(False, ' · '.join(dict.fromkeys(
                 platforms.why_not_searchable(k) for p in r.platforms for k in PLATFORM_KEYS.get(p, []))))
         elif not urls and blocked:
             outcome = Outcome(False, f"세션 만료({', '.join(blocked)})로 못 찾음 — 다시 로그인 뒤 다음 실행에서 다시 찾습니다",
                               retry=True)
+        elif not urls and linked:
+            outcome = Outcome(False, '작품 링크에서 작품을 받지 못했습니다 (내려간 작품 · 성인 인증 등)')
         else:
             outcome = decide(urls, store.rows_by_source_urls(urls) if store and urls else [])
+        if r.links and not linked and not outcome.done and not outcome.retry:
+            outcome.note += f" — 작품 링크를 알아보지 못했습니다: {' '.join(r.links)[:300]}"
         label = '⏳ 보류' if outcome.retry else '✅ 추가' if outcome.done else '🔎 검토'
         print(f"{label} #{r.id} {r.title} — {outcome.note}")
         out.append((r, outcome))

@@ -48,6 +48,11 @@ def _text(prop: dict) -> str:
     return ''.join(t.get('plain_text', '') for t in prop.get(prop.get('type'), []) or [])
 
 
+def _link_text(prop: dict) -> str:
+    # URL 칸은 앞에 문구가 붙은 공유 문구를 폼이 받지 않아 텍스트 칸으로도 둔다
+    return (prop.get('url') or '') if prop.get('type') == 'url' else _text(prop)
+
+
 def parse_page(page: dict) -> Request:
     props = page['properties']
     title_prop = props.get(P_TITLE) or next(p for p in props.values() if p['type'] == 'title')
@@ -58,7 +63,7 @@ def parse_page(page: dict) -> Request:
         types=[o['name'] for o in props.get(P_TYPES, {}).get('multi_select', [])],
         platforms=[o['name'] for o in props.get(P_PLATFORMS, {}).get('multi_select', [])],
         memo=_text(props.get(P_MEMO, {'type': 'rich_text', 'rich_text': []})),
-        links=extract_urls(props.get(P_LINK, {}).get('url') or ''),
+        links=extract_urls(_link_text(props.get(P_LINK, {}))),
     )
 
 

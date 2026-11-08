@@ -7,6 +7,7 @@ search_titles 모드: 작품명 리스트 → 플랫폼 검색 → 크롤링 →
     python cli.py stage import --run-id <런>
 """
 import threading
+from contextlib import contextmanager
 from pathlib import Path
 
 from selenium.common.exceptions import InvalidSessionIdException, WebDriverException
@@ -245,64 +246,98 @@ def _search_and_write(
     """wanted 는 제목 → 그 제목이 나온 섹션 타입들. 성공한 (제목, 타입) 은 호출자의 found 에 in-place 로 더한다."""
     label = platforms.get(platform).label
 
+    with _logged_in(platform) as crawler, JSONLWriter(platform, mode) as writer:
+        ok_count = fail_count = skip_count = 0
+        print(f'\n🔍 [{label}] {len(wanted)}개 작품 검색 시작')
+
+        for i, (title, types) in enumerate(wanted.items(), 1):
+            print(f'\n  [{i}/{len(wanted)}] "{title}" 검색 중...')
+
+            try:
+                candidates = crawler.search_candidates(title)
+                if not candidates:
+                    print(f'  ⚠️  검색 결과 없음 — 스킵')
+                    report.record(crawler.REPORT_PLATFORM, report.SEARCH_FAILED, title)
+                    skip_count += 1
+                    continue
+
+                crawled: dict[str, dict | None] = {}  # 같은 후보를 유형마다 다시 열지 않는다
+                written: set[str] = set()  # 다른 유형 섹션에서 이미 저장한 같은 작품은 다시 안 쓴다
+                for ttype in _crawl_types(types, platform):
+                    results = _crawl_for_type(crawler, candidates, ttype, crawled, title)
+                    if not results:
+                        skip_count += 1
+                    for result in results:
+                        if result['source_url'] in written:
+                            continue
+                        written.add(result['source_url'])
+                        writer.write(result)
+                        with _found_lock:
+                            found.update(_found_slots(title, types, result))
+                        if on_found:
+                            on_found(title, result)
+                        ok_count += 1
+            except (RateLimitedError, AuthExpiredError):
+                # 차단이 계속되거나 재로그인이 실패했다 — 이 플랫폼은 여기서 멈춘다 (리포트는 crawl_detail_with_retry 가 남김)
+                raise
+            except _DRIVER_ERRORS as e:
+                print(f'  ♻️  드라이버 이상 — 재시작 후 계속: {e}')
+                crawler._restart_driver()
+                fail_count += 1
+                continue
+            except Exception as e:
+                print(f'  ❌ 예기치 못한 오류 — 스킵: {e}')
+                fail_count += 1
+                continue
+
+        print(
+            f'\n✅ [{label}] 완료 — '
+            f'수집 {ok_count}건 | 실패 {fail_count}건 | 스킵 {skip_count}건'
+        )
+        print(f'   검수 적재: python cli.py stage load --input {writer.path} --source search_titles')
+
+    return found
+
+
+@contextmanager
+def _logged_in(platform: str):
+    label = platforms.get(platform).label
     crawler = platforms.crawler_class(platform)()
     crawler.start_driver()
     try:
-        if not crawler.login():
+        if not platforms.log_in(crawler, platform):
             raise AuthExpiredError(f'{label} 로그인 실패')
         # 야간 실행이 전 플랫폼 쿠키 갱신(keepalive)을 하지 않아, 쓰는 플랫폼은 여기서 사이트가 새로 준 쿠키를 저장한다
-        _save_session(crawler, label)
-
-        with JSONLWriter(platform, mode) as writer:
-            ok_count = fail_count = skip_count = 0
-            print(f'\n🔍 [{label}] {len(wanted)}개 작품 검색 시작')
-
-            for i, (title, types) in enumerate(wanted.items(), 1):
-                print(f'\n  [{i}/{len(wanted)}] "{title}" 검색 중...')
-
-                try:
-                    candidates = crawler.search_candidates(title)
-                    if not candidates:
-                        print(f'  ⚠️  검색 결과 없음 — 스킵')
-                        report.record(crawler.REPORT_PLATFORM, report.SEARCH_FAILED, title)
-                        skip_count += 1
-                        continue
-
-                    crawled: dict[str, dict | None] = {}  # 같은 후보를 유형마다 다시 열지 않는다
-                    written: set[str] = set()  # 다른 유형 섹션에서 이미 저장한 같은 작품은 다시 안 쓴다
-                    for ttype in _crawl_types(types, platform):
-                        results = _crawl_for_type(crawler, candidates, ttype, crawled, title)
-                        if not results:
-                            skip_count += 1
-                        for result in results:
-                            if result['source_url'] in written:
-                                continue
-                            written.add(result['source_url'])
-                            writer.write(result)
-                            with _found_lock:
-                                found.update(_found_slots(title, types, result))
-                            if on_found:
-                                on_found(title, result)
-                            ok_count += 1
-                except (RateLimitedError, AuthExpiredError):
-                    # 차단이 계속되거나 재로그인이 실패했다 — 이 플랫폼은 여기서 멈춘다 (리포트는 crawl_detail_with_retry 가 남김)
-                    raise
-                except _DRIVER_ERRORS as e:
-                    print(f'  ♻️  드라이버 이상 — 재시작 후 계속: {e}')
-                    crawler._restart_driver()
-                    fail_count += 1
-                    continue
-                except Exception as e:
-                    print(f'  ❌ 예기치 못한 오류 — 스킵: {e}')
-                    fail_count += 1
-                    continue
-
-            print(
-                f'\n✅ [{label}] 완료 — '
-                f'수집 {ok_count}건 | 실패 {fail_count}건 | 스킵 {skip_count}건'
-            )
-            print(f'   검수 적재: python cli.py stage load --input {writer.path} --source search_titles')
+        if platforms.get(platform).login:
+            _save_session(crawler, label)
+        yield crawler
     finally:
         crawler.close_driver()
 
-    return found
+
+def run_links(platform: str, items: list[tuple[str, str]], mode: str = 'search_titles', on_found=None) -> None:
+    """(요청 제목, 작품 대표 주소) → 검색 없이 상세를 바로 수집한다. 제목으로 찾지 않는 플랫폼도 링크로는 받는다.
+    노션 요청에 작품 링크가 있으면 제목 검색 대신 이걸 쓴다."""
+    label = platforms.get(platform).label
+    with _logged_in(platform) as crawler, JSONLWriter(platform, mode) as writer:
+        print(f'\n🔗 [{label}] 작품 링크 {len(items)}개 수집')
+        for title, url in items:
+            print(f'  "{title}" ← {url}')
+            try:
+                result = crawler.crawl_detail_with_retry(url)
+            except (RateLimitedError, AuthExpiredError):
+                raise
+            except _DRIVER_ERRORS as e:
+                print(f'  ♻️  드라이버 이상 — 재시작 후 계속: {e}')
+                crawler._restart_driver()
+                continue
+            except Exception as e:
+                print(f'  ❌ 예기치 못한 오류 — 스킵: {e}')
+                continue
+            if not result:
+                print('  ⚠️  상세를 받지 못함 — 스킵')
+                continue
+            print(f"   ↳ {result.get('works_name')} | {result.get('works_type')}")
+            writer.write(result)
+            if on_found:
+                on_found(title, result)

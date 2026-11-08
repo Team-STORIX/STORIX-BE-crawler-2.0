@@ -211,6 +211,9 @@ def test_parse_page_links_from_share_text():
         'https://link-page.kakao.com/open/content?series_id=71166123&utm_source=sh_clip']
     two = parse_page(page(link='https://link.ridi.com/hq3th8j https://ridibooks.com/books/1746036218, '))
     assert two.links == ['https://link.ridi.com/hq3th8j', 'https://ridibooks.com/books/1746036218']
+    text = page()
+    text['properties']['작품 링크'] = {'type': 'rich_text', 'rich_text': [{'plain_text': KAKAO_SHARE}]}
+    assert parse_page(text).links == ['https://link-page.kakao.com/open/content?series_id=71166123&utm_source=sh_clip']
 
 
 def test_resolve_links_share_and_short(monkeypatch):

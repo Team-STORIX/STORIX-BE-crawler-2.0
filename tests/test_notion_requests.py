@@ -10,8 +10,9 @@ from crawler.modes.requests import FALLBACK_KEYS, _report, decide, plan  # noqa:
 from review.notion import NotionRequests, Request, parse_page  # noqa: E402
 
 
-def page(pid='p1', num=441, title='뉴비 키워서 갈아먹기', types=('웹툰',), platforms=('리디북스',), memo=''):
+def page(pid='p1', num=441, title='뉴비 키워서 갈아먹기', types=('웹툰',), platforms=('리디북스',), memo='', link=None):
     return {'id': pid, 'properties': {
+        '작품 링크': {'type': 'url', 'url': link},
         '작품 이름 ': {'type': 'title', 'title': [{'plain_text': title}]},
         'ID': {'type': 'unique_id', 'unique_id': {'number': num}},
         '작품 형태': {'type': 'multi_select', 'multi_select': [{'name': t} for t in types]},
@@ -139,7 +140,7 @@ def test_state_round_trip_and_latest_unresumed(tmp_path):
 
     state = json.loads(new.read_text(encoding='utf-8'))
     assert state['requests'][0] == {'page_id': 'a', 'id': 441, 'title': '혼불', 'types': ['웹소설'],
-                                    'platforms': ['리디북스'], 'memo': ''}
+                                    'platforms': ['리디북스'], 'memo': '', 'links': []}
     assert json.loads(old.read_text(encoding='utf-8'))['found'] == {'혼불': ['u1']}  # 요청 밖 제목 · 중복 링크는 뺀다
 
     assert latest_state('prod', tmp_path) == new
@@ -197,3 +198,65 @@ def test_auth_expired_request_waits_for_next_run():
     finally:
         report.reset()
     assert (notion.done, notion.review, summary['retry']) == ([], [442], 1)
+
+
+# ---------------------------------------------------------------- 작품 링크 우선
+
+KAKAO_SHARE = '[카카오페이지] 나는 이 빙의를 끝내려 한다 | 26,쌈빵이,신솔라 https://link-page.kakao.com/open/content?series_id=71166123&utm_source=sh_clip'
+
+
+def test_parse_page_links_from_share_text():
+    assert parse_page(page()).links == []
+    assert parse_page(page(link=KAKAO_SHARE)).links == [
+        'https://link-page.kakao.com/open/content?series_id=71166123&utm_source=sh_clip']
+    two = parse_page(page(link='https://link.ridi.com/hq3th8j https://ridibooks.com/books/1746036218, '))
+    assert two.links == ['https://link.ridi.com/hq3th8j', 'https://ridibooks.com/books/1746036218']
+
+
+def test_resolve_links_share_and_short(monkeypatch):
+    from crawler.modes.requests import resolve_links
+    from review import landing
+    hops = []
+
+    def fake(url):
+        hops.append(url)
+        return 'https://ridibooks.com/books/1746036218?airbridge_referrer=x&utm_source=inapp_share_ios'
+    monkeypatch.setattr(landing, '_redirect_target', fake)
+
+    r = Request('a', 460, '작품', links=['https://link-page.kakao.com/open/content?series_id=71166123&utm_source=sh_clip',
+                                       'https://link.ridi.com/hq3th8j', 'https://example.com/x'])
+    resolve_links([r])
+    assert r.links == ['https://page.kakao.com/content/71166123', 'https://ridibooks.com/books/1746036218',
+                       'https://example.com/x']
+    assert hops == ['https://link.ridi.com/hq3th8j']  # 단축 링크만 연다
+
+
+def test_linked_request_skips_title_search():
+    """링크가 있으면 그 링크로만 수집한다. 제목으로 찾지 않는 플랫폼(리디 · 시리즈)도 링크로는 받는다"""
+    pytest.importorskip('selenium')
+    from crawler.modes.requests import plan_links
+    reqs = [Request('a', 461, '리디 작품', ['웹툰'], ['리디북스'],
+                    links=['https://ridibooks.com/books/1', 'https://page.kakao.com/content/2']),
+            Request('b', 462, '링크 없음', ['웹툰'], ['카카오페이지']),
+            Request('c', 463, '모르는 링크', ['웹툰'], ['카카오페이지'], links=['https://example.com/x'])]
+    assert plan_links(reqs) == {'ridibooks': [('리디 작품', 'https://ridibooks.com/books/1')],
+                                'kakao_page': [('리디 작품', 'https://page.kakao.com/content/2')]}
+    assert plan(reqs) == {'kakao_page': [('링크 없음', '웹툰'), ('모르는 링크', '웹툰')]}
+
+
+def test_linked_request_outcomes():
+    pytest.importorskip('selenium')
+    from crawler import report
+    report.reset()
+    try:
+        failed = Request('a', 464, '링크 실패', ['웹툰'], ['리디북스'], links=['https://ridibooks.com/books/1'])
+        unknown = Request('b', 465, '모르는 링크', ['웹툰'], ['리디북스'], links=['https://example.com/x'])
+        (_, o1), (_, o2) = _report(None, [failed, unknown], {})
+        assert not o1.done and not o1.retry and '작품 링크' in o1.note
+        assert not o2.done and 'example.com' in o2.note
+
+        report.record('ridibooks', report.AUTH_EXPIRED, '플랫폼 중단', 'AuthExpiredError')
+        [(_, o3)] = _report(None, [failed], {})
+        assert o3.retry  # 링크 플랫폼 세션 만료도 다음 실행에서 다시
+    finally:
+        report.reset()

@@ -14,6 +14,9 @@ _RULES = (
      'https://series.naver.com/{}/detail.series?productNo={}', 'NAVER_SERIES'),
     (re.compile(r'(?:page\.kakao|kakaopage)\.com/content/(\d+)'),   # kakaopage.com 은 옛 도메인
      'https://page.kakao.com/content/{}', 'KAKAO_PAGE'),
+    # 앱 공유 링크. 앱이 없으면 웹이 아니라 스토어로 보내서 대표 주소로 바꿔 둔다
+    (re.compile(r'link-page\.kakao\.com/open/content\?(?:.*&)?series_id=(\d+)'),
+     'https://page.kakao.com/content/{}', 'KAKAO_PAGE'),
     (re.compile(r'ridibooks\.com/books/(\d+)'),
      'https://ridibooks.com/books/{}', 'RIDIBOOKS'),
     (re.compile(r'bomtoon\.com/detail/([^/?#\s]+)'),
@@ -41,6 +44,51 @@ def canonical_landing_url(url: str) -> str:
         if m:
             return template.format(*m.groups())
     return url
+
+
+# 주소만으로 작품을 알 수 없는 앱 공유 단축 링크 (리디 앱 '공유' → link.ridi.com/<코드>). 한 번 열어 넘겨주는 주소를 본다
+SHORT_LINK_HOSTS = ('link.ridi.com',)
+_URL_IN_TEXT = re.compile(r'https?://[^\s<>"\']+')
+
+
+def extract_urls(text: str) -> list[str]:
+    """앱 공유 문구('[카카오페이지] 제목 | 작가 https://...')에서 링크만. 여러 개면 순서대로."""
+    return list(dict.fromkeys(u.rstrip('.,)]>') for u in _URL_IN_TEXT.findall(text or '')))
+
+
+def resolve_landing_url(url: str, max_hops: int = 3) -> str:
+    """사람이 붙여 넣은 링크 → 대표 주소. 단축 링크만 리다이렉트를 따라간다. 작품을 못 알아보면 원래 주소."""
+    from urllib.parse import urljoin, urlsplit
+    url = (url or '').strip()
+    for _ in range(max_hops):
+        if platform_work_key(url) or (urlsplit(url).hostname or '') not in SHORT_LINK_HOSTS:
+            break
+        nxt = _redirect_target(url)
+        if not nxt:
+            break
+        url = urljoin(url, nxt)
+    return canonical_landing_url(url)
+
+
+def _redirect_target(url: str) -> str | None:
+    import urllib.error
+    import urllib.request
+    from modules.crawler import robots
+    from modules.crawler.base_crawler import USER_AGENT
+
+    class NoRedirect(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, *args, **kwargs):
+            return None
+
+    try:
+        robots.check(url, USER_AGENT)
+        urllib.request.build_opener(NoRedirect).open(
+            urllib.request.Request(url, headers={'User-Agent': USER_AGENT}), timeout=10).close()
+    except urllib.error.HTTPError as e:
+        return e.headers.get('Location') if 300 <= e.code < 400 else None
+    except Exception as e:  # 못 열면 원래 주소로 둔다 — 요청 처리가 이유를 남긴다
+        print(f'⚠️  단축 링크를 열지 못함 ({type(e).__name__}): {url}')
+    return None
 
 
 def work_id(url: str, platform: str) -> str | None:

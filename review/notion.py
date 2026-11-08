@@ -11,6 +11,8 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
 
+from review.landing import extract_urls
+
 API = 'https://api.notion.com/v1'
 VERSION = '2022-06-28'
 
@@ -19,6 +21,7 @@ P_TITLE = '작품 이름 '  # 폼 제목 칸 이름 끝에 공백이 있다
 P_ID = 'ID'
 P_TYPES = '작품 형태'
 P_PLATFORMS = '연재처'
+P_LINK = '작품 링크'        # 앱 공유 문구째 붙여 넣기도 한다 — 링크만 뽑는다
 P_DONE = '추가 여부'        # prod 에 넣었는지
 P_REVIEW = '적재 검토 중'   # 사람이 봐야 하는지
 P_MEMO = '메모'
@@ -38,10 +41,16 @@ class Request:
     types: list[str] = field(default_factory=list)
     platforms: list[str] = field(default_factory=list)
     memo: str = ''
+    links: list[str] = field(default_factory=list)
 
 
 def _text(prop: dict) -> str:
     return ''.join(t.get('plain_text', '') for t in prop.get(prop.get('type'), []) or [])
+
+
+def _link_text(prop: dict) -> str:
+    # URL 칸은 앞에 문구가 붙은 공유 문구를 폼이 받지 않아 텍스트 칸으로도 둔다
+    return (prop.get('url') or '') if prop.get('type') == 'url' else _text(prop)
 
 
 def parse_page(page: dict) -> Request:
@@ -54,6 +63,7 @@ def parse_page(page: dict) -> Request:
         types=[o['name'] for o in props.get(P_TYPES, {}).get('multi_select', [])],
         platforms=[o['name'] for o in props.get(P_PLATFORMS, {}).get('multi_select', [])],
         memo=_text(props.get(P_MEMO, {'type': 'rich_text', 'rich_text': []})),
+        links=extract_urls(_link_text(props.get(P_LINK, {}))),
     )
 
 

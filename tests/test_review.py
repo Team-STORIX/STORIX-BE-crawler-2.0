@@ -270,6 +270,14 @@ def test_age_gate_cover_is_cleared_and_needs_review(thumb):
     assert v.normalized['thumbnail_url'] == ''  # 빈 값이면 BE 가 기존 표지를 덮어쓰지 않는다
 
 
+def test_kakao_cover_uses_original_size():
+    base = 'https://page-images.kakaoentcdn.com/download/resource?kid=QrvPA/dJMcahfCOHc/omBXKjlra18ZrNyZJIkw40&filename=o1'
+    v = validate_item(item(thumbnail_url=base + '/dims/resize/384'), CATALOG)
+    assert v.normalized['thumbnail_url'] == base
+    assert not v.violations
+    assert validate_item(item(thumbnail_url=base), CATALOG).normalized['thumbnail_url'] == base
+
+
 def test_vertical_novel_cover_passes():
     thumb = ('https://novel-phinf.pstatic.net/20241028_186/novel_1730084361108qBch6_JPEG/'
              'EB82ABEC9CA0EC96B4ED9484EBA08CEB939C_ED919CECA780_650_no.jpg?type=f200_276_2')

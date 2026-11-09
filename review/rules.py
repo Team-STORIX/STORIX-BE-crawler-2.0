@@ -63,6 +63,8 @@ NOT_A_GENRE = {'순정', '소년', '소녀', '청년'}
 #  - 네이버 웹소설 장르 기본 표지(romance_320_12.png 등): 작가가 표지를 안 올린 작품
 SQUARE_THUMBNAIL = re.compile(r'novel-phinf\.pstatic\.net/.+[?&]type=n\d+_\d+')
 DEFAULT_COVER = re.compile(r'novel-phinf\.pstatic\.net/20221231_\d+/novel_\w+_PNG/[a-z]+_(?:320_)?\d+\.png')
+# 카카오페이지 상세는 표지를 384px 로 줄인 주소(filename=o1/dims/resize/384)로 준다. 원본(o1, 720px)으로 받는다
+KAKAO_RESIZED_COVER = re.compile(r'(kakaoentcdn\.com/download/resource\?.*filename=o1)/dims/resize/\d+$')
 
 TEXT_FIELDS = (
     'works_name', 'artist_name', 'author', 'illustrator', 'original_author',
@@ -139,7 +141,7 @@ def validate_item(item: dict, catalog: EnumCatalog, mappings: dict[tuple[str, st
         if not normalized[f]:
             violations.append(_violation(f, 'MISSING', None, NEEDS_REVIEW))
 
-    thumb = normalized['thumbnail_url']
+    thumb = normalized['thumbnail_url'] = KAKAO_RESIZED_COVER.sub(r'\1', normalized['thumbnail_url'])
     if is_age_gate_cover(thumb):
         # 빈 값으로 보내면 BE 가 기존 표지를 덮어쓰지 않는다. 가림 표지가 나왔다면 성인 작품일 가능성이 크다
         normalized['thumbnail_url'] = ''

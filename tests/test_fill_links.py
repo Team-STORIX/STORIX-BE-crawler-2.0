@@ -73,3 +73,13 @@ def test_confirmed_link_is_remembered():
     assert _decide('응급 플러팅 [개정판]', '웹툰', '15세 이용가', EUNGEUP, used, works_id=4217)[0] == 'OK'
     assert _decide('응급 플러팅', '웹툰', '15세 이용가', EUNGEUP, used, works_id=9999)[0] == 'AMBIG'
     assert _decide('응급 플러팅 [개정판]', '웹툰', '15세 이용가', EUNGEUP, used, works_id=4217)[0] == 'OK'
+
+
+def test_unsearchable_platform_does_not_use_up_limit():
+    """시리즈처럼 제목 검색이 안 되는 플랫폼 행이 앞에 몰려 있어도 limit 은 검색되는 플랫폼 행으로 채운다"""
+    from tools.fill_links import pick_todo
+    rows = ([{'id': i, 'platform': 'NAVER_SERIES'} for i in range(1, 4)]
+            + [{'id': i, 'platform': 'KAKAO_PAGE'} for i in range(4, 8)])
+    todo, skipped = pick_todo(rows, done={4}, limit=2, searchable=lambda p: p != 'NAVER_SERIES')
+    assert [r['id'] for r in todo['KAKAO_PAGE']] == [5, 6] and 'NAVER_SERIES' not in todo
+    assert skipped == {'NAVER_SERIES': 3}

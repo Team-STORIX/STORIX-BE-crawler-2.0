@@ -133,6 +133,31 @@ def load_used(used_path, results_path):
     return used
 
 
+def pick_todo(rows, done, only=None, limit=None, searchable=None):
+    """검색할 행을 플랫폼별로, 전체 limit 건까지. 제목 검색이 안 되는 플랫폼(robots 로 막힌 시리즈 등)은
+    limit 을 세기 전에 빼서, 그 플랫폼 행이 앞에 몰려 있어도 다음 플랫폼 행으로 채운다."""
+    searchable = searchable or platforms.searchable
+    can, todo, skipped = {}, {}, {}
+    for r in rows:
+        p = r['platform']
+        if r['id'] in done or (only and p not in only):
+            continue
+        if p not in can:
+            can[p] = searchable(p)
+        if not can[p]:
+            skipped[p] = skipped.get(p, 0) + 1
+            continue
+        todo.setdefault(p, []).append(r)
+    if limit:
+        left, capped = limit, {}
+        for p, v in todo.items():   # 앞 플랫폼부터 채워 전체 limit 건까지만
+            if left <= 0:
+                break
+            capped[p], left = v[:left], left - len(v[:left])
+        todo = capped
+    return todo, skipped
+
+
 def main(argv):
     src, artists_path, out = argv[1], argv[2], argv[3]
     only = set(argv[4].split(',')) if len(argv) > 4 and argv[4] else None
@@ -155,23 +180,11 @@ def main(argv):
         fo.flush()
         print(r['platform'], r['works_id'], status, r['works_name'], url or '', note, flush=True)
 
-    todo = {}
-    for r in rows:
-        if r['id'] in done or (only and r['platform'] not in only):
-            continue
-        todo.setdefault(r['platform'], []).append(r)
-    if limit:
-        left, capped = limit, {}
-        for p, v in todo.items():   # 앞 플랫폼부터 채워 전체 limit 건까지만
-            if left <= 0:
-                break
-            capped[p], left = v[:left], left - len(v[:left])
-        todo = capped
+    todo, skipped = pick_todo(rows, done, only, limit)
+    for platform, n in skipped.items():
+        print(f'⏭️  {platform}: 검색 후보를 내는 크롤러가 없어 {n}건 건너뜀', flush=True)
 
     for platform, items in todo.items():
-        if not platforms.searchable(platform):
-            print(f'⏭️  {platform}: 검색 후보를 내는 크롤러가 없어 건너뜀', flush=True)
-            continue
         # 성인 작품 상세(작가 확인)는 로그인해야 열린다. 쿠키가 없거나 만료면 경고하고 비로그인으로 계속 (#98)
         with platforms.open_crawler(platform, headless=True, login='cookies', required=False) as c:
             for r in items:

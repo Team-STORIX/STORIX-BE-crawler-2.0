@@ -73,6 +73,7 @@ class NotionRequests:
         self.db_id = db_id or os.getenv('NOTION_REQUEST_DB_ID', '')
         if not self.token or not self.db_id:
             raise NotionError('.env 에 NOTION_TOKEN · NOTION_REQUEST_DB_ID 가 없습니다')
+        self._memo_ok: bool | None = None
 
     def _call(self, method: str, path: str, body: dict | None = None) -> dict:
         req = urllib.request.Request(
@@ -104,15 +105,27 @@ class NotionRequests:
             cursor = d['next_cursor']
         return sorted((r for r in out if r.title), key=lambda r: r.id)
 
+    def has_memo(self) -> bool:
+        # 폼을 고치다 '메모' 칸이 없어지면 PATCH 가 400 으로 런 전체를 멈췄다 (2026-11-16).
+        # 칸이 없으면 체크 표시는 하고 이유만 남기지 않는다
+        if self._memo_ok is None:
+            props = self._call('GET', f'/databases/{self.db_id}').get('properties', {})
+            self._memo_ok = props.get(P_MEMO, {}).get('type') == 'rich_text'
+            if not self._memo_ok:
+                print(f"⚠️  노션 요청 DB 에 '{P_MEMO}' 텍스트 칸이 없어 결과 이유를 남기지 않습니다")
+        return self._memo_ok
+
     def mark_done(self, req: Request, note: str = '') -> None:
         props = {P_DONE: {'checkbox': True}}
-        if note:
+        if note and self.has_memo():
             props[P_MEMO] = _memo(req, note)
         self._call('PATCH', f'/pages/{req.page_id}', {'properties': props})
 
     def mark_review(self, req: Request, reason: str) -> None:
-        self._call('PATCH', f'/pages/{req.page_id}',
-                   {'properties': {P_REVIEW: {'checkbox': True}, P_MEMO: _memo(req, reason)}})
+        props = {P_REVIEW: {'checkbox': True}}
+        if self.has_memo():
+            props[P_MEMO] = _memo(req, reason)
+        self._call('PATCH', f'/pages/{req.page_id}', {'properties': props})
 
 
 def _memo(req: Request, note: str) -> dict:

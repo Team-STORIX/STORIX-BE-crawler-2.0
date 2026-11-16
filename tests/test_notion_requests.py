@@ -99,11 +99,13 @@ def test_decide():
 
 
 class _Fake(NotionRequests):
-    def __init__(self, pages):
+    def __init__(self, pages, memo=True):
         super().__init__('t', 'db')
-        self.pages, self.calls = pages, []
+        self.pages, self.calls, self.memo = pages, [], memo
 
     def _call(self, method, path, body=None):
+        if method == 'GET':
+            return {'properties': {'메모': {'type': 'rich_text'}} if self.memo else {}}
         self.calls.append((method, path, body))
         return {'results': self.pages, 'has_more': False} if method == 'POST' else {}
 
@@ -123,6 +125,14 @@ def test_mark_review_keeps_requester_memo():
     props = n.calls[0][2]['properties']
     assert props['적재 검토 중'] == {'checkbox': True}
     assert props['메모']['rich_text'][0]['text']['content'] == '19금이에요\n[크롤러] 연재처에서 작품을 찾지 못했습니다'
+
+
+def test_mark_without_memo_property():
+    """노션 DB 에서 '메모' 칸이 없어져도 체크 표시는 한다 (없는 칸을 보내면 400 으로 런이 멈췄다)"""
+    n = _Fake([], memo=False)
+    n.mark_review(parse_page(page()), '연재처에서 작품을 찾지 못했습니다')
+    n.mark_done(parse_page(page()), '메모')
+    assert [c[2]['properties'] for c in n.calls] == [{'적재 검토 중': {'checkbox': True}}, {'추가 여부': {'checkbox': True}}]
 
 
 # ---------------------------------------------------------------- dry-run 이어받기 (#68)

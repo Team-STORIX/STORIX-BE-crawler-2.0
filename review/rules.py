@@ -174,6 +174,10 @@ MIN_RUN_SIZE = 20             # 이보다 적으면 분포 규칙은 건너뛴�
 MAX_SINGLE_AGE_RATIO = 0.8
 MAX_EMPTY_ARTIST_RATIO = 0.1
 MAX_COUNT_DELTA = 0.5
+# 신작 목록이 원래 성인작 위주라 18세 쏠림이 정상인 플랫폼. 20261120 미스터블루 웹툰 신작 32/37건이 실제 19세 작품이었다.
+# 이 플랫폼들도 연령 파서가 깨지면 빈 값으로 떨어지므로 빈 값 쏠림은 계속 잡는다
+ADULT_HEAVY_PLATFORMS = {'MRBLUE'}
+ADULT_AGE = '18세 이용가'
 
 
 def check_run(items: list[dict], prev_count: int | None = None) -> list[str]:
@@ -193,7 +197,8 @@ def check_run(items: list[dict], prev_count: int | None = None) -> list[str]:
 
     ages = Counter(_clean(it.get('age_classification')) for it in items)
     top_age, top_age_count = ages.most_common(1)[0]
-    if top_age_count / n > MAX_SINGLE_AGE_RATIO:
+    adult_heavy = {_clean(it.get('platform')) for it in items} <= ADULT_HEAVY_PLATFORMS
+    if top_age_count / n > MAX_SINGLE_AGE_RATIO and not (adult_heavy and top_age == ADULT_AGE):
         reasons.append(f'age_classification "{top_age or "(빈 값)"}" 이 {top_age_count}/{n}건 — 연령 파서 깨짐 의심')
 
     genres = Counter(_clean(it.get('genre')) for it in items)

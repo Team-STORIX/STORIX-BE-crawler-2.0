@@ -6,6 +6,7 @@ from crawler import report  # noqa: E402
 from modules.crawler.base_crawler import (  # noqa: E402
     AuthExpiredError, BaseCrawler, RateLimitedError, SessionExpiredError,
 )
+from modules.crawler.robots import RobotsDisallowed  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -83,6 +84,14 @@ def test_detail_failure_is_detail_not_found_not_fatal():
     assert c.crawl_detail_with_retry('u') is None
     assert report.summary()['by_platform'] == {'test': {'DETAIL_NOT_FOUND': 1}}
     assert not report.failed()  # 그 작품만 건너뛴다
+
+
+def test_robots_disallowed_detail_skips_only_that_work():
+    # 레진 error_zone(오류탐구영역) 이 Disallow: /*/error 에 걸렸다고 플랫폼 전체가 멈추면 안 된다
+    c = Crawler([RobotsDisallowed('robots.txt 가 막은 경로 (Disallow: /*/error)')])
+    assert c.crawl_detail_with_retry('https://www.lezhin.com/ko/comic/error_zone') is None
+    assert report.summary()['by_platform'] == {'test': {'DETAIL_NOT_FOUND': 1}}
+    assert not report.failed()
 
 
 def test_rate_limit_backs_off_then_recovers():

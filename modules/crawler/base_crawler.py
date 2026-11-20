@@ -308,7 +308,8 @@ class BaseCrawler:
 
     def crawl_detail_with_retry(self, url: str, max_attempts: int = 3):
         """상세 수집. HTTP 수집기가 있으면 먼저 쓰고, 못 받으면 브라우저로 연다. 결과 상태를 수집 리포트에 남긴다.
-        차단이 MAX_RATE_LIMITS 번 연달아 나거나 재로그인이 실패하면 예외를 올려 그 플랫폼을 중단시킨다."""
+        차단이 MAX_RATE_LIMITS 번 연달아 나거나 재로그인이 실패하면 예외를 올려 그 플랫폼을 중단시킨다.
+        robots 가 막은 상세는 그 작품만 건너뛴다 (목록 · 검색이 막히면 여전히 플랫폼 중단)."""
         from crawler import report
         platform = self.REPORT_PLATFORM or self.__class__.__name__
         use_http = self._has_http_detail()
@@ -330,6 +331,11 @@ class BaseCrawler:
                         return None
                 else:
                     result = self._browser_detail(url)
+            except RobotsDisallowed as e:
+                # 작품 주소가 우연히 막힌 경로에 걸린 경우 (레진 error_zone ↔ Disallow: /*/error). 그 작품만 건너뛴다
+                self._log.warning("robots 가 막은 작품이라 건너뜀: %s", e)
+                report.record(platform, report.DETAIL_NOT_FOUND, url, str(e))
+                return None
             except AuthExpiredError as e:
                 report.record(platform, report.AUTH_EXPIRED, url, str(e))
                 raise

@@ -167,6 +167,8 @@ def test_layer1_sends_normalized_artist_name():
     ('https://series.naver.com/comic/detail.series?productNo=123', 'https://series.naver.com/comic/detail.series?productNo=123'),
     ('https://page.kakao.com/content/57990049?tab_type=about', 'https://page.kakao.com/content/57990049'),
     ('https://link-page.kakao.com/open/content?series_id=71166123&utm_source=sh_clip', 'https://page.kakao.com/content/71166123'),
+    ('https://page.kakao.com/home/%EC%A0%81%EA%B5%AD%EC%9D%98-%EA%B5%90%EC%88%98/66658508/', 'https://page.kakao.com/content/66658508'),
+    ('https://page.kakao.com/home?seriesId=66658508&orderby=asc', 'https://page.kakao.com/content/66658508'),
     ('https://ridibooks.com/books/3822002074?_rdt_sid=search&_rdt_idx=0', 'https://ridibooks.com/books/3822002074'),
     ('https://example.com/x?y=1', 'https://example.com/x?y=1'),
     ('', ''),

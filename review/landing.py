@@ -14,6 +14,9 @@ _RULES = (
      'https://series.naver.com/{}/detail.series?productNo={}', 'NAVER_SERIES'),
     (re.compile(r'(?:page\.kakao|kakaopage)\.com/content/(\d+)'),   # kakaopage.com 은 옛 도메인
      'https://page.kakao.com/content/{}', 'KAKAO_PAGE'),
+    # 예전 주소 모양 (/home/<제목>/<번호>, /home?seriesId=<번호>). 번호는 지금 작품 번호와 같다
+    (re.compile(r'page\.kakao\.com/home/[^/?#]+/(\d+)'), 'https://page.kakao.com/content/{}', 'KAKAO_PAGE'),
+    (re.compile(r'page\.kakao\.com/home\?(?:.*&)?seriesId=(\d+)'), 'https://page.kakao.com/content/{}', 'KAKAO_PAGE'),
     # 앱 공유 링크. 앱이 없으면 웹이 아니라 스토어로 보내서 대표 주소로 바꿔 둔다
     (re.compile(r'link-page\.kakao\.com/open/content\?(?:.*&)?series_id=(\d+)'),
      'https://page.kakao.com/content/{}', 'KAKAO_PAGE'),

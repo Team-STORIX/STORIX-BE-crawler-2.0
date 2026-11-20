@@ -315,6 +315,16 @@ def test_breaker_passes_healthy_run():
     assert check_run(healthy, prev_count=28) == []
 
 
+def test_breaker_allows_adult_heavy_platform_but_not_empty_ages():
+    """미스터블루 웹툰 신작은 원래 성인작 위주라 18세 쏠림은 통과, 빈 값 쏠림은 그대로 잡는다"""
+    ages = ['18세 이용가'] * 32 + ['15세 이용가', '15세 이용가', '전체연령가', '12세 이용가', '12세 이용가']
+    genres = ['BL', '로맨스', '드라마']
+    mrblue = [item(platform='MRBLUE', age_classification=a, genre=genres[i % 3]) for i, a in enumerate(ages)]
+    assert check_run(mrblue) == []
+    assert check_run([{**it, 'platform': 'NAVER_WEBTOON'} for it in mrblue])
+    assert check_run([{**it, 'age_classification': ''} for it in mrblue])
+
+
 def test_breaker_skips_distribution_on_small_runs():
     small = [item(artist_name='') for _ in range(5)]
     assert check_run(small) == []
